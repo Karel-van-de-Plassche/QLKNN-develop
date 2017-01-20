@@ -16,6 +16,7 @@ import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
 
 
+import matplotlib.pyplot as plt
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -23,6 +24,7 @@ from IPython import embed
 from collections import OrderedDict
 from itertools import product, chain
 import collections
+import json
 
 FLAGS = None
 
@@ -41,9 +43,15 @@ class DataSet():
     @property
     def epochs_completed(self):
         return self._epochs_completed
+
+    @property
+    def num_examples(self):
+        return self._num_examples
     
     def next_batch(self, batch_size):
         start = self._index_in_epoch
+        if batch_size == -1:
+            batch_size = self._num_examples
         self._index_in_epoch += batch_size
         if self._index_in_epoch > self._num_examples:
             # Finished epoch
@@ -77,6 +85,8 @@ def convert_panda(panda, frac_validation, frac_test, features_names, target_name
     return Datasets(train=datasets[0], validation=datasets[1], test=datasets[2])
 
 
+def qualikiz_sigmoid(x, name=""):
+    return tf.divide(2., tf.add(1., tf.exp(tf.multiply(-2., x)))) - 1.
 
 def split_panda(panda, frac=0.1):
     panda1 = panda.sample(frac=frac)
@@ -102,7 +112,7 @@ def fake_func(input):
 def fake_panda(scan_dims, train_dim):
     fakepanda = pd.DataFrame(columns = scan_dims + [train_dim])
     fakedims = {}
-    npoint = 60
+    npoint = 12
     fakedims = {scan_dim: np.linspace(0, 1, npoint) for scan_dim in scan_dims}
     for scan_dim in scan_dims:
         fakepanda[scan_dim] = np.full(npoint**len(scan_dims), np.nan) 
@@ -111,18 +121,37 @@ def fake_panda(scan_dims, train_dim):
         fakepanda.iloc[ii] = list(dims) + [fake_func(dims)]
     return fakepanda
 
+def model_to_json(name, scale_factor, scale_bias):
+    dict_ = {x.name: x.eval().tolist() for x in tf.trainable_variables()}
+    dict_['scale_factor'] =  scale_factor.to_dict()
+    dict_['scale_bias'] =  scale_bias.to_dict()
+    with open(name, 'w') as file_:
+        json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
+
+
+
 def train():
     # Import data
     ds = xr.open_dataset('/mnt/hdd/4D.nc')
+    #ds = xr.open_dataset('/mnt/hdd/Zeff_combined.nc')
     #ds = ds.sel(smag=0, Ti_Te=1, method='nearest')
     scan_dims = [dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim!='numsols']
     train_dim = 'efe_GB'
-    df = ds.drop([coord for coord in ds.coords if coord not in ds.dims]).drop('kthetarhos').to_dataframe()
-    scan_dims = scan_dims[:2]
-    panda = fake_panda(scan_dims, train_dim)
-    panda_test, panda_train = split_panda(panda, frac=0.2)
-    dataset = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
+    ds = ds.drop([coord for coord in ds.coords if coord not in ds.dims])
+    ds = ds.drop('kthetarhos')
+    ds = ds.drop([name for name in ds.data_vars if name != 'efe_GB'])
     embed()
+    df = ds.to_dataframe()
+    scale_factor = {}
+    scale_bias = {}
+    panda = pd.DataFrame(df.to_records(), dtype='float32')
+    panda = panda[panda[train_dim] > 0]
+    panda = panda[panda[train_dim] < 60]
+    #panda[scan_dims] = panda[scan_dims] / 12
+    #panda[train_dim] = panda[train_dim] / 60
+    #scan_dims = scan_dims[:2]
+    #panda = fake_panda(scan_dims, train_dim)
+    dataset = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
 
     sess = tf.InteractiveSession()
     # Create a multilayer model.
@@ -132,19 +161,21 @@ def train():
         x = tf.placeholder(tf.float32, [None, len(scan_dims)], name='x-input')
         y_ = tf.placeholder(tf.float32, [None, 1], name='y-input')
 
-    #with tf.name_scope('input_reshape'):
+    #with tf.name_scope('input_normalize'):
     #    image_shaped_input = tf.reshape(x, [-1, 28, 28, 1])
     #    tf.summary.image('input', image_shaped_input, 10)
 
     # We can't initialize these variables to 0 - the network will get stuck.
     def weight_variable(shape):
         """Create a weight variable with appropriate initialization."""
-        initial = tf.truncated_normal(shape, stddev=0.1)
+        #initial = tf.truncated_normal(shape, stddev=0.1)
+        initial = tf.random_normal(shape)
         return tf.Variable(initial)
 
     def bias_variable(shape):
         """Create a bias variable with appropriate initialization."""
-        initial = tf.constant(0.1, shape=shape)
+        #initial = tf.constant(0.1, shape=shape)
+        initial = tf.random_normal(shape)
         return tf.Variable(initial)
 
     def variable_summaries(var):
@@ -159,7 +190,7 @@ def train():
             tf.summary.scalar('min', tf.reduce_min(var))
             tf.summary.histogram('histogram', var)
 
-    def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=tf.nn.relu):
+    def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=tf.nn.sigmoid):
         """Reusable code for making a simple neural net layer.
         It does a matrix multiply, bias add, and then uses relu to nonlinearize.
         It also sets up name scoping so that the resultant graph is easy to read,
@@ -181,8 +212,18 @@ def train():
             tf.summary.histogram('activations', activations)
             return activations
 
-    hidden1 = nn_layer(x, len(scan_dims), 20, 'layer1')
-    hidden2 = nn_layer(hidden1, 20, 20, 'layer2')
+    nodes1 = 40
+    nodes2 = 40
+
+    scale_factor = 1 / (panda.min() + panda.max())
+    scale_bias =  -panda.min() * scale_factor
+    in_factor = tf.constant(scale_factor[scan_dims].values)
+    in_bias = tf.constant(scale_bias[scan_dims].values)
+    #panda = scale_factor * panda + scale_bias
+
+    x_scaled = in_factor * x + in_bias
+    hidden1 = nn_layer(x_scaled, len(scan_dims), nodes1, 'layer1')
+    hidden2 = nn_layer(hidden1, nodes1, nodes2, 'layer2')
 
     #with tf.name_scope('dropout'):
     #    keep_prob = tf.placeholder(tf.float32)
@@ -190,34 +231,57 @@ def train():
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
     # Do not apply softmax activation yet, see below.
-    y = nn_layer(hidden2, 20, 1, 'layer3', act=tf.sigmoid)
+    out_factor = tf.constant(scale_factor[train_dim])
+    out_bias = tf.constant(scale_bias[train_dim])
+    y_scaled = nn_layer(hidden2, nodes2, 1, 'layer3')
+    y = (y_scaled - out_bias) / out_factor
 
-    with tf.name_scope('cross_entropy'):
-        # The raw formulation of cross-entropy,
-        #
-        # tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(tf.softmax(y)),
-        #                               reduction_indices=[1]))
-        #
-        # can be numerically unstable.
-        #
-        # So here we use tf.nn.softmax_cross_entropy_with_logits on the
-        # raw outputs of the nn_layer above, and then average across
-        # the batch.
-        diff = tf.nn.sigmoid_cross_entropy_with_logits(logits=y, targets=y_)
-        with tf.name_scope('total'):
-            cross_entropy = tf.reduce_mean(diff)
-    tf.summary.scalar('cross_entropy', cross_entropy)
+    #with tf.name_scope('cross_entropy'):
+    #    # The raw formulation of cross-entropy,
+    #    #
+    #    # tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(tf.softmax(y)),
+    #    #                               reduction_indices=[1]))
+    #    #
+    #    # can be numerically unstable.
+    #    #
+    #    # So here we use tf.nn.softmax_cross_entropy_with_logits on the
+    #    # raw outputs of the nn_layer above, and then average across
+    #    # the batch.
+    #    diff = tf.nn.sigmoid_cross_entropy_with_logits(logits=y_, targets=y)
+    #    with tf.name_scope('total'):
+    #        cross_entropy = tf.reduce_mean(diff)
+    #tf.summary.scalar('cross_entropy', cross_entropy)
 
-    with tf.name_scope('train'):
-        train_step = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(
-                cross_entropy)
 
-    with tf.name_scope('accuracy'):
+
+    with tf.name_scope('MSE'):
         #with tf.name_scope('correct_prediction'):
         #    correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
-        with tf.name_scope('accuracy'):
-            accuracy = tf.reduce_mean(tf.square(tf.subtract(y_, y)))
-    tf.summary.scalar('accuracy', accuracy)
+        with tf.name_scope('loss'):
+            #mse = tf.reduce_mean(tf.square(tf.subtract(y_, y)))
+            #l2_norm = tf.reduce_sum(tf.square())
+            l2_norm = tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()])
+            mse = tf.contrib.losses.mean_squared_error(y_, y)
+            l2_loss = 1 * tf.divide(l2_norm, tf.to_float(tf.size(y)))
+            loss = mse + l2_loss
+            #loss = mse
+    tf.summary.scalar('loss', loss)
+    tf.summary.scalar('l2_norm', l2_norm)
+    tf.summary.scalar('l2_loss', l2_loss)
+    tf.summary.scalar('MSE', mse)
+
+    optimizer = None
+    with tf.name_scope('train'):
+        #train_step = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(
+        #        loss)
+        #train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
+        #train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(
+        #             loss)
+        #train_step = tf.contrib.opt.python.training.external_optimizer.ScipyOptimizerInterface(loss, options={'maxiter': 100}).minimize()
+
+        #optimizer = tf.contrib.opt.python.training.external_optimizer.ScipyOptimizerInterface(loss, options={'maxiter': 10000, 'pgtol': 1e2, 'eps': 1e-2, 'factr': 10000})
+        optimizer = tf.contrib.opt.python.training.external_optimizer.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
+        #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
     merged = tf.summary.merge_all()
@@ -226,41 +290,78 @@ def train():
     tf.global_variables_initializer().run()
 
     # Train the model, and also write summaries.
-    # Every 10th step, measure test-set accuracy, and write test summaries
+    # Every 10th step, measure test-set loss, and write test summaries
     # All other steps, run train_step on training data, & add training summaries
 
-    def feed_dict(train):
+    def gen_feed_dict(train):
         """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
-        if train or FLAGS.fake_data:
-            xs, ys = dataset.train.next_batch(10)
+        if train:
+            xs, ys = dataset.train.next_batch(1000)
             k = FLAGS.dropout
         else:
-            xs = panda_test[scan_dims]
-            ys = np.atleast_2d(panda_test[train_dim]).T
+            xs, ys = dataset.test.next_batch(dataset.test.num_examples)
             k = 1.0
         return {x: xs, y_: ys}
 
+    saver = tf.train.Saver()
+    epoch = 0
+    summary, lo = sess.run([merged, loss], feed_dict=gen_feed_dict(False))
+    print('Loss at epoch %s: %s' % (epoch, lo))
     for i in range(FLAGS.max_steps):
-        if i % 10 == 0:    # Record summaries and test-set accuracy
-            summary, acc = sess.run([merged, accuracy], feed_dict=feed_dict(False))
+        if optimizer:
+            feed_dict = gen_feed_dict(True)
+            optimizer.minimize(sess, feed_dict=feed_dict)
+            ce = loss.eval(feed_dict=feed_dict)
+            summary = merged.eval(feed_dict=feed_dict)
+        else:
+            feed_dict = gen_feed_dict(True)
+            ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict)
+        print(ce)
+        train_writer.add_summary(summary, i)
+
+        if dataset.train.epochs_completed > epoch:
+            num_fits = 0
+            epoch = dataset.train.epochs_completed
+            #print(dataset.train._index_in_epoch)
+            feed_dict = gen_feed_dict(False)
+            summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
             test_writer.add_summary(summary, i)
-            print('Accuracy at step %s: %s' % (i, acc))
-        else:    # Record train set summaries, and train
-            if i % 100 == 99:    # Record execution stats
-                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-                run_metadata = tf.RunMetadata()
-                summary, _ = sess.run([merged, train_step],
-                                      feed_dict=feed_dict(True),
-                                      options=run_options,
-                                      run_metadata=run_metadata)
-                train_writer.add_run_metadata(run_metadata, 'step%03d' % i)
-                train_writer.add_summary(summary, i)
-                print('Adding run metadata for', i)
-            else:    # Record a summary
-                summary, _ = sess.run([merged, train_step], feed_dict=feed_dict(True))
-                train_writer.add_summary(summary, i)
+            print('Loss at epoch %s: %s' % (epoch, lo))
+            #print(dataset.train._index_in_epoch)
+        #if i % 10 == 0:    # Record summaries and test-set loss
+        #    summary, acc = sess.run([merged, loss], feed_dict=feed_dict(False))
+        #    test_writer.add_summary(summary, i)
+        #    print('Accuracy at step %s: %s' % (i, acc))
+        #else:    # Record train set summaries, and train
+        #    if i % 100 == 99:    # Record execution stats
+        #        run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        #        run_metadata = tf.RunMetadata()
+        #        summary, _ = sess.run([merged, train_step],
+        #                              feed_dict=feed_dict(True),
+        #                              options=run_options,
+        #                              run_metadata=run_metadata)
+        #        train_writer.add_run_metadata(run_metadata, 'step%03d' % i)
+        #        train_writer.add_summary(summary, i)
+        #        print('Adding run metadata for', i)
+        #    else:    # Record a summary
     train_writer.close()
     test_writer.close()
+    saver.save(sess, './model.ckpt')
+    
+    xs, ys = dataset.validation.next_batch(-1)
+    #xs, ys = dataset.test.next_batch(dataset.test.num_examples)
+    ests = y.eval({x: xs, y_: ys})
+    line_x = np.linspace(float(ys.min()), float(ys.max()))
+    print("Validation RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
+    plt.plot(line_x, line_x)
+    plt.scatter(ys, ests)
+    plt.show()
+
+    xs, ys = dataset.test.next_batch(-1)
+    print("Test RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
+    xs, ys = dataset.train.next_batch(-1)
+    print("Train RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
+    model_to_json('nn.json', scale_factor.astype('float64'), scale_bias.astype('float64'))
 
 
 def main(_):
@@ -275,9 +376,10 @@ if __name__ == '__main__':
     parser.add_argument('--fake_data', nargs='?', const=True, type=bool,
                                             default=True,
                                             help='If true, uses fake data for unit testing.')
+    #parser.add_argument('--max_steps', type=int, default=100000,
     parser.add_argument('--max_steps', type=int, default=1000,
                                             help='Number of steps to run trainer.')
-    parser.add_argument('--learning_rate', type=float, default=0.001,
+    parser.add_argument('--learning_rate', type=float, default=10.,
                                             help='Initial learning rate')
     parser.add_argument('--dropout', type=float, default=0.9,
                                             help='Keep probability for training dropout.')
