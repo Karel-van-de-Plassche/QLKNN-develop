@@ -58,12 +58,21 @@ def cartesian(arrays, out=None):
             out[j*m:(j+1)*m,1:] = out[0:m,1:]
     return out
 
+def timewrapper(func, *args, **kwargs):
+    start = time.time()
+    func(*args, **kwargs)
+    print('Took ' + str(time.time() - start) + 's')
 
-ds = xr.open_dataset('./Zeff_combined_pruned.nc')
-ds = ds.drop(['numsols', 'nions'])
+ds = xr.open_dataset('/global/cscratch1/sd/karel//Zeff_combined.nc')
+ds = ds.drop([name for name, value in ds.data_vars.items() if 'kthetarhos' in value.dims])
+ds = ds.drop([x for x in ds.coords if x not in ds.dims])
+ds = ds.drop(['kthetarhos'])
+ds = ds.max('numsols')
 dimx = np.prod([x for x in ds.dims.values()])
-panda = pd.read_hdf('rowwise.hdf5')
-random = np.random.permutation(np.arange(len(panda)))
+traindim = 'efe_GB'
+#fakeindex = cartesian(*[x for x in ds.dims.values()])
+#panda = pd.read_hdf('/global/cscratch1/sd/karel/index.h5')
+#random = np.random.permutation(np.arange(len(panda)))
 #daarray = da.from_array(nparray, (10000, len(ds.dims)))
 def iter_all(numsamp):
     start = time.time()
@@ -75,27 +84,49 @@ def iter_all(numsamp):
         if ii > numsamp:
             break
     return (time.time() - start)
+
 def get_panda_ic_sample(numsamp, epoch=0):
     start = time.time()
-    panda.sample(numsamp)
+    set = panda.sample(numsamp)
     return (time.time() - start)
 
 def get_panda_ic_npindex(numsamp, epoch=0):
     start = time.time()
-    panda.iloc(random[epoch:epoch_numsamp])
+    set = panda.iloc[random[epoch:(epoch + 1) * numsamp]]
     return (time.time() - start)
 
+
+def get_panda_ic_npreindex(numsamp, epoch=0):
+    start = time.time()
+    idx = np.random.randint(0, dimx, numsamp)
+    set = panda.iloc[idx]
+    return (time.time() - start)
+
+
+def get_xarray(numsamp, epoch=0):
+    start = time.time()
+    ds[traindim].isel_points(**{name: np.random.randint(0, len(value), numsamp) for name, value in ds['efe_GB'].coords.items()})
+    return (time.time() - start)
+
+strats = {
+#    'panda_ic_sample': get_panda_ic_sample,
+    'get_xarray': get_xarray,
+#    'panda_ic_npindex': get_panda_ic_npindex,
+#    'panda_ic_npreindex': get_panda_ic_npindex
+}
+
+numsamps = [1e3, 1e5, 1e6, 1e7, 1e8, dimx]
+results = pd.DataFrame(columns=strats.keys(), index=[numsamps[0]])
+numepochs = 3
 embed()
-result = pd
-for numsamp in [100, 1000, 10000]:
-    for epoch in range(10):
-        get_panda_ic_sample(numsamp, epoch)
-        get_panda_ic_npindex(numsamp, epoch)
-        
-
-
-
-
-
-#data = df.read_hdf('test.hdf5', 'test')
-embed()
+for numsamp in numsamps:
+    results.loc[numsamp] = None
+    for name, func in strats.items():
+        result = []
+        for epoch in range(numepochs):
+            result.append(func(numsamp, epoch))
+            print(name, numsamp, str(epoch) + '/' + str(numepochs))
+        print(name, numsamp, result[epoch])
+        results[name].loc[numsamp] =  np.mean(result)
+    print(results)
+results.to_csv('benchmark_result.csv')
