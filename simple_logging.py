@@ -10,6 +10,8 @@ from __future__ import print_function
 
 import argparse
 import sys
+import time
+import os
 
 import tensorflow as tf
 
@@ -29,14 +31,14 @@ import json
 FLAGS = None
 
 
-Dataset = collections.namedtuple('Dataset', ['data', 'target'])
-Datasets = collections.namedtuple('Datasets', ['train', 'validation', 'test'])
-class DataSet():
+#Dataset = collections.namedtuple('Dataset', ['data', 'target'])
+#Datasets = collections.namedtuple('Datasets', ['train', 'validation', 'test'])
+class Dataset():
     def __init__(self, features, target):
         self._epochs_completed = 0
         self._index_in_epoch = 0
         self._features = features
-        self._target = target.to_frame()
+        self._target = target
         assert self._features.shape[0] == self._target.shape[0]
         self._num_examples = features.shape[0]
 
@@ -48,7 +50,8 @@ class DataSet():
     def num_examples(self):
         return self._num_examples
     
-    def next_batch(self, batch_size):
+    def next_batch(self, batch_size, shuffle=True):
+        starttime = time.time()
         start = self._index_in_epoch
         if batch_size == -1:
             batch_size = self._num_examples
@@ -57,21 +60,66 @@ class DataSet():
             # Finished epoch
             self._epochs_completed += 1
             # Shuffle the data
-            perm = np.arange(self._num_examples)
-            np.random.shuffle(perm)
-            self._features = self._features.iloc[perm]
-            self._target = self._target.iloc[perm]
+            if shuffle:
+                perm = np.arange(self._num_examples)
+                np.random.shuffle(perm)
+                self._features = self._features.iloc[perm]
+                self._target = self._target.iloc[perm]
             # Start next epoch
             start = 0
             self._index_in_epoch = batch_size
             assert batch_size <= self._num_examples
         end = self._index_in_epoch
-        return self._features.iloc[start:end], self._target.iloc[start:end]
+        batch = (self._features.iloc[start:end], self._target.iloc[start:end])
+        print('Getting batch took ' + str(time.time() - starttime) + 's')
+        return batch
 
-def convert_panda(panda, frac_validation, frac_test, features_names, target_name):
+    def to_hdf(self, file, key):
+        with pd.HDFStore(file) as store:
+            store.put(key + '/features', self._features)
+            store.put(key + '/target', self._target)
+
+    @classmethod
+    def read_hdf(cls, file, key):
+        with pd.HDFStore(file) as store:
+            dataset = Dataset(store.get(key + '/features'),
+                              store.get(key + '/target'))
+        return dataset
+
+    def astype(self, dtype):
+        self._features = self._features.astype(dtype)
+        self._target = self._target.astype(dtype)
+        return self
+
+
+class Datasets():
+    _fields = ['train', 'validation', 'test']
+    def __init__(self, **kwargs):
+        for name in self._fields:
+            setattr(self, name, kwargs.pop(name))
+        assert(~bool(kwargs))
+
+    def to_hdf(self, file):
+        for name in self._fields:
+            getattr(self, name).to_hdf(file, name)
+
+    @classmethod
+    def read_hdf(cls, file):
+        datasets = {}
+        for name in cls._fields:
+            datasets[name] = Dataset.read_hdf(file, name)
+        return Datasets(**datasets)
+
+    def astype(self, dtype):
+        for name in self._fields:
+            setattr(self, name, getattr(self, name).astype(dtype))
+        return self
+
+def convert_panda(panda, frac_validation, frac_test, features_names, target_name, shuffle=True):
     total_size = panda.shape[0]
     # Dataset might be ordered. Shuffle to be sure
-    panda = shuffle_panda(panda)
+    if shuffle:
+        panda = shuffle_panda(panda)
     validation_size = int(frac_validation * total_size)
     test_size = int(frac_test * total_size)
     train_size = total_size - validation_size - test_size
@@ -80,7 +128,7 @@ def convert_panda(panda, frac_validation, frac_test, features_names, target_name
     for slice_ in [panda.iloc[:train_size],
                    panda.iloc[train_size:train_size+validation_size],
                    panda.iloc[train_size+validation_size:]]:
-        datasets.append(DataSet(slice_[features_names], slice_[target_name]))
+        datasets.append(Dataset(slice_[features_names], slice_[target_name].to_frame()))
 
     return Datasets(train=datasets[0], validation=datasets[1], test=datasets[2])
 
@@ -128,54 +176,75 @@ def model_to_json(name, scale_factor, scale_bias):
     with open(name, 'w') as file_:
         json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
 
-
+def timediff(start, event):
+    print(event + ' reached after ' + str(time.time() - start) + 's')
 
 def train():
     # Import data
-    ds = xr.open_dataset('/mnt/hdd/4D.nc')
+    shuffle = True
+    start = time.time()
+    if os.path.exists('filtered.h5'):
+        panda = pd.read_hdf('filtered.h5')
+        timediff(start, 'Dataset loaded')
+        scan_dims = panda.columns[:-1]
+        train_dim = panda.columns[-1]
+    else:
+        panda = pd.read_hdf('efe_GB.float16.h5')
+        timediff(start, 'Dataset loaded')
+        scan_dims = panda.columns[:-1]
+        train_dim = panda.columns[-1]
+        panda = panda[panda[train_dim] > 0]
+        panda = panda[panda[train_dim] < 60]
+        timediff(start, 'Dataset filtered')
+        panda.to_hdf('filtered.h5', 'filtered', format='t')
+        timediff(start, 'Filtered saved')
     #ds = xr.open_dataset('/mnt/hdd/Zeff_combined.nc')
     #ds = ds.sel(smag=0, Ti_Te=1, method='nearest')
-    scan_dims = [dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim!='numsols']
-    train_dim = 'efe_GB'
-    ds = ds.drop([coord for coord in ds.coords if coord not in ds.dims])
-    ds = ds.drop('kthetarhos')
-    ds = ds.drop([name for name in ds.data_vars if name != 'efe_GB'])
-    embed()
-    df = ds.to_dataframe()
-    scale_factor = {}
-    scale_bias = {}
-    panda = pd.DataFrame(df.to_records(), dtype='float32')
-    panda = panda[panda[train_dim] > 0]
-    panda = panda[panda[train_dim] < 60]
+    #scan_dims = [dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim!='numsols']
+    #train_dim = 'efe_GB'
+    #ds = ds.drop([coord for coord in ds.coords if coord not in ds.dims])
+    #ds = ds.drop('kthetarhos')
+    #ds = ds.drop([name for name in ds.data_vars if name != 'efe_GB'])
+    #df = ds.to_dataframe()
+    #scale_factor = {}
+    #scale_bias = {}
+    #panda = pd.DataFrame(df.to_records(), dtype='float32')
     #panda[scan_dims] = panda[scan_dims] / 12
     #panda[train_dim] = panda[train_dim] / 60
     #scan_dims = scan_dims[:2]
     #panda = fake_panda(scan_dims, train_dim)
-    dataset = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
+    if os.path.exists('splitted.h5'):
+        datasets = Datasets.read_hdf('splitted.h5')
+    else:
+        datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim, shuffle=shuffle)
+        datasets.to_hdf('splitted.h5')
+    datasets.astype('float32')
+    timediff(start, 'Dataset split')
+    embed()
 
-    sess = tf.InteractiveSession()
     # Create a multilayer model.
+    sess = tf.InteractiveSession()
 
     # Input placeholders
     with tf.name_scope('input'):
         x = tf.placeholder(tf.float32, [None, len(scan_dims)], name='x-input')
-        y_ = tf.placeholder(tf.float32, [None, 1], name='y-input')
+        y_ = tf.placeholder(x.dtype, [None, 1], name='y-input')
 
     #with tf.name_scope('input_normalize'):
     #    image_shaped_input = tf.reshape(x, [-1, 28, 28, 1])
     #    tf.summary.image('input', image_shaped_input, 10)
 
     # We can't initialize these variables to 0 - the network will get stuck.
-    def weight_variable(shape):
+    def weight_variable(shape, **kwargs):
         """Create a weight variable with appropriate initialization."""
         #initial = tf.truncated_normal(shape, stddev=0.1)
-        initial = tf.random_normal(shape)
+        initial = tf.random_normal(shape, **kwargs)
         return tf.Variable(initial)
 
-    def bias_variable(shape):
+    def bias_variable(shape, **kwargs):
         """Create a bias variable with appropriate initialization."""
         #initial = tf.constant(0.1, shape=shape)
-        initial = tf.random_normal(shape)
+        initial = tf.random_normal(shape, **kwargs)
         return tf.Variable(initial)
 
     def variable_summaries(var):
@@ -190,7 +259,7 @@ def train():
             tf.summary.scalar('min', tf.reduce_min(var))
             tf.summary.histogram('histogram', var)
 
-    def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=tf.nn.sigmoid):
+    def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=tf.nn.sigmoid, dtype=tf.float32):
         """Reusable code for making a simple neural net layer.
         It does a matrix multiply, bias add, and then uses relu to nonlinearize.
         It also sets up name scoping so that the resultant graph is easy to read,
@@ -200,10 +269,10 @@ def train():
         with tf.name_scope(layer_name):
             # This Variable will hold the state of the weights for the layer
             with tf.name_scope('weights'):
-                weights = weight_variable([input_dim, output_dim])
+                weights = weight_variable([input_dim, output_dim], dtype=dtype)
                 variable_summaries(weights)
             with tf.name_scope('biases'):
-                biases = bias_variable([output_dim])
+                biases = bias_variable([output_dim], dtype=dtype)
                 variable_summaries(biases)
             with tf.name_scope('Wx_plus_b'):
                 preactivate = tf.matmul(input_tensor, weights) + biases
@@ -217,13 +286,14 @@ def train():
 
     scale_factor = 1 / (panda.min() + panda.max())
     scale_bias =  -panda.min() * scale_factor
-    in_factor = tf.constant(scale_factor[scan_dims].values)
-    in_bias = tf.constant(scale_bias[scan_dims].values)
+    in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
+    in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
     #panda = scale_factor * panda + scale_bias
 
     x_scaled = in_factor * x + in_bias
-    hidden1 = nn_layer(x_scaled, len(scan_dims), nodes1, 'layer1')
-    hidden2 = nn_layer(hidden1, nodes1, nodes2, 'layer2')
+    timediff(start, 'Scaling defined')
+    hidden1 = nn_layer(x_scaled, len(scan_dims), nodes1, 'layer1', dtype=x.dtype)
+    hidden2 = nn_layer(hidden1, nodes1, nodes2, 'layer2', dtype=x.dtype)
 
     #with tf.name_scope('dropout'):
     #    keep_prob = tf.placeholder(tf.float32)
@@ -231,9 +301,9 @@ def train():
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
     # Do not apply softmax activation yet, see below.
-    out_factor = tf.constant(scale_factor[train_dim])
-    out_bias = tf.constant(scale_bias[train_dim])
-    y_scaled = nn_layer(hidden2, nodes2, 1, 'layer3')
+    out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
+    out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
+    y_scaled = nn_layer(hidden2, nodes2, 1, 'layer3', dtype=x.dtype)
     y = (y_scaled - out_bias) / out_factor
 
     #with tf.name_scope('cross_entropy'):
@@ -251,6 +321,7 @@ def train():
     #    with tf.name_scope('total'):
     #        cross_entropy = tf.reduce_mean(diff)
     #tf.summary.scalar('cross_entropy', cross_entropy)
+    timediff(start, 'NN defined')
 
 
 
@@ -258,11 +329,14 @@ def train():
         #with tf.name_scope('correct_prediction'):
         #    correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
         with tf.name_scope('loss'):
-            #mse = tf.reduce_mean(tf.square(tf.subtract(y_, y)))
+            mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_, y))))
             #l2_norm = tf.reduce_sum(tf.square())
-            l2_norm = tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()])
-            mse = tf.contrib.losses.mean_squared_error(y_, y)
-            l2_loss = 1 * tf.divide(l2_norm, tf.to_float(tf.size(y)))
+            l2_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
+            #mse = tf.losses.mean_squared_error(y_, y)
+            #if x.dtype == tf.float32:
+            l2_loss = 1 * tf.divide(l2_norm, tf.to_double(tf.size(y)))
+            #else:
+                #l2_loss = 1 * tf.divide(l2_norm, tf.to_float(tf.size(y))
             loss = mse + l2_loss
             #loss = mse
     tf.summary.scalar('loss', loss)
@@ -287,7 +361,9 @@ def train():
     merged = tf.summary.merge_all()
     train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
     test_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test')
+
     tf.global_variables_initializer().run()
+    timediff(start, 'Variables initialized')
 
     # Train the model, and also write summaries.
     # Every 10th step, measure test-set loss, and write test summaries
@@ -296,16 +372,18 @@ def train():
     def gen_feed_dict(train):
         """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
         if train:
-            xs, ys = dataset.train.next_batch(1000)
+            xs, ys = datasets.train.next_batch(10000)
             k = FLAGS.dropout
         else:
-            xs, ys = dataset.test.next_batch(dataset.test.num_examples)
+            xs, ys = datasets.test.next_batch(datasets.test.num_examples, shuffle=False)
             k = 1.0
         return {x: xs, y_: ys}
 
-    saver = tf.train.Saver()
+    #saver = tf.train.Saver()
     epoch = 0
+    timediff(start, 'Starting loss calculation')
     summary, lo = sess.run([merged, loss], feed_dict=gen_feed_dict(False))
+    timediff(start, 'Algorithm started')
     print('Loss at epoch %s: %s' % (epoch, lo))
     for i in range(FLAGS.max_steps):
         if optimizer:
@@ -319,9 +397,9 @@ def train():
         print(ce)
         train_writer.add_summary(summary, i)
 
-        if dataset.train.epochs_completed > epoch:
+        if datasets.train.epochs_completed > epoch:
             num_fits = 0
-            epoch = dataset.train.epochs_completed
+            epoch = datasets.train.epochs_completed
             #print(dataset.train._index_in_epoch)
             feed_dict = gen_feed_dict(False)
             summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
@@ -346,9 +424,9 @@ def train():
         #    else:    # Record a summary
     train_writer.close()
     test_writer.close()
-    saver.save(sess, './model.ckpt')
+    #saver.save(sess, './model.ckpt')
     
-    xs, ys = dataset.validation.next_batch(-1)
+    xs, ys = datasets.validation.next_batch(-1)
     #xs, ys = dataset.test.next_batch(dataset.test.num_examples)
     ests = y.eval({x: xs, y_: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
@@ -357,9 +435,9 @@ def train():
     plt.scatter(ys, ests)
     plt.show()
 
-    xs, ys = dataset.test.next_batch(-1)
+    xs, ys = datasets.test.next_batch(-1)
     print("Test RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
-    xs, ys = dataset.train.next_batch(-1)
+    xs, ys = datasets.train.next_batch(-1)
     print("Train RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
     model_to_json('nn.json', scale_factor.astype('float64'), scale_bias.astype('float64'))
 
