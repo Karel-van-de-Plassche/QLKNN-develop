@@ -71,7 +71,6 @@ class Dataset():
             assert batch_size <= self._num_examples
         end = self._index_in_epoch
         batch = (self._features.iloc[start:end], self._target.iloc[start:end])
-        print('Getting batch took ' + str(time.time() - starttime) + 's')
         return batch
 
     def to_hdf(self, file, key):
@@ -281,8 +280,8 @@ def train():
             tf.summary.histogram('activations', activations)
             return activations
 
-    nodes1 = 40
-    nodes2 = 40
+    nodes1 = 70
+    nodes2 = 70
 
     scale_factor = 1 / (panda.min() + panda.max())
     scale_bias =  -panda.min() * scale_factor
@@ -372,14 +371,14 @@ def train():
     def gen_feed_dict(train):
         """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
         if train:
-            xs, ys = datasets.train.next_batch(10000)
+            xs, ys = datasets.train.next_batch(100000)
             k = FLAGS.dropout
         else:
             xs, ys = datasets.test.next_batch(datasets.test.num_examples, shuffle=False)
             k = 1.0
         return {x: xs, y_: ys}
 
-    #saver = tf.train.Saver()
+    saver = tf.train.Saver()
     epoch = 0
     timediff(start, 'Starting loss calculation')
     summary, lo = sess.run([merged, loss], feed_dict=gen_feed_dict(False))
@@ -404,6 +403,7 @@ def train():
             feed_dict = gen_feed_dict(False)
             summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
             test_writer.add_summary(summary, i)
+            saver.save(sess, './model.ckpt')
             print('Loss at epoch %s: %s' % (epoch, lo))
             #print(dataset.train._index_in_epoch)
         #if i % 10 == 0:    # Record summaries and test-set loss
@@ -424,9 +424,8 @@ def train():
         #    else:    # Record a summary
     train_writer.close()
     test_writer.close()
-    #saver.save(sess, './model.ckpt')
     
-    xs, ys = datasets.validation.next_batch(-1)
+    xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     #xs, ys = dataset.test.next_batch(dataset.test.num_examples)
     ests = y.eval({x: xs, y_: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
