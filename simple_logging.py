@@ -27,6 +27,7 @@ from collections import OrderedDict
 from itertools import product, chain
 import collections
 import json
+tf.logging.set_verbosity(tf.logging.INFO)
 
 FLAGS = None
 
@@ -68,7 +69,7 @@ class Dataset():
             # Start next epoch
             start = 0
             self._index_in_epoch = batch_size
-            assert batch_size <= self._num_examples
+            assert batch_size <= self._num_examples, 'Batch size asked bigger than number of samples'
         end = self._index_in_epoch
         batch = (self._features.iloc[start:end], self._target.iloc[start:end])
         return batch
@@ -188,45 +189,39 @@ def train():
         scan_dims = panda.columns[:-1]
         train_dim = panda.columns[-1]
     else:
+        try:
+            os.remove('splitted.h5')
+        except:
+            pass
         panda = pd.read_hdf('efe_GB.float16.h5')
         timediff(start, 'Dataset loaded')
         scan_dims = panda.columns[:-1]
         train_dim = panda.columns[-1]
         panda = panda[panda[train_dim] > 0]
         panda = panda[panda[train_dim] < 60]
+        panda = panda[np.isclose(panda['An'], 2)]
+        panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
+        panda = panda[np.isclose(panda['Ti_Te'], 1)]
+        panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
+        panda = panda[np.isclose(panda['Zeffx'], 1)]
         timediff(start, 'Dataset filtered')
         panda.to_hdf('filtered.h5', 'filtered', format='t')
         timediff(start, 'Filtered saved')
-    #ds = xr.open_dataset('/mnt/hdd/Zeff_combined.nc')
-    #ds = ds.sel(smag=0, Ti_Te=1, method='nearest')
-    #scan_dims = [dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim!='numsols']
-    #train_dim = 'efe_GB'
-    #ds = ds.drop([coord for coord in ds.coords if coord not in ds.dims])
-    #ds = ds.drop('kthetarhos')
-    #ds = ds.drop([name for name in ds.data_vars if name != 'efe_GB'])
-    #df = ds.to_dataframe()
-    #scale_factor = {}
-    #scale_bias = {}
-    #panda = pd.DataFrame(df.to_records(), dtype='float32')
-    #panda[scan_dims] = panda[scan_dims] / 12
-    #panda[train_dim] = panda[train_dim] / 60
-    #scan_dims = scan_dims[:2]
-    #panda = fake_panda(scan_dims, train_dim)
+
     if os.path.exists('splitted.h5'):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim, shuffle=shuffle)
         datasets.to_hdf('splitted.h5')
-    datasets.astype('float32')
+    datasets.astype('float64')
     timediff(start, 'Dataset split')
-    embed()
 
     # Create a multilayer model.
     sess = tf.InteractiveSession()
 
     # Input placeholders
     with tf.name_scope('input'):
-        x = tf.placeholder(tf.float32, [None, len(scan_dims)], name='x-input')
+        x = tf.placeholder(datasets.train._target.dtypes.iloc[0], [None, len(scan_dims)], name='x-input')
         y_ = tf.placeholder(x.dtype, [None, 1], name='y-input')
 
     #with tf.name_scope('input_normalize'):
@@ -280,14 +275,13 @@ def train():
             tf.summary.histogram('activations', activations)
             return activations
 
-    nodes1 = 70
-    nodes2 = 70
+    nodes1 = 40
+    nodes2 = 40
 
     scale_factor = 1 / (panda.min() + panda.max())
-    scale_bias =  -panda.min() * scale_factor
+    scale_bias = -panda.min() * scale_factor
     in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
     in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
-    #panda = scale_factor * panda + scale_bias
 
     x_scaled = in_factor * x + in_bias
     timediff(start, 'Scaling defined')
@@ -321,8 +315,6 @@ def train():
     #        cross_entropy = tf.reduce_mean(diff)
     #tf.summary.scalar('cross_entropy', cross_entropy)
     timediff(start, 'NN defined')
-
-
 
     with tf.name_scope('MSE'):
         #with tf.name_scope('correct_prediction'):
@@ -371,7 +363,7 @@ def train():
     def gen_feed_dict(train):
         """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
         if train:
-            xs, ys = datasets.train.next_batch(100000)
+            xs, ys = datasets.train.next_batch(1000)
             k = FLAGS.dropout
         else:
             xs, ys = datasets.test.next_batch(datasets.test.num_examples, shuffle=False)
