@@ -12,6 +12,7 @@ import argparse
 import sys
 import time
 import os
+import io
 
 import tensorflow as tf
 
@@ -27,6 +28,8 @@ from collections import OrderedDict
 from itertools import product, chain
 import collections
 import json
+from run_model import QuaLiKizNDNN
+
 tf.logging.set_verbosity(tf.logging.INFO)
 
 FLAGS = None
@@ -115,6 +118,28 @@ class Datasets():
             setattr(self, name, getattr(self, name).astype(dtype))
         return self
 
+def error_scatter(target, estimate):
+    plt.figure()
+    plt.scatter(target, estimate)
+    line_x = np.linspace(float(target.min()), float(target.max()))
+    plt.plot(line_x, line_x)
+    #plt.scatter(real, estimate)
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close()
+    return buf
+
+def slice_plotter(features, target, estimate):
+    plt.figure()
+    plt.scatter(features, target)
+    plt.plot(features, estimate)
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close()
+    return buf
+
 def convert_panda(panda, frac_validation, frac_test, features_names, target_name, shuffle=True):
     total_size = panda.shape[0]
     # Dataset might be ordered. Shuffle to be sure
@@ -169,10 +194,15 @@ def fake_panda(scan_dims, train_dim):
         fakepanda.iloc[ii] = list(dims) + [fake_func(dims)]
     return fakepanda
 
-def model_to_json(name, scale_factor, scale_bias):
+def model_to_json(name, feature_names, target_names, train_set, scale_factor, scale_bias):
     dict_ = {x.name: x.eval().tolist() for x in tf.trainable_variables()}
-    dict_['scale_factor'] =  scale_factor.to_dict()
-    dict_['scale_bias'] =  scale_bias.to_dict()
+    dict_['prescale_factor'] =  scale_factor.to_dict()
+    dict_['prescale_bias'] =  scale_bias.to_dict()
+    dict_['feature_min'] = dict(train_set._features.min())
+    dict_['feature_max'] = dict(train_set._features.max())
+    dict_['feature_names'] = feature_names
+    dict_['target_names'] = target_names
+
     with open(name, 'w') as file_:
         json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
 
@@ -215,6 +245,10 @@ def train():
         datasets.to_hdf('splitted.h5')
     datasets.astype('float64')
     timediff(start, 'Dataset split')
+    slice_ =  panda[np.isclose(panda['qx'], 1.5, rtol=1e-2)]
+    slice_ = slice_[np.isclose(slice_['smag'], .7, rtol=1e-2)]
+    slice_ = slice_[np.isclose(slice_['Ti_Te'], 1, rtol=1e-2)]
+    slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
 
     # Create a multilayer model.
     sess = tf.InteractiveSession()
@@ -316,24 +350,27 @@ def train():
     #tf.summary.scalar('cross_entropy', cross_entropy)
     timediff(start, 'NN defined')
 
-    with tf.name_scope('MSE'):
+    with tf.name_scope('Loss'):
         #with tf.name_scope('correct_prediction'):
         #    correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_, 1))
-        with tf.name_scope('loss'):
+        with tf.name_scope('mse'):
             mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_, y))))
+            tf.summary.scalar('MSE', mse)
+        with tf.name_scope('l2'):
+            l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
             #l2_norm = tf.reduce_sum(tf.square())
             l2_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
             #mse = tf.losses.mean_squared_error(y_, y)
             #if x.dtype == tf.float32:
-            l2_loss = 1 * tf.divide(l2_norm, tf.to_double(tf.size(y)))
+            l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
             #else:
+            tf.summary.scalar('l2_norm', l2_norm)
+            tf.summary.scalar('l2_scale', l2_scale)
+            tf.summary.scalar('l2_loss', l2_loss)
                 #l2_loss = 1 * tf.divide(l2_norm, tf.to_float(tf.size(y))
-            loss = mse + l2_loss
+        loss = mse + l2_loss
             #loss = mse
-    tf.summary.scalar('loss', loss)
-    tf.summary.scalar('l2_norm', l2_norm)
-    tf.summary.scalar('l2_loss', l2_loss)
-    tf.summary.scalar('MSE', mse)
+        tf.summary.scalar('loss', loss)
 
     optimizer = None
     with tf.name_scope('train'):
@@ -350,6 +387,23 @@ def train():
 
     # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
     merged = tf.summary.merge_all()
+
+    # Define scatter plots
+    error_scatter_buf_ph = tf.placeholder(tf.string)
+    error_scatter_image = tf.image.decode_png(error_scatter_buf_ph, channels=4)
+    error_scatter_image = tf.expand_dims(error_scatter_image, 0)
+    error_scatter_summaries = []
+    # Define slice plots
+    slice_buf_ph = tf.placeholder(tf.string)
+    slice_image = tf.image.decode_png(slice_buf_ph, channels=4)
+    slice_image = tf.expand_dims(slice_image, 0)
+    slice_summaries = []
+    num_image = 0
+    max_images = 8
+    for ii in range(max_images):
+        error_scatter_summaries.append(tf.summary.image('error_scatter_' + str(ii) , error_scatter_image, max_outputs=1))
+        slice_summaries.append(tf.summary.image('slice_' + str(ii) , slice_image, max_outputs=1))
+
     train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
     test_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test')
 
@@ -372,21 +426,23 @@ def train():
 
     saver = tf.train.Saver()
     epoch = 0
+
     timediff(start, 'Starting loss calculation')
-    summary, lo = sess.run([merged, loss], feed_dict=gen_feed_dict(False))
+    feed_dict = gen_feed_dict(True)
+    summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
     print('Loss at epoch %s: %s' % (epoch, lo))
     for i in range(FLAGS.max_steps):
+        feed_dict = gen_feed_dict(True)
         if optimizer:
-            feed_dict = gen_feed_dict(True)
             optimizer.minimize(sess, feed_dict=feed_dict)
             ce = loss.eval(feed_dict=feed_dict)
             summary = merged.eval(feed_dict=feed_dict)
         else:
-            feed_dict = gen_feed_dict(True)
             ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict)
         print(ce)
         train_writer.add_summary(summary, i)
+
 
         if datasets.train.epochs_completed > epoch:
             num_fits = 0
@@ -396,6 +452,23 @@ def train():
             summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
             test_writer.add_summary(summary, i)
             saver.save(sess, './model.ckpt')
+            # Write image summaries
+            xs, ys = datasets.validation.next_batch(-1, shuffle=False)
+            ests = y.eval({x: xs, y_: ys})
+            feed_dict = {error_scatter_buf_ph: error_scatter(ys, ests).getvalue()}
+            summary = sess.run(error_scatter_summaries[num_image], feed_dict=feed_dict)
+            test_writer.add_summary(summary, i)
+
+            model_to_json('nn_checkpoint.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
+            nn = QuaLiKizNDNN.from_json('nn_checkpoint.json')
+            fluxes = nn.get_output(**slice_)
+            feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'], slice_[train_dim], fluxes).getvalue()}
+            summary = sess.run(slice_summaries[num_image], feed_dict=feed_dict)
+            test_writer.add_summary(summary, i)
+
+            num_image += 1
+            if num_image % max_images == 0:
+                num_image = 0
             print('Loss at epoch %s: %s' % (epoch, lo))
             #print(dataset.train._index_in_epoch)
         #if i % 10 == 0:    # Record summaries and test-set loss
@@ -430,7 +503,7 @@ def train():
     print("Test RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
     xs, ys = datasets.train.next_batch(-1)
     print("Train RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
-    model_to_json('nn.json', scale_factor.astype('float64'), scale_bias.astype('float64'))
+    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
 
 
 def main(_):
