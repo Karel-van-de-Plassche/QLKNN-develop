@@ -16,9 +16,6 @@ import io
 
 import tensorflow as tf
 
-from tensorflow.examples.tutorials.mnist import input_data
-
-
 import matplotlib.pyplot as plt
 import xarray as xr
 import numpy as np
@@ -29,8 +26,6 @@ from itertools import product, chain
 import collections
 import json
 from run_model import QuaLiKizNDNN
-
-tf.logging.set_verbosity(tf.logging.INFO)
 
 FLAGS = None
 
@@ -159,7 +154,9 @@ def convert_panda(panda, frac_validation, frac_test, features_names, target_name
 
 
 def qualikiz_sigmoid(x, name=""):
-    return tf.divide(2., tf.add(1., tf.exp(tf.multiply(-2., x)))) - 1.
+    return tf.divide(tf.constant(2, x.dtype),
+                     tf.add(tf.constant(1, x.dtype),
+                            tf.exp(tf.multiply(tf.constant(-2, x.dtype), x)))) - tf.constant(1, x.dtype)
 
 def split_panda(panda, frac=0.1):
     panda1 = panda.sample(frac=frac)
@@ -225,12 +222,13 @@ def train():
             pass
         panda = pd.read_hdf('efe_GB.float16.h5')
         timediff(start, 'Dataset loaded')
+        embed()
         scan_dims = panda.columns[:-1]
         train_dim = panda.columns[-1]
         panda = panda[panda[train_dim] > 0]
         panda = panda[panda[train_dim] < 60]
-        panda = panda[np.isclose(panda['An'], 2)]
-        panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
+        #panda = panda[np.isclose(panda['An'], 2)]
+        #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
         panda = panda[np.isclose(panda['Ti_Te'], 1)]
         panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
         panda = panda[np.isclose(panda['Zeffx'], 1)]
@@ -249,6 +247,11 @@ def train():
     slice_ = slice_[np.isclose(slice_['smag'], .7, rtol=1e-2)]
     slice_ = slice_[np.isclose(slice_['Ti_Te'], 1, rtol=1e-2)]
     slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
+    slice_ = slice_[np.isclose(slice_['An'], 2)]
+    slice_ = slice_[np.isclose(slice_['x'], 3*.15, rtol=1e-2)]
+    slice_ = slice_[np.isclose(slice_['Ti_Te'], 1)]
+    slice_ = slice_[np.isclose(slice_['Nustar'], 1e-2, rtol=1e-2)]
+    slice_ = slice_[np.isclose(slice_['Zeffx'], 1)]
 
     # Create a multilayer model.
     sess = tf.InteractiveSession()
@@ -287,7 +290,7 @@ def train():
             tf.summary.scalar('min', tf.reduce_min(var))
             tf.summary.histogram('histogram', var)
 
-    def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=tf.nn.sigmoid, dtype=tf.float32):
+    def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=qualikiz_sigmoid, dtype=tf.float32):
         """Reusable code for making a simple neural net layer.
         It does a matrix multiply, bias add, and then uses relu to nonlinearize.
         It also sets up name scoping so that the resultant graph is easy to read,
@@ -309,8 +312,9 @@ def train():
             tf.summary.histogram('activations', activations)
             return activations
 
-    nodes1 = 40
-    nodes2 = 40
+    nodes1 = 30
+    nodes2 = 30
+    nodes3 = 30
 
     scale_factor = 1 / (panda.min() + panda.max())
     scale_bias = -panda.min() * scale_factor
@@ -321,6 +325,7 @@ def train():
     timediff(start, 'Scaling defined')
     hidden1 = nn_layer(x_scaled, len(scan_dims), nodes1, 'layer1', dtype=x.dtype)
     hidden2 = nn_layer(hidden1, nodes1, nodes2, 'layer2', dtype=x.dtype)
+    hidden3 = nn_layer(hidden2, nodes2, nodes3, 'layer3', dtype=x.dtype)
 
     #with tf.name_scope('dropout'):
     #    keep_prob = tf.placeholder(tf.float32)
@@ -330,7 +335,7 @@ def train():
     # Do not apply softmax activation yet, see below.
     out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
     out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
-    y_scaled = nn_layer(hidden2, nodes2, 1, 'layer3', dtype=x.dtype)
+    y_scaled = nn_layer(hidden3, nodes3, 1, 'layer4', dtype=x.dtype)
     y = (y_scaled - out_bias) / out_factor
 
     #with tf.name_scope('cross_entropy'):
@@ -374,8 +379,7 @@ def train():
 
     optimizer = None
     with tf.name_scope('train'):
-        #train_step = tf.train.AdamOptimizer(FLAGS.learning_rate).minimize(
-        #        loss)
+        #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
         #train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
         #train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(
         #             loss)
@@ -405,7 +409,7 @@ def train():
         slice_summaries.append(tf.summary.image('slice_' + str(ii) , slice_image, max_outputs=1))
 
     train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
-    test_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test')
+    test_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test', sess.graph)
 
     tf.global_variables_initializer().run()
     timediff(start, 'Variables initialized')
@@ -424,14 +428,19 @@ def train():
             k = 1.0
         return {x: xs, y_: ys}
 
-    saver = tf.train.Saver()
     epoch = 0
 
+    embed()
     timediff(start, 'Starting loss calculation')
     feed_dict = gen_feed_dict(True)
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
     print('Loss at epoch %s: %s' % (epoch, lo))
+    not_improved = 0
+    best_mse = np.inf
+    early_stop = 5
+    best_mse_checkpoint = None
+    saver = tf.train.Saver(max_to_keep=early_stop)
     for i in range(FLAGS.max_steps):
         feed_dict = gen_feed_dict(True)
         if optimizer:
@@ -449,9 +458,20 @@ def train():
             epoch = datasets.train.epochs_completed
             #print(dataset.train._index_in_epoch)
             feed_dict = gen_feed_dict(False)
-            summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
+            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            run_metadata = tf.RunMetadata()
+            summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict, options=run_options,
+                                           run_metadata=run_metadata)
             test_writer.add_summary(summary, i)
-            saver.save(sess, './model.ckpt')
+            test_writer.add_run_metadata(run_metadata, 'step%d' % i)
+
+            save_path = saver.save(sess, './model.ckpt', global_step=i)
+
+            if meanse < best_mse:
+                best_mse = meanse
+                not_improved = 0
+            else:
+                not_improved += 1
             # Write image summaries
             xs, ys = datasets.validation.next_batch(-1, shuffle=False)
             ests = y.eval({x: xs, y_: ys})
@@ -470,6 +490,10 @@ def train():
             if num_image % max_images == 0:
                 num_image = 0
             print('Loss at epoch %s: %s' % (epoch, lo))
+            if not_improved >= early_stop:
+                print('Not improved for %s epochs, stopping..' % (early_stop))
+                saver.restore(sess, saver.last_checkpoints[0])
+                break
             #print(dataset.train._index_in_epoch)
         #if i % 10 == 0:    # Record summaries and test-set loss
         #    summary, acc = sess.run([merged, loss], feed_dict=feed_dict(False))
