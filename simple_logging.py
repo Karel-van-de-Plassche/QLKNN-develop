@@ -232,7 +232,7 @@ def train():
         #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
         #panda = panda[np.isclose(panda['Ti_Te'], 1)]
         #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
-        panda = panda[np.isclose(panda['Zeffx'], 1)]
+        #panda = panda[np.isclose(panda['Zeffx'], 1)]
         timediff(start, 'Dataset filtered')
         panda.to_hdf('filtered.h5', 'filtered', format='t')
         timediff(start, 'Filtered saved')
@@ -441,59 +441,63 @@ def train():
     early_stop = 5
     best_mse_checkpoint = None
     saver = tf.train.Saver(max_to_keep=early_stop)
-    for i in range(FLAGS.max_steps):
-        feed_dict = gen_feed_dict(True)
-        if optimizer:
-            optimizer.minimize(sess, feed_dict=feed_dict)
-            ce = loss.eval(feed_dict=feed_dict)
-            summary = merged.eval(feed_dict=feed_dict)
-        else:
-            ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict)
-        print(ce)
-        train_writer.add_summary(summary, i)
-
-
-        if datasets.train.epochs_completed > epoch:
-            num_fits = 0
-            epoch = datasets.train.epochs_completed
-            #print(dataset.train._index_in_epoch)
-            feed_dict = gen_feed_dict(False)
-            run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-            run_metadata = tf.RunMetadata()
-            summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict, options=run_options,
-                                           run_metadata=run_metadata)
-            test_writer.add_summary(summary, i)
-            test_writer.add_run_metadata(run_metadata, 'step%d' % i)
-
-            save_path = saver.save(sess, './model.ckpt', global_step=i)
-
-            if meanse < best_mse:
-                best_mse = meanse
-                not_improved = 0
+    try:
+        for i in range(FLAGS.max_steps):
+            feed_dict = gen_feed_dict(True)
+            if optimizer:
+                optimizer.minimize(sess, feed_dict=feed_dict)
+                ce = loss.eval(feed_dict=feed_dict)
+                summary = merged.eval(feed_dict=feed_dict)
             else:
-                not_improved += 1
-            # Write image summaries
-            xs, ys = datasets.validation.next_batch(-1, shuffle=False)
-            ests = y.eval({x: xs, y_: ys})
-            feed_dict = {error_scatter_buf_ph: error_scatter(ys, ests).getvalue()}
-            summary = sess.run(error_scatter_summaries[num_image], feed_dict=feed_dict)
-            test_writer.add_summary(summary, i)
+                ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict)
+            print(ce)
+            train_writer.add_summary(summary, i)
 
-            model_to_json('nn_checkpoint.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
-            nn = QuaLiKizNDNN.from_json('nn_checkpoint.json')
-            fluxes = nn.get_output(**slice_)
-            feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'], slice_[train_dim], fluxes).getvalue()}
-            summary = sess.run(slice_summaries[num_image], feed_dict=feed_dict)
-            test_writer.add_summary(summary, i)
 
-            num_image += 1
-            if num_image % max_images == 0:
-                num_image = 0
-            print('Loss at epoch %s: %s' % (epoch, lo))
-            if not_improved >= early_stop:
-                print('Not improved for %s epochs, stopping..' % (early_stop))
-                saver.restore(sess, saver.last_checkpoints[0])
-                break
+            if datasets.train.epochs_completed > epoch:
+                num_fits = 0
+                epoch = datasets.train.epochs_completed
+                #print(dataset.train._index_in_epoch)
+                feed_dict = gen_feed_dict(False)
+                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_metadata = tf.RunMetadata()
+                summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict, options=run_options,
+                                               run_metadata=run_metadata)
+                test_writer.add_summary(summary, i)
+                test_writer.add_run_metadata(run_metadata, 'step%d' % i)
+
+                save_path = saver.save(sess, './model.ckpt', global_step=i)
+
+                if meanse < best_mse:
+                    best_mse = meanse
+                    not_improved = 0
+                else:
+                    not_improved += 1
+                # Write image summaries
+                xs, ys = datasets.validation.next_batch(-1, shuffle=False)
+                ests = y.eval({x: xs, y_: ys})
+                feed_dict = {error_scatter_buf_ph: error_scatter(ys, ests).getvalue()}
+                summary = sess.run(error_scatter_summaries[num_image], feed_dict=feed_dict)
+                test_writer.add_summary(summary, i)
+
+                model_to_json('nn_checkpoint.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
+                nn = QuaLiKizNDNN.from_json('nn_checkpoint.json')
+                fluxes = nn.get_output(**slice_)
+                feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'], slice_[train_dim], fluxes).getvalue()}
+                summary = sess.run(slice_summaries[num_image], feed_dict=feed_dict)
+                test_writer.add_summary(summary, i)
+
+                num_image += 1
+                if num_image % max_images == 0:
+                    num_image = 0
+                print('Loss at epoch %s: %s' % (epoch, lo))
+                if not_improved >= early_stop:
+                    print('Not improved for %s epochs, stopping..' % (early_stop))
+                    saver.restore(sess, saver.last_checkpoints[0])
+                    break
+    except KeyboardInterrupt:
+        print('Stopping')
+
             #print(dataset.train._index_in_epoch)
         #if i % 10 == 0:    # Record summaries and test-set loss
         #    summary, acc = sess.run([merged, loss], feed_dict=feed_dict(False))
@@ -543,7 +547,7 @@ if __name__ == '__main__':
                                             default=True,
                                             help='If true, uses fake data for unit testing.')
     #parser.add_argument('--max_steps', type=int, default=100000,
-    parser.add_argument('--max_steps', type=int, default=100000,
+    parser.add_argument('--max_steps', type=int, default=sys.maxsize,
                                             help='Number of steps to run trainer.')
     parser.add_argument('--learning_rate', type=float, default=10.,
                                             help='Initial learning rate')
