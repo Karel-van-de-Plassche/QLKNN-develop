@@ -16,6 +16,8 @@ import io
 
 import tensorflow as tf
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import xarray as xr
 import numpy as np
@@ -222,15 +224,14 @@ def train():
             pass
         panda = pd.read_hdf('efe_GB.float16.h5')
         timediff(start, 'Dataset loaded')
-        embed()
         scan_dims = panda.columns[:-1]
         train_dim = panda.columns[-1]
         panda = panda[panda[train_dim] > 0]
         panda = panda[panda[train_dim] < 60]
         #panda = panda[np.isclose(panda['An'], 2)]
         #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
-        panda = panda[np.isclose(panda['Ti_Te'], 1)]
-        panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
+        #panda = panda[np.isclose(panda['Ti_Te'], 1)]
+        #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
         panda = panda[np.isclose(panda['Zeffx'], 1)]
         timediff(start, 'Dataset filtered')
         panda.to_hdf('filtered.h5', 'filtered', format='t')
@@ -421,7 +422,7 @@ def train():
     def gen_feed_dict(train):
         """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
         if train:
-            xs, ys = datasets.train.next_batch(1000)
+            xs, ys = datasets.train.next_batch(10000)
             k = FLAGS.dropout
         else:
             xs, ys = datasets.test.next_batch(datasets.test.num_examples, shuffle=False)
@@ -430,7 +431,6 @@ def train():
 
     epoch = 0
 
-    embed()
     timediff(start, 'Starting loss calculation')
     feed_dict = gen_feed_dict(True)
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
@@ -543,7 +543,7 @@ if __name__ == '__main__':
                                             default=True,
                                             help='If true, uses fake data for unit testing.')
     #parser.add_argument('--max_steps', type=int, default=100000,
-    parser.add_argument('--max_steps', type=int, default=1000,
+    parser.add_argument('--max_steps', type=int, default=100000,
                                             help='Number of steps to run trainer.')
     parser.add_argument('--learning_rate', type=float, default=10.,
                                             help='Initial learning rate')
