@@ -411,6 +411,8 @@ def train():
     early_stop = 5
     best_mse_checkpoint = None
     saver = tf.train.Saver(max_to_keep=early_stop)
+    checkpoint_dir = 'checkpoints'
+    tf.gfile.MkDir(checkpoint_dir)
     try:
         for i in range(FLAGS.max_steps):
             xs, ys = datasets.train.next_batch(batch_size)
@@ -436,7 +438,7 @@ def train():
                 test_writer.add_summary(summary, i)
                 test_writer.add_run_metadata(run_metadata, 'step%d' % i)
 
-                save_path = saver.save(sess, './model.ckpt', global_step=i)
+                save_path = saver.save(sess, os.path.join(checkpoint_dir, 'model.ckpt'), global_step=i)
 
                 # Early stepping, check if MSE is better
                 if meanse < best_mse:
