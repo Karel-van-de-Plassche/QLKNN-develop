@@ -15,6 +15,7 @@ import os
 import io
 
 import tensorflow as tf
+from tensorflow.contrib import opt
 
 import matplotlib
 matplotlib.use('Agg')
@@ -387,7 +388,8 @@ def train():
         #train_step = tf.contrib.opt.python.training.external_optimizer.ScipyOptimizerInterface(loss, options={'maxiter': 100}).minimize()
 
         #optimizer = tf.contrib.opt.python.training.external_optimizer.ScipyOptimizerInterface(loss, options={'maxiter': 10000, 'pgtol': 1e2, 'eps': 1e-2, 'factr': 10000})
-        optimizer = tf.contrib.opt.python.training.external_optimizer.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
+        #optimizer = tf.contrib.opt.python.training.external_optimizer.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
+        optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
