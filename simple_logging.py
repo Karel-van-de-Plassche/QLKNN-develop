@@ -287,6 +287,8 @@ def train():
     else:
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim, shuffle=shuffle)
         datasets.to_hdf('splitted.h5')
+
+    # Convert back to float64 for tensorflow compatibility
     datasets.astype('float64')
     timediff(start, 'Dataset split')
 
@@ -313,6 +315,7 @@ def train():
     nodes2 = 30
     nodes3 = 30
 
+    # Scale all input between -1 and 1
     scale_factor = 1 / (panda.min() + panda.max())
     scale_bias = -panda.min() * scale_factor
     in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
@@ -320,6 +323,8 @@ def train():
 
     x_scaled = in_factor * x + in_bias
     timediff(start, 'Scaling defined')
+
+    # Define neural network
     hidden1 = nn_layer(x_scaled, nodes1, 'layer1', dtype=x.dtype)
     hidden2 = nn_layer(hidden1, nodes2, 'layer2', dtype=x.dtype)
     hidden3 = nn_layer(hidden2, nodes3, 'layer3', dtype=x.dtype)
@@ -329,6 +334,7 @@ def train():
     #    tf.summary.scalar('dropout_keep_probability', keep_prob)
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
+    # Scale all output between -1 and 1
     out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
     out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
     y_scaled = nn_layer(hidden3, 1, 'layer4', dtype=x.dtype)
@@ -336,6 +342,7 @@ def train():
 
     timediff(start, 'NN defined')
 
+    # Define loss functions
     with tf.name_scope('Loss'):
         with tf.name_scope('mse'):
             mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_, y))))
@@ -353,11 +360,11 @@ def train():
         tf.summary.scalar('loss', loss)
 
     optimizer = None
+    # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
         #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
         #train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
         #train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(loss)
-
         #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 10000, 'pgtol': 1e2, 'eps': 1e-2, 'factr': 10000})
         optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
@@ -382,9 +389,9 @@ def train():
         error_scatter_summaries.append(tf.summary.image('error_scatter_' + str(ii) , error_scatter_image, max_outputs=1))
         slice_summaries.append(tf.summary.image('slice_' + str(ii) , slice_image, max_outputs=1))
 
+    # Initialze writers and variables
     train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
     test_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test', sess.graph)
-
     tf.global_variables_initializer().run()
     timediff(start, 'Variables initialized')
 
@@ -397,6 +404,8 @@ def train():
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
     print('Loss at epoch %s: %s' % (epoch, lo))
+
+    # Define variables for early stopping
     not_improved = 0
     best_mse = np.inf
     early_stop = 5
@@ -415,12 +424,10 @@ def train():
             print(ce)
             train_writer.add_summary(summary, i)
 
-
+            # Write figures, summaries and check early stopping each epoch
             if datasets.train.epochs_completed > epoch:
-                num_fits = 0
                 epoch = datasets.train.epochs_completed
-                #print(dataset.train._index_in_epoch)
-                xs, ys = datasets.test.next_batch(batch_size)
+                xs, ys = datasets.test.next_batch(-1, shuffle=False)
                 feed_dict = {x: xs, y_: ys}
                 run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
@@ -431,6 +438,7 @@ def train():
 
                 save_path = saver.save(sess, './model.ckpt', global_step=i)
 
+                # Early stepping, check if MSE is better
                 if meanse < best_mse:
                     best_mse = meanse
                     not_improved = 0
@@ -443,7 +451,9 @@ def train():
                 summary = sess.run(error_scatter_summaries[num_image], feed_dict=feed_dict)
                 test_writer.add_summary(summary, i)
 
+                # Write checkpoint of NN
                 model_to_json('nn_checkpoint.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
+                # Use checkpoint of NN to plot slice
                 nn = QuaLiKizNDNN.from_json('nn_checkpoint.json')
                 fluxes = nn.get_output(**slice_)
                 feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'], slice_[train_dim], fluxes).getvalue()}
@@ -454,9 +464,11 @@ def train():
                 if num_image % max_images == 0:
                     num_image = 0
                 print('Loss at epoch %s: %s' % (epoch, lo))
+                # If not improved in 'early_stop' epoch, stop
                 if not_improved >= early_stop:
                     print('Not improved for %s epochs, stopping..' % (early_stop))
                     saver.restore(sess, saver.last_checkpoints[0])
+                    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
                     break
     except KeyboardInterrupt:
         print('Stopping')
@@ -464,19 +476,21 @@ def train():
     train_writer.close()
     test_writer.close()
     
+    # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     ests = y.eval({x: xs, y_: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
     print("Validation RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
     plt.plot(line_x, line_x)
     plt.scatter(ys, ests)
-    plt.show()
 
-    xs, ys = datasets.test.next_batch(-1)
+    # And to be sure, test against test and train set
+    xs, ys = datasets.test.next_batch(-1, shuffle=False)
     print("Test RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
-    xs, ys = datasets.train.next_batch(-1)
+    xs, ys = datasets.train.next_batch(-1, shuffle=False)
     print("Train RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
-    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
+
+    plt.show()
 
 
 def main(_):
