@@ -230,13 +230,14 @@ def variable_summaries(var):
         tf.summary.scalar('min', tf.reduce_min(var))
         tf.summary.histogram('histogram', var)
 
-def nn_layer(input_tensor, input_dim, output_dim, layer_name, act=qualikiz_sigmoid, dtype=tf.float32):
+def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid, dtype=tf.float32):
     """Reusable code for making a simple neural net layer.
     It does a matrix multiply, bias add, and then uses relu to nonlinearize.
     It also sets up name scoping so that the resultant graph is easy to read,
     and adds a number of summary ops.
     """
     # Adding a name scope ensures logical grouping of the layers in the graph.
+    input_dim = input_tensor.get_shape().as_list()[1]
     with tf.name_scope(layer_name):
         # This Variable will hold the state of the weights for the layer
         with tf.name_scope('weights'):
@@ -319,9 +320,9 @@ def train():
 
     x_scaled = in_factor * x + in_bias
     timediff(start, 'Scaling defined')
-    hidden1 = nn_layer(x_scaled, len(scan_dims), nodes1, 'layer1', dtype=x.dtype)
-    hidden2 = nn_layer(hidden1, nodes1, nodes2, 'layer2', dtype=x.dtype)
-    hidden3 = nn_layer(hidden2, nodes2, nodes3, 'layer3', dtype=x.dtype)
+    hidden1 = nn_layer(x_scaled, nodes1, 'layer1', dtype=x.dtype)
+    hidden2 = nn_layer(hidden1, nodes2, 'layer2', dtype=x.dtype)
+    hidden3 = nn_layer(hidden2, nodes3, 'layer3', dtype=x.dtype)
 
     #with tf.name_scope('dropout'):
     #    keep_prob = tf.placeholder(tf.float32)
@@ -330,7 +331,7 @@ def train():
 
     out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
     out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
-    y_scaled = nn_layer(hidden3, nodes3, 1, 'layer4', dtype=x.dtype)
+    y_scaled = nn_layer(hidden3, 1, 'layer4', dtype=x.dtype)
     y = (y_scaled - out_bias) / out_factor
 
     timediff(start, 'NN defined')
