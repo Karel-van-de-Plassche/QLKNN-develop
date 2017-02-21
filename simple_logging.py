@@ -154,9 +154,13 @@ def convert_panda(panda, frac_validation, frac_test, features_names, target_name
 
 
 def qualikiz_sigmoid(x, name=""):
-    return tf.divide(tf.constant(2, x.dtype),
-                     tf.add(tf.constant(1, x.dtype),
-                            tf.exp(tf.multiply(tf.constant(-2, x.dtype), x)))) - tf.constant(1, x.dtype)
+    with tf.name_scope('activation'):
+        act = (tf.divide(tf.constant(2, x.dtype),
+                         tf.add(tf.constant(1, x.dtype),
+                                tf.exp(tf.multiply(tf.constant(-2, x.dtype),
+                                                   x)))) -
+               tf.constant(1, x.dtype))
+    return act
 
 def split_panda(panda, frac=0.1):
     panda1 = panda.sample(frac=frac)
@@ -164,32 +168,8 @@ def split_panda(panda, frac=0.1):
     panda2 = panda.loc[panda2_i]
     return (panda1, panda2)
 
-def generate_input_fn(panda):
-    x = panda[[dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim!='numsols']].copy()
-    y = panda['efeETG_GB'].copy()
-    return pandas_io.pandas_input_fn(x, y, batch_size=8, num_epochs=1)
-
 def shuffle_panda(panda):
     return panda.iloc[np.random.permutation(np.arange(len(panda)))]
-
-def normalize(array):
-    norm = np.linalg.norm(array[~np.isnan(array)])
-    return norm
-
-def fake_func(input):
-    return np.sum(np.square(input + 0.0 * (np.random.rand(len(input)) - 0.5))) / len(input)
-
-def fake_panda(scan_dims, train_dim):
-    fakepanda = pd.DataFrame(columns = scan_dims + [train_dim])
-    fakedims = {}
-    npoint = 12
-    fakedims = {scan_dim: np.linspace(0, 1, npoint) for scan_dim in scan_dims}
-    for scan_dim in scan_dims:
-        fakepanda[scan_dim] = np.full(npoint**len(scan_dims), np.nan) 
-    fakepanda[train_dim] = np.full_like(fakepanda[scan_dims[0]], np.nan)
-    for ii, dims in enumerate(product(*fakedims.values())):
-        fakepanda.iloc[ii] = list(dims) + [fake_func(dims)]
-    return fakepanda
 
 def model_to_json(name, feature_names, target_names, train_set, scale_factor, scale_bias):
     dict_ = {x.name: x.eval().tolist() for x in tf.trainable_variables()}
@@ -316,12 +296,13 @@ def train():
     nodes3 = 30
 
     # Scale all input between -1 and 1
-    scale_factor = 1 / (panda.min() + panda.max())
-    scale_bias = -panda.min() * scale_factor
-    in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
-    in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
+    with tf.name_scope('normalize'):
+        scale_factor = 1 / (panda.min() + panda.max())
+        scale_bias = -panda.min() * scale_factor
+        in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
+        in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
-    x_scaled = in_factor * x + in_bias
+        x_scaled = in_factor * x + in_bias
     timediff(start, 'Scaling defined')
 
     # Define neural network
@@ -335,10 +316,11 @@ def train():
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
     # Scale all output between -1 and 1
-    out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
-    out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
     y_scaled = nn_layer(hidden3, 1, 'layer4', dtype=x.dtype)
-    y = (y_scaled - out_bias) / out_factor
+    with tf.name_scope('denormalize'):
+        out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
+        out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
+        y = (y_scaled - out_bias) / out_factor
 
     timediff(start, 'NN defined')
 
