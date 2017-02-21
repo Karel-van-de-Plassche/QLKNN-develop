@@ -2,3 +2,4 @@ nn*json
 *.h5
 *.nc
 checkpoints
+__pycache__
