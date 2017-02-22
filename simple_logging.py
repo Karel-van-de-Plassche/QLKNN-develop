@@ -185,7 +185,7 @@ def model_to_json(name, feature_names, target_names, train_set, scale_factor, sc
         json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
 
 def timediff(start, event):
-    print(event + ' reached after ' + str(time.time() - start) + 's')
+    print('{:35} {:5.0f}s'.format(event + ' after', time.time() - start))
 
 def weight_variable(shape, **kwargs):
     """Create a weight variable with appropriate initialization."""
@@ -297,7 +297,6 @@ def train():
         except:
             pass
     slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
-    embed()
 
     # Start tensorflow session
     sess = tf.InteractiveSession()
@@ -345,28 +344,28 @@ def train():
         with tf.name_scope('mse'):
             mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_, y))))
             tf.summary.scalar('MSE', mse)
-        #with tf.name_scope('l2'):
-        #    l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
-        #    #l2_norm = tf.reduce_sum(tf.square())
-        #    l2_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
-        #    #mse = tf.losses.mean_squared_error(y_, y)
-        #    l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
-        #    tf.summary.scalar('l2_norm', l2_norm)
-        #    tf.summary.scalar('l2_scale', l2_scale)
-        #    tf.summary.scalar('l2_loss', l2_loss)
-        #loss = mse + l2_loss
+        with tf.name_scope('l2'):
+            l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
+            #l2_norm = tf.reduce_sum(tf.square())
+            l2_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
+            #mse = tf.losses.mean_squared_error(y_, y)
+            l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
+            tf.summary.scalar('l2_norm', l2_norm)
+            tf.summary.scalar('l2_scale', l2_scale)
+            tf.summary.scalar('l2_loss', l2_loss)
         loss = mse
+        loss = mse + l2_loss
         tf.summary.scalar('loss', loss)
 
     optimizer = None
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
         #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
-        train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
+        #train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
         #train_step = tf.train.RMSPropOptimizer(FLAGS.learning_rate).minimize(loss)
         #train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(loss)
         #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 10000, 'pgtol': 1e2, 'eps': 1e-2, 'factr': 10000})
-        #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
+        optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
@@ -404,7 +403,9 @@ def train():
     feed_dict = {x: xs, y_: ys}
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
-    print('Loss at epoch %s: %s' % (epoch, lo))
+    print()
+    print('epoch {:06} {:23} {:5.0f}'.format(epoch, 'mse is', np.round(lo)))
+    print()
 
     # Define variables for early stopping
     not_improved = 0
@@ -414,9 +415,8 @@ def train():
     saver = tf.train.Saver(max_to_keep=early_stop)
     checkpoint_dir = 'checkpoints'
     tf.gfile.MkDir(checkpoint_dir)
-    embed()
     try:
-        for i in range(FLAGS.max_steps):
+        for ii in range(FLAGS.max_steps):
             # Write figures, summaries and check early stopping each epoch
             if datasets.train.epochs_completed > epoch:
                 epoch = datasets.train.epochs_completed
@@ -431,10 +431,10 @@ def train():
                 with open('timeline.json', 'w') as f:
                     f.write(ctf)
 
-                test_writer.add_summary(summary, i)
-                test_writer.add_run_metadata(run_metadata, 'step%d' % i)
+                test_writer.add_summary(summary, ii)
+                test_writer.add_run_metadata(run_metadata, 'step%d' % ii)
 
-                save_path = saver.save(sess, os.path.join(checkpoint_dir, 'model.ckpt'), global_step=i)
+                save_path = saver.save(sess, os.path.join(checkpoint_dir, 'model.ckpt'), global_step=ii)
 
                 # Early stepping, check if MSE is better
                 if meanse < best_mse:
@@ -447,7 +447,7 @@ def train():
                 ests = y.eval({x: xs, y_: ys})
                 feed_dict = {error_scatter_buf_ph: error_scatter(ys, ests).getvalue()}
                 summary = sess.run(error_scatter_summaries[num_image], feed_dict=feed_dict)
-                test_writer.add_summary(summary, i)
+                test_writer.add_summary(summary, ii)
 
                 # Write checkpoint of NN
                 model_to_json('nn_checkpoint.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
@@ -456,12 +456,13 @@ def train():
                 fluxes = nn.get_output(**slice_)
                 feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'], slice_[train_dim], fluxes).getvalue()}
                 summary = sess.run(slice_summaries[num_image], feed_dict=feed_dict)
-                test_writer.add_summary(summary, i)
+                test_writer.add_summary(summary, ii)
 
                 num_image += 1
                 if num_image % max_images == 0:
                     num_image = 0
-                print('Loss at epoch %s: %s' % (epoch, lo))
+                print('{:5} {:06} {:23} {:5.0f}'.format('epocht ', epoch, 'mse is', np.round(ce)))
+                print()
                 # If not improved in 'early_stop' epoch, stop
                 if not_improved >= early_stop:
                     print('Not improved for %s epochs, stopping..' % (early_stop))
@@ -469,7 +470,7 @@ def train():
                     model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
                     break
             else:
-                if i % step_per_report:
+                if ii % step_per_report:
                     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
                 else:
@@ -479,18 +480,18 @@ def train():
                 feed_dict = {x: xs, y_: ys}
                 if optimizer:
                     optimizer.minimize(sess, feed_dict=feed_dict)
-                    ce = loss.eval(feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                    ce = loss.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
                     ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
-                train_writer.add_summary(summary, i)
+                train_writer.add_summary(summary, ii)
 
-                if i % step_per_report:
+                if ii % step_per_report:
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
-                print('step {:06} {:23} {:5.0f}'.format(i, 'mse is', np.round(ce)))
+                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'mse is', np.round(ce)))
 
     except KeyboardInterrupt:
         print('Stopping')
@@ -502,17 +503,15 @@ def train():
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     ests = y.eval({x: xs, y_: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
-    print("Validation RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
+    print('{:22} {:5.2f}'.format('Validation RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
     plt.plot(line_x, line_x)
     plt.scatter(ys, ests)
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
-    print("Test RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
+    print('{:22} {:5.2f}'.format('Test RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
     xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    print("Train RMS error: " + str(np.sqrt(mse.eval({x: xs, y_: ys}))))
-
-    plt.show()
+    print('{:22} {:5.2f}'.format('Train RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
 
 
 def main(_):
