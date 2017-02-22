@@ -238,36 +238,43 @@ def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid, dtype=t
             tf.summary.histogram('activations', activations)
         return activations
 
-def train():
-    # Import data
-    shuffle = True
-    start = time.time()
+def load_hdf5(path):
+    """ Loads a pandas-style hdf5 file, with checkpoints
+    """
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
-        timediff(start, 'Dataset loaded')
         train_dim = panda.columns[-1]
     else:
         try:
             os.remove('splitted.h5')
         except:
             pass
-        panda = pd.read_hdf('efe_GB.float16.h5')
+        panda = pd.read_hdf(path)
         timediff(start, 'Dataset loaded')
         train_dim = panda.columns[-1]
         panda = panda[panda[train_dim] > 0]
         panda = panda[panda[train_dim] < 60]
         #panda = panda[np.isclose(panda['An'], 2)]
-        panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
-        panda = panda[np.isclose(panda['Ti_Te'], 1)]
-        panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
-        panda = panda[np.isclose(panda['Zeffx'], 1)]
+        #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
+        #panda = panda[np.isclose(panda['Ti_Te'], 1)]
+        #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
+        #panda = panda[np.isclose(panda['Zeffx'], 1)]
         for col in panda:
             if len(np.unique(panda[col])) == 1:
                 del panda[col]
         timediff(start, 'Dataset filtered')
         panda.to_hdf('filtered.h5', 'filtered', format='t')
-        timediff(start, 'Filtered saved')
 
+    return panda
+
+def train():
+    # Import data
+    shuffle = True
+    start = time.time()
+    panda = load_hdf5('efe_GB.float16.h5')
+
+    timediff(start, 'Dataset loaded')
+    train_dim = panda.columns[-1]
     if os.path.exists('splitted.h5'):
         scan_dims = panda.columns[:-1]
         datasets = Datasets.read_hdf('splitted.h5')
@@ -275,7 +282,6 @@ def train():
         scan_dims = panda.columns[:-1]
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim, shuffle=shuffle)
         datasets.to_hdf('splitted.h5')
-
     # Convert back to float64 for tensorflow compatibility
     datasets.astype('float64')
     timediff(start, 'Dataset split')
