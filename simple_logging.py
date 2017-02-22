@@ -245,7 +245,6 @@ def train():
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
         timediff(start, 'Dataset loaded')
-        scan_dims = panda.columns[:-1]
         train_dim = panda.columns[-1]
     else:
         try:
@@ -254,7 +253,6 @@ def train():
             pass
         panda = pd.read_hdf('efe_GB.float16.h5')
         timediff(start, 'Dataset loaded')
-        scan_dims = panda.columns[:-1]
         train_dim = panda.columns[-1]
         panda = panda[panda[train_dim] > 0]
         panda = panda[panda[train_dim] < 60]
@@ -263,13 +261,18 @@ def train():
         panda = panda[np.isclose(panda['Ti_Te'], 1)]
         panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
         panda = panda[np.isclose(panda['Zeffx'], 1)]
+        for col in panda:
+            if len(np.unique(panda[col])) == 1:
+                del panda[col]
         timediff(start, 'Dataset filtered')
         panda.to_hdf('filtered.h5', 'filtered', format='t')
         timediff(start, 'Filtered saved')
 
     if os.path.exists('splitted.h5'):
+        scan_dims = panda.columns[:-1]
         datasets = Datasets.read_hdf('splitted.h5')
     else:
+        scan_dims = panda.columns[:-1]
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim, shuffle=shuffle)
         datasets.to_hdf('splitted.h5')
 
@@ -278,15 +281,23 @@ def train():
     timediff(start, 'Dataset split')
 
     # Get a slice of the data to visualize convergence
-    slice_ =  panda[np.isclose(panda['qx'], 1.5, rtol=1e-2)]
-    slice_ = slice_[np.isclose(slice_['smag'], .7, rtol=1e-2)]
-    slice_ = slice_[np.isclose(slice_['Ti_Te'], 1, rtol=1e-2)]
+    slice_dict = {
+        'qx': 1.5,
+        'smag': .7,
+        'Ti_Te': 1,
+        'An': 2,
+        'x': 3*.15,
+        'Nustar': 1e-2,
+        'Zeffx': 1}
+
+    slice_ = panda
+    for col in slice_:
+        try:
+            slice_ = slice_[np.isclose(slice_[col], slice_dict[col], rtol=1e-2)]
+        except:
+            pass
     slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
-    slice_ = slice_[np.isclose(slice_['An'], 2)]
-    slice_ = slice_[np.isclose(slice_['x'], 3*.15, rtol=1e-2)]
-    slice_ = slice_[np.isclose(slice_['Ti_Te'], 1)]
-    slice_ = slice_[np.isclose(slice_['Nustar'], 1e-2, rtol=1e-2)]
-    slice_ = slice_[np.isclose(slice_['Zeffx'], 1)]
+    embed()
 
     # Start tensorflow session
     sess = tf.InteractiveSession()
@@ -334,16 +345,17 @@ def train():
         with tf.name_scope('mse'):
             mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_, y))))
             tf.summary.scalar('MSE', mse)
-        with tf.name_scope('l2'):
-            l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
-            #l2_norm = tf.reduce_sum(tf.square())
-            l2_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
-            #mse = tf.losses.mean_squared_error(y_, y)
-            l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
-            tf.summary.scalar('l2_norm', l2_norm)
-            tf.summary.scalar('l2_scale', l2_scale)
-            tf.summary.scalar('l2_loss', l2_loss)
-        loss = mse + l2_loss
+        #with tf.name_scope('l2'):
+        #    l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
+        #    #l2_norm = tf.reduce_sum(tf.square())
+        #    l2_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
+        #    #mse = tf.losses.mean_squared_error(y_, y)
+        #    l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
+        #    tf.summary.scalar('l2_norm', l2_norm)
+        #    tf.summary.scalar('l2_scale', l2_scale)
+        #    tf.summary.scalar('l2_loss', l2_loss)
+        #loss = mse + l2_loss
+        loss = mse
         tf.summary.scalar('loss', loss)
 
     optimizer = None
@@ -351,6 +363,7 @@ def train():
     with tf.name_scope('train'):
         #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
         train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
+        #train_step = tf.train.RMSPropOptimizer(FLAGS.learning_rate).minimize(loss)
         #train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(loss)
         #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 10000, 'pgtol': 1e2, 'eps': 1e-2, 'factr': 10000})
         #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
@@ -470,7 +483,6 @@ def train():
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
                     ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
-                print(ce)
                 train_writer.add_summary(summary, i)
 
                 if i % step_per_report:
@@ -478,6 +490,7 @@ def train():
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
+                print('step {:06} {:23} {:5.0f}'.format(i, 'mse is', np.round(ce)))
 
     except KeyboardInterrupt:
         print('Stopping')
