@@ -16,6 +16,7 @@ import io
 
 import tensorflow as tf
 from tensorflow.contrib import opt
+from tensorflow.python.client import timeline
 
 import matplotlib
 matplotlib.use('Agg')
@@ -210,7 +211,7 @@ def variable_summaries(var):
         tf.summary.scalar('min', tf.reduce_min(var))
         tf.summary.histogram('histogram', var)
 
-def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid, dtype=tf.float32):
+def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid, dtype=tf.float32, debug=False):
     """Reusable code for making a simple neural net layer.
     It does a matrix multiply, bias add, and then uses relu to nonlinearize.
     It also sets up name scoping so that the resultant graph is easy to read,
@@ -222,15 +223,19 @@ def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid, dtype=t
         # This Variable will hold the state of the weights for the layer
         with tf.name_scope('weights'):
             weights = weight_variable([input_dim, output_dim], dtype=dtype)
-            variable_summaries(weights)
+            if debug:
+                variable_summaries(weights)
         with tf.name_scope('biases'):
             biases = bias_variable([output_dim], dtype=dtype)
-            variable_summaries(biases)
+            if debug:
+                variable_summaries(biases)
         with tf.name_scope('Wx_plus_b'):
             preactivate = tf.matmul(input_tensor, weights) + biases
-            tf.summary.histogram('pre_activations', preactivate)
+            if debug:
+                tf.summary.histogram('pre_activations', preactivate)
         activations = act(preactivate, name='activation')
-        tf.summary.histogram('activations', activations)
+        if debug:
+            tf.summary.histogram('activations', activations)
         return activations
 
 def train():
@@ -254,10 +259,10 @@ def train():
         panda = panda[panda[train_dim] > 0]
         panda = panda[panda[train_dim] < 60]
         #panda = panda[np.isclose(panda['An'], 2)]
-        #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
-        #panda = panda[np.isclose(panda['Ti_Te'], 1)]
-        #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
-        #panda = panda[np.isclose(panda['Zeffx'], 1)]
+        panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
+        panda = panda[np.isclose(panda['Ti_Te'], 1)]
+        panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
+        panda = panda[np.isclose(panda['Zeffx'], 1)]
         timediff(start, 'Dataset filtered')
         panda.to_hdf('filtered.h5', 'filtered', format='t')
         timediff(start, 'Filtered saved')
@@ -345,10 +350,10 @@ def train():
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
         #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
-        #train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
+        train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
         #train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(loss)
         #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 10000, 'pgtol': 1e2, 'eps': 1e-2, 'factr': 10000})
-        optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
+        #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
@@ -381,6 +386,7 @@ def train():
 
     timediff(start, 'Starting loss calculation')
     batch_size = 1000
+    step_per_report = 10
     xs, ys = datasets.train.next_batch(batch_size)
     feed_dict = {x: xs, y_: ys}
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
@@ -395,19 +401,9 @@ def train():
     saver = tf.train.Saver(max_to_keep=early_stop)
     checkpoint_dir = 'checkpoints'
     tf.gfile.MkDir(checkpoint_dir)
+    embed()
     try:
         for i in range(FLAGS.max_steps):
-            xs, ys = datasets.train.next_batch(batch_size)
-            feed_dict = {x: xs, y_: ys}
-            if optimizer:
-                optimizer.minimize(sess, feed_dict=feed_dict)
-                ce = loss.eval(feed_dict=feed_dict)
-                summary = merged.eval(feed_dict=feed_dict)
-            else:
-                ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict)
-            print(ce)
-            train_writer.add_summary(summary, i)
-
             # Write figures, summaries and check early stopping each epoch
             if datasets.train.epochs_completed > epoch:
                 epoch = datasets.train.epochs_completed
@@ -417,6 +413,11 @@ def train():
                 run_metadata = tf.RunMetadata()
                 summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict, options=run_options,
                                                run_metadata=run_metadata)
+                tl = timeline.Timeline(run_metadata.step_stats)
+                ctf = tl.generate_chrome_trace_format()
+                with open('timeline.json', 'w') as f:
+                    f.write(ctf)
+
                 test_writer.add_summary(summary, i)
                 test_writer.add_run_metadata(run_metadata, 'step%d' % i)
 
@@ -454,6 +455,30 @@ def train():
                     saver.restore(sess, saver.last_checkpoints[0])
                     model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
                     break
+            else:
+                if i % step_per_report:
+                    run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                    run_metadata = tf.RunMetadata()
+                else:
+                    run_options = None
+                    run_metadata = None
+                xs, ys = datasets.train.next_batch(batch_size)
+                feed_dict = {x: xs, y_: ys}
+                if optimizer:
+                    optimizer.minimize(sess, feed_dict=feed_dict)
+                    ce = loss.eval(feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                    summary = merged.eval(feed_dict=feed_dict)
+                else:
+                    ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                print(ce)
+                train_writer.add_summary(summary, i)
+
+                if i % step_per_report:
+                    tl = timeline.Timeline(run_metadata.step_stats)
+                    ctf = tl.generate_chrome_trace_format()
+                    with open('timeline_run.json', 'w') as f:
+                        f.write(ctf)
+
     except KeyboardInterrupt:
         print('Stopping')
 
