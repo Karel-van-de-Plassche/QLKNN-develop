@@ -13,6 +13,7 @@ import sys
 import time
 import os
 import io
+from shutil import copyfile
 
 import tensorflow as tf
 from tensorflow.contrib import opt
@@ -255,8 +256,8 @@ def load_hdf5(path):
 def filter_panda(panda):
     train_dim = panda.columns[-1]
     if 'efe' in train_dim or 'efi' in train_dim:
-        panda = panda[panda[train_dim] > 0]
         panda = panda[panda[train_dim] < 60]
+    panda = panda[panda[train_dim] == 0]
     #panda = panda[np.isclose(panda['An'], 2)]
     #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
     #panda = panda[np.isclose(panda['Ti_Te'], 1)]
@@ -452,12 +453,6 @@ def train():
 
                 save_path = saver.save(sess, os.path.join(checkpoint_dir, 'model.ckpt'), global_step=ii)
 
-                # Early stepping, check if MSE is better
-                if meanse < best_mse:
-                    best_mse = meanse
-                    not_improved = 0
-                else:
-                    not_improved += 1
                 # Write image summaries
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 ests = y.eval({x: xs, y_: ys})
@@ -479,6 +474,14 @@ def train():
                     num_image = 0
                 print('{:5} {:06} {:23} {:5.0f}'.format('epocht ', epoch, 'mse is', np.round(ce)))
                 print()
+
+                # Early stepping, check if MSE is better
+                if meanse < best_mse:
+                    copyfile('nn_checkpoint.json', 'nn_best.json')
+                    best_mse = meanse
+                    not_improved = 0
+                else:
+                    not_improved += 1
                 # If not improved in 'early_stop' epoch, stop
                 if not_improved >= early_stop:
                     print('Not improved for %s epochs, stopping..' % (early_stop))
