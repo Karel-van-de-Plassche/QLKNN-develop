@@ -250,30 +250,38 @@ def load_hdf5(path):
         except:
             pass
         panda = pd.read_hdf(path)
-        timediff(start, 'Dataset loaded')
-        train_dim = panda.columns[-1]
-        panda = panda[panda[train_dim] > 0]
-        panda = panda[panda[train_dim] < 60]
-        #panda = panda[np.isclose(panda['An'], 2)]
-        #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
-        #panda = panda[np.isclose(panda['Ti_Te'], 1)]
-        #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
-        #panda = panda[np.isclose(panda['Zeffx'], 1)]
-        for col in panda:
-            if len(np.unique(panda[col])) == 1:
-                del panda[col]
-        timediff(start, 'Dataset filtered')
-        panda.to_hdf('filtered.h5', 'filtered', format='t')
+        panda = filter_panda(panda)
+    return panda
 
+def filter_panda(panda):
+    train_dim = panda.columns[-1]
+    panda = panda[panda[train_dim] > 0]
+    panda = panda[panda[train_dim] < 60]
+    #panda = panda[np.isclose(panda['An'], 2)]
+    #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
+    #panda = panda[np.isclose(panda['Ti_Te'], 1)]
+    #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
+    #panda = panda[np.isclose(panda['Zeffx'], 1)]
+    for col in panda:
+        if len(np.unique(panda[col])) == 1:
+            del panda[col]
+    panda.to_hdf('filtered.h5', 'filtered', format='t')
     return panda
 
 def train():
     # Import data
     shuffle = True
     start = time.time()
-    panda = load_hdf5('efe_GB.float16.h5')
-
+    #panda = load_hdf5('efe_GB.float16.h5')
+    train_dim = 'efe_GB'
+    store = pd.HDFStore('/global/cscratch1/sd/karel/full_totflux/everything.h5', 'r')
+    panda =  store.select('/megarun1/input')
+    df = store.select('/megarun1/totflux', "columns=='" + train_dim + "'")
     timediff(start, 'Dataset loaded')
+    panda[train_dim] = df
+    panda = filter_panda(panda)
+    timediff(start, 'Dataset filtered')
+
     train_dim = panda.columns[-1]
     if os.path.exists('splitted.h5'):
         scan_dims = panda.columns[:-1]
