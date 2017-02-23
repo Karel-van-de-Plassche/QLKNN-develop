@@ -472,7 +472,8 @@ def train():
                 num_image += 1
                 if num_image % max_images == 0:
                     num_image = 0
-                print('{:5} {:06} {:23} {:5.0f}'.format('epocht ', epoch, 'mse is', np.round(ce)))
+                print('{:5} {:06} {:23} {:5.0f}'.format('epoch', epoch, 'mse is', np.round(ce)))
+                timediff(start, 'completed')
                 print()
 
                 # Early stepping, check if MSE is better
@@ -513,7 +514,7 @@ def train():
                     print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'mse is', np.round(ce)))
 
     except KeyboardInterrupt:
-        print('Stopping')
+        print('KeyboardInterrupt Stopping..')
 
     train_writer.close()
     test_writer.close()
@@ -552,9 +553,9 @@ if __name__ == '__main__':
                                             help='Initial learning rate')
     parser.add_argument('--dropout', type=float, default=0.9,
                                             help='Keep probability for training dropout.')
-    parser.add_argument('--data_dir', type=str, default='/tmp/tensorflow/test/input_data',
+    parser.add_argument('--data_dir', type=str, default='train_NN_run/input_data/',
                                             help='Directory for storing input data')
-    parser.add_argument('--log_dir', type=str, default='/tmp/tensorflow/test/logs/test_with_summaries',
+    parser.add_argument('--log_dir', type=str, default='train_NN_run/logs/',
                                             help='Summaries log directory')
     FLAGS, unparsed = parser.parse_known_args()
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
