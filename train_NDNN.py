@@ -257,14 +257,14 @@ def filter_panda(panda):
     train_dim = panda.columns[-1]
     if 'efe' in train_dim or 'efi' in train_dim:
         panda = panda[panda[train_dim] < 60]
-    panda = panda[panda[train_dim] == 0]
+    panda = panda[panda[train_dim] != 0]
     #panda = panda[np.isclose(panda['An'], 2)]
     #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
     #panda = panda[np.isclose(panda['Ti_Te'], 1)]
     #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
     #panda = panda[np.isclose(panda['Zeffx'], 1)]
     for col in panda:
-        if len(np.unique(panda[col])) == 1:
+        if len(np.unique(panda[col])) == 1 and col != train_dim:
             del panda[col]
     panda.to_hdf('filtered.h5', 'filtered', format='t')
     return panda
@@ -370,7 +370,7 @@ def train():
             tf.summary.scalar('l2_norm', l2_norm)
             tf.summary.scalar('l2_scale', l2_scale)
             tf.summary.scalar('l2_loss', l2_loss)
-        loss = mse
+        #loss = mse
         loss = mse + l2_loss
         tf.summary.scalar('loss', loss)
 
@@ -414,14 +414,14 @@ def train():
     epoch = 0
 
     timediff(start, 'Starting loss calculation')
-    batch_size = 1000
+    batch_size = 100000
     step_per_report = 10
     xs, ys = datasets.train.next_batch(batch_size)
     feed_dict = {x: xs, y_: ys}
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
     print()
-    print('epoch {:06} {:23} {:5.0f}'.format(epoch, 'mse is', np.round(lo)))
+    print('epoch {:07} {:23} {:5.0f}'.format(epoch, 'loss is', np.round(lo)))
     print()
 
     # Define variables for early stopping
@@ -472,7 +472,8 @@ def train():
                 num_image += 1
                 if num_image % max_images == 0:
                     num_image = 0
-                print('{:5} {:06} {:23} {:5.0f}'.format('epoch', epoch, 'mse is', np.round(ce)))
+                print('{:5} {:07} {:23} {:5.0f}'.format('epoch', epoch, 'mse is', np.round(meanse)))
+                print('{:5} {:07} {:23} {:5.0f}'.format('epoch', epoch, 'loss is', np.round(lo)))
                 timediff(start, 'completed')
                 print()
 
@@ -490,7 +491,7 @@ def train():
                     model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
                     break
             else:
-                if ii % step_per_report:
+                if not ii % step_per_report:
                     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
                 else:
@@ -501,17 +502,21 @@ def train():
                 if optimizer:
                     optimizer.minimize(sess, feed_dict=feed_dict)
                     ce = loss.eval(feed_dict=feed_dict)
+                    meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
-                    ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                    ce, summary, meanse, _ = sess.run([loss, merged, mse, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
                 train_writer.add_summary(summary, ii)
 
-                if ii % step_per_report:
+                if not ii % step_per_report:
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
-                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'mse is', np.round(ce)))
+                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'loss is', np.round(ce)))
+                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'mse is', np.round(meanse)))
+                    if np.isnan(ce):
+                        raise Exception('Loss is NaN! Stopping..')
 
     except KeyboardInterrupt:
         print('KeyboardInterrupt Stopping..')
