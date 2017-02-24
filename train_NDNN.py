@@ -269,6 +269,9 @@ def filter_panda(panda):
     panda.to_hdf('filtered.h5', 'filtered', format='t')
     return panda
 
+def normab(panda, a, b):
+    return (b - a) / (panda.max() - panda.min()), (b - a) * panda.min() / (panda.max() - panda.min()) + a
+
 def train():
     # Import data
     shuffle = True
@@ -329,8 +332,7 @@ def train():
 
     # Scale all input between -1 and 1
     with tf.name_scope('normalize'):
-        scale_factor = 1 / (panda.min() + panda.max())
-        scale_bias = -panda.min() * scale_factor
+        scale_factor, scale_bias = normab(panda, -1, 1)
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
