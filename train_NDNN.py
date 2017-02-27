@@ -332,7 +332,7 @@ def train():
 
     # Scale all input between -1 and 1
     with tf.name_scope('normalize'):
-        scale_factor, scale_bias = normab(panda, -1, 1)
+        scale_factor, scale_bias = normab(panda, 0, 1)
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
