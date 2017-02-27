@@ -14,6 +14,7 @@ import time
 import os
 import io
 from shutil import copyfile
+import subprocess
 
 import tensorflow as tf
 from tensorflow.contrib import opt
@@ -489,8 +490,6 @@ def train():
                 # If not improved in 'early_stop' epoch, stop
                 if not_improved >= early_stop:
                     print('Not improved for %s epochs, stopping..' % (early_stop))
-                    saver.restore(sess, saver.last_checkpoints[0])
-                    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
                     break
             else:
                 if not ii % step_per_report:
@@ -503,6 +502,7 @@ def train():
                 feed_dict = {x: xs, y_: ys}
                 if optimizer:
                     optimizer.minimize(sess, feed_dict=feed_dict)
+                    #optimizer.minimize(sess, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
                     ce = loss.eval(feed_dict=feed_dict)
                     meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
@@ -525,21 +525,45 @@ def train():
 
     train_writer.close()
     test_writer.close()
+
+    try:
+        saver.restore(sess, saver.last_checkpoints[epoch - not_improved])
+    except IndexError:
+        print("Can't restore old checkpoint, just saving current values")
+    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
     
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     ests = y.eval({x: xs, y_: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
-    print('{:22} {:5.2f}'.format('Validation RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
+    rms_val = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
     plt.plot(line_x, line_x)
     plt.scatter(ys, ests)
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
-    print('{:22} {:5.2f}'.format('Test RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
+    rms_test = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
     xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    print('{:22} {:5.2f}'.format('Train RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
+    rms_train = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
+    sp_result = subprocess.run('git rev-parse HEAD', stdout=subprocess.PIPE, shell=True, check=True)
+    nn_version = sp_result.stdout.decode('UTF-8').strip()
+    metadata = {'epoch': epoch,
+                'rms_validation': rms_val,
+                'rms_test': rms_test,
+                'rms_train': rms_train,
+                'nn_develop_version': nn_version}
+
+    with open('nn.json') as nn_file:
+        data = json.load(nn_file)
+
+    data['_metadata'] = metadata
+
+    with open('nn.json', 'w') as nn_file:
+        json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
 
 def main(_):
     if tf.gfile.Exists(FLAGS.log_dir):
