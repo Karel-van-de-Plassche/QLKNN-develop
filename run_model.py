@@ -12,6 +12,36 @@ def sigm_tf(x):
 def sigm(x):
     return 2./(1 + np.exp(-2 * x)) - 1
 
+class QuaLiKizMultiNN():
+    def __init__(self, nns):
+        self._nns = nns
+
+    @property
+    def targets(self):
+        targets = []
+        for nn in self._nns:
+            targets.extend(list(nn.target_names))
+        return targets
+
+    def get_output(self, target, **kwargs):
+        for nn in self._nns:
+            if [target] == list(nn.target_names):
+                result = nn.get_output(**kwargs)
+                break
+            elif target in nn.target_names.values:
+                NotImplementedError('Multitarget not implemented yet')
+        return result
+
+    def get_outputs(self, **kwargs):
+        results = pd.DataFrame()
+        for nn in self._nns:
+            if len(nn.target_names) == 1:
+                name = nn.target_names[0]
+                results[name] = nn.get_output(**kwargs)
+            elif target in nn.target_names.values:
+                NotImplementedError('Multitarget not implemented yet')
+        return results
+
 class QuaLiKizNDNN():
     def __init__(self, nn_dict):
         """ General ND fully-connected multilayer perceptron neural network
@@ -45,7 +75,9 @@ class QuaLiKizNDNN():
                 # so our previously read layer was the one
                 break
                 
-        assert not any(parsed), 'nn_dict not fully parsed!'
+        # Ignore metadata
+        del parsed['_metadata']
+        assert not any(parsed), 'nn_dict not fully parsed! ' + str(parsed)
 
     def apply_layers(self, input):
         """ Apply all NN layers to the given input
@@ -121,7 +153,9 @@ class QuaLiKizNDNN():
 if __name__ == '__main__':
     # Test the function
     root = os.path.dirname(os.path.realpath(__file__))
-    nn = QuaLiKizNDNN.from_json(os.path.join(root, 'nn.json'))
+    nn1 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efe_GB.json'))
+    nn2 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efi_GB.json'))
+    nn = QuaLiKizMultiNN([nn1, nn2])
     scann = 24
     input = pd.DataFrame()
     input['Ati'] = np.array(np.linspace(2,13, scann))
@@ -133,5 +167,6 @@ if __name__ == '__main__':
     input['smag']  = np.full_like(input['Ati'], 0.399902)
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
-    fluxes = nn.get_output(**input)
+    fluxes = nn.get_outputs(**input)
+    print(fluxes)
     embed()
