@@ -17,7 +17,7 @@ class QuaLiKizMultiNN():
         self._nns = nns
 
     @property
-    def targets(self):
+    def target_names(self):
         targets = []
         for nn in self._nns:
             targets.extend(list(nn.target_names))
@@ -41,6 +41,24 @@ class QuaLiKizMultiNN():
             elif target in nn.target_names.values:
                 NotImplementedError('Multitarget not implemented yet')
         return results
+
+class QuaLiKizDuoNN():
+    def __init__(self, target_name, nn1, nn2, combo_func):
+        self._nn1 = nn1
+        self._nn2 = nn2
+        self._combo_func = combo_func
+        self._target_name = target_name
+
+    def get_output(self, **kwargs):
+        output = pd.DataFrame()
+        output1 = self._nn1.get_output(**kwargs).values
+        output2 = self._nn2.get_output(**kwargs).values
+        output[self._target_name] = np.squeeze(self._combo_func(output1, output2))
+        return output
+
+    @property
+    def target_names(self):
+        return [self._target_name]
 
 class QuaLiKizNDNN():
     def __init__(self, nn_dict):
@@ -74,9 +92,11 @@ class QuaLiKizNDNN():
                 # This name does not exist in the JSON,
                 # so our previously read layer was the one
                 break
-                
         # Ignore metadata
-        del parsed['_metadata']
+        try:
+            del parsed['_metadata']
+        except KeyError:
+            pass
         assert not any(parsed), 'nn_dict not fully parsed! ' + str(parsed)
 
     def apply_layers(self, input):
