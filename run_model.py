@@ -15,6 +15,11 @@ def sigm(x):
 class QuaLiKizMultiNN():
     def __init__(self, nns):
         self._nns = nns
+        for nn in self._nns:
+            if len(nn.target_names) == 1:
+                name = nn.target_names[0]
+        if np.any(self.feature_min > self.feature_max):
+            raise Exception('Feature min > feature max')
 
     @property
     def target_names(self):
@@ -34,18 +39,39 @@ class QuaLiKizMultiNN():
 
     def get_outputs(self, **kwargs):
         results = pd.DataFrame()
+        feature_max = -np.inf
+        feature_min = np.inf
         for nn in self._nns:
             if len(nn.target_names) == 1:
                 name = nn.target_names[0]
                 results[name] = nn.get_output(**kwargs)
             elif target in nn.target_names.values:
                 NotImplementedError('Multitarget not implemented yet')
+
         return results
+
+    @property
+    def feature_max(self):
+        feature_max = pd.Series(np.full_like(self._nns[0].feature_max, np.inf),
+                                index=self._nns[0].feature_max.index)
+        for nn in self._nns:
+            feature_max = nn.feature_max.combine(feature_max, min)
+        return feature_max
+
+    @property
+    def feature_min(self):
+        feature_min = pd.Series(np.full_like(self._nns[0].feature_min, -np.inf),
+                                index=self._nns[0].feature_min.index)
+        for nn in self._nns:
+            feature_min = nn.feature_min.combine(feature_min, max)
+        return feature_min
 
 class QuaLiKizDuoNN():
     def __init__(self, target_name, nn1, nn2, combo_func):
         self._nn1 = nn1
         self._nn2 = nn2
+        if np.any(self.feature_min > self.feature_max):
+            raise Exception('Feature min > feature max')
         self._combo_func = combo_func
         self._target_name = target_name
 
@@ -59,6 +85,14 @@ class QuaLiKizDuoNN():
     @property
     def target_names(self):
         return [self._target_name]
+
+    @property
+    def feature_max(self):
+        return self._nn1.feature_max.combine(self._nn2.feature_max, min)
+
+    @property
+    def feature_min(self):
+        return self._nn1.feature_min.combine(self._nn2.feature_min, max)
 
 class QuaLiKizNDNN():
     def __init__(self, nn_dict):
@@ -175,6 +209,7 @@ if __name__ == '__main__':
     root = os.path.dirname(os.path.realpath(__file__))
     nn1 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efe_GB.json'))
     nn2 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efi_GB.json'))
+    nn3 = QuaLiKizDuoNN('nn_eftot_GB', nn1, nn2, lambda x, y: x + y)
     nn = QuaLiKizMultiNN([nn1, nn2])
     scann = 24
     input = pd.DataFrame()
