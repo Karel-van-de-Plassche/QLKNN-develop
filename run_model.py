@@ -15,9 +15,14 @@ def sigm(x):
 class QuaLiKizMultiNN():
     def __init__(self, nns):
         self._nns = nns
+        feature_names = nns[0]
         for nn in self._nns:
             if len(nn.target_names) == 1:
                 name = nn.target_names[0]
+            else:
+                NotImplementedError('Multitarget not implemented yet')
+            if np.all(nn.feature_names.ne(feature_names)):
+                Exception('Supplied NNs have different feature names')
         if np.any(self.feature_min > self.feature_max):
             raise Exception('Feature min > feature max')
 
@@ -51,6 +56,17 @@ class QuaLiKizMultiNN():
         return results
 
     @property
+    def target_names(self):
+        target_names = []
+        for nn in self._nns:
+            target_names.extend(nn.target_names)
+        return list(set(target_names))
+
+    @property
+    def feature_names(self):
+        return self._nns[0].feature_names
+
+    @property
     def feature_max(self):
         feature_max = pd.Series(np.full_like(self._nns[0].feature_max, np.inf),
                                 index=self._nns[0].feature_max.index)
@@ -72,6 +88,8 @@ class QuaLiKizDuoNN():
         self._nn2 = nn2
         if np.any(self.feature_min > self.feature_max):
             raise Exception('Feature min > feature max')
+        if np.all(nn1.feature_names.ne(nn2.feature_names)):
+            Exception('Supplied NNs have different feature names')
         self._combo_func = combo_func
         self._target_name = target_name
 
@@ -85,6 +103,10 @@ class QuaLiKizDuoNN():
     @property
     def target_names(self):
         return [self._target_name]
+
+    @property
+    def feature_names(self):
+        return self._nn1.feature_names
 
     @property
     def feature_max(self):
