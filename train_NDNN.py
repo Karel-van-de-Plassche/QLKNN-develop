@@ -13,6 +13,8 @@ import sys
 import time
 import os
 import io
+from shutil import copyfile
+import subprocess
 
 import tensorflow as tf
 from tensorflow.contrib import opt
@@ -243,7 +245,6 @@ def load_hdf5(path):
     """
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
-        train_dim = panda.columns[-1]
     else:
         try:
             os.remove('splitted.h5')
@@ -255,39 +256,47 @@ def load_hdf5(path):
 
 def filter_panda(panda):
     train_dim = panda.columns[-1]
-    panda = panda[panda[train_dim] > 0]
-    panda = panda[panda[train_dim] < 60]
+    if 'efe' in train_dim or 'efi' in train_dim:
+        panda = panda[panda[train_dim] < 60]
+        panda = panda[panda[train_dim] > 0]
+    panda = panda[panda[train_dim] != 0]
     #panda = panda[np.isclose(panda['An'], 2)]
     #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
     #panda = panda[np.isclose(panda['Ti_Te'], 1)]
     #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
     #panda = panda[np.isclose(panda['Zeffx'], 1)]
     for col in panda:
-        if len(np.unique(panda[col])) == 1:
+        if len(np.unique(panda[col])) == 1 and col != train_dim:
             del panda[col]
     panda.to_hdf('filtered.h5', 'filtered', format='t')
     return panda
+
+def normab(panda, a, b):
+    return (b - a) / (panda.max() - panda.min()), (b - a) * panda.min() / (panda.max() - panda.min()) + a
 
 def train():
     # Import data
     shuffle = True
     start = time.time()
-    #panda = load_hdf5('efe_GB.float16.h5')
-    train_dim = 'efe_GB'
-    store = pd.HDFStore('/global/cscratch1/sd/karel/full_totflux/everything.h5', 'r')
-    panda =  store.select('/megarun1/input')
-    df = store.select('/megarun1/totflux', "columns=='" + train_dim + "'")
-    timediff(start, 'Dataset loaded')
-    panda[train_dim] = df
-    panda = filter_panda(panda)
+    train_dim = os.path.basename(os.getcwd())
+    if os.path.exists('filtered.h5'):
+        panda = pd.read_hdf('filtered.h5')
+    else:
+        store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
+        panda =  store.select('input')
+        del panda['nions']
+        df = store.select(train_dim)
+        timediff(start, 'Dataset loaded')
+        panda[train_dim] = df
+        #panda = filter_panda(panda)
+        #panda = load_hdf5('filteredfull.h5')
     timediff(start, 'Dataset filtered')
 
     train_dim = panda.columns[-1]
+    scan_dims = panda.columns[:-1]
     if os.path.exists('splitted.h5'):
-        scan_dims = panda.columns[:-1]
         datasets = Datasets.read_hdf('splitted.h5')
     else:
-        scan_dims = panda.columns[:-1]
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim, shuffle=shuffle)
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
@@ -326,8 +335,7 @@ def train():
 
     # Scale all input between -1 and 1
     with tf.name_scope('normalize'):
-        scale_factor = 1 / (panda.min() + panda.max())
-        scale_bias = -panda.min() * scale_factor
+        scale_factor, scale_bias = normab(panda, 0, 1)
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
@@ -367,7 +375,7 @@ def train():
             tf.summary.scalar('l2_norm', l2_norm)
             tf.summary.scalar('l2_scale', l2_scale)
             tf.summary.scalar('l2_loss', l2_loss)
-        loss = mse
+        #loss = mse
         loss = mse + l2_loss
         tf.summary.scalar('loss', loss)
 
@@ -411,20 +419,20 @@ def train():
     epoch = 0
 
     timediff(start, 'Starting loss calculation')
-    batch_size = 1000
-    step_per_report = 10
+    batch_size = 300000
+    step_per_report = 1
     xs, ys = datasets.train.next_batch(batch_size)
     feed_dict = {x: xs, y_: ys}
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
     print()
-    print('epoch {:06} {:23} {:5.0f}'.format(epoch, 'mse is', np.round(lo)))
+    print('epoch {:07} {:23} {:5.0f}'.format(epoch, 'loss is', np.round(lo)))
     print()
 
     # Define variables for early stopping
     not_improved = 0
     best_mse = np.inf
-    early_stop = 5
+    early_stop = 0
     best_mse_checkpoint = None
     saver = tf.train.Saver(max_to_keep=early_stop)
     checkpoint_dir = 'checkpoints'
@@ -450,12 +458,6 @@ def train():
 
                 save_path = saver.save(sess, os.path.join(checkpoint_dir, 'model.ckpt'), global_step=ii)
 
-                # Early stepping, check if MSE is better
-                if meanse < best_mse:
-                    best_mse = meanse
-                    not_improved = 0
-                else:
-                    not_improved += 1
                 # Write image summaries
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 ests = y.eval({x: xs, y_: ys})
@@ -475,16 +477,24 @@ def train():
                 num_image += 1
                 if num_image % max_images == 0:
                     num_image = 0
-                print('{:5} {:06} {:23} {:5.0f}'.format('epocht ', epoch, 'mse is', np.round(ce)))
+                print('{:5} {:07} {:23} {:5.0f}'.format('epoch', epoch, 'mse is', np.round(meanse)))
+                print('{:5} {:07} {:23} {:5.0f}'.format('epoch', epoch, 'loss is', np.round(lo)))
+                timediff(start, 'completed')
                 print()
+
+                # Early stepping, check if MSE is better
+                if meanse < best_mse:
+                    copyfile('nn_checkpoint.json', 'nn_best.json')
+                    best_mse = meanse
+                    not_improved = 0
+                else:
+                    not_improved += 1
                 # If not improved in 'early_stop' epoch, stop
                 if not_improved >= early_stop:
                     print('Not improved for %s epochs, stopping..' % (early_stop))
-                    saver.restore(sess, saver.last_checkpoints[0])
-                    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
                     break
             else:
-                if ii % step_per_report:
+                if not ii % step_per_report:
                     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
                 else:
@@ -493,40 +503,70 @@ def train():
                 xs, ys = datasets.train.next_batch(batch_size)
                 feed_dict = {x: xs, y_: ys}
                 if optimizer:
-                    optimizer.minimize(sess, feed_dict=feed_dict)
+                    #optimizer.minimize(sess, feed_dict=feed_dict)
+                    optimizer.minimize(sess, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
                     ce = loss.eval(feed_dict=feed_dict)
+                    meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
-                    ce, summary, _ = sess.run([loss, merged, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                    ce, summary, meanse, _ = sess.run([loss, merged, mse, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
                 train_writer.add_summary(summary, ii)
 
-                if ii % step_per_report:
+                if not ii % step_per_report:
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
-                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'mse is', np.round(ce)))
+                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'loss is', np.round(ce)))
+                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'mse is', np.round(meanse)))
+                    if np.isnan(ce):
+                        raise Exception('Loss is NaN! Stopping..')
 
     except KeyboardInterrupt:
-        print('Stopping')
+        print('KeyboardInterrupt Stopping..')
 
     train_writer.close()
     test_writer.close()
+
+    try:
+        saver.restore(sess, saver.last_checkpoints[epoch - not_improved])
+    except IndexError:
+        print("Can't restore old checkpoint, just saving current values")
+    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
     
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     ests = y.eval({x: xs, y_: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
-    print('{:22} {:5.2f}'.format('Validation RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
+    rms_val = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
     plt.plot(line_x, line_x)
     plt.scatter(ys, ests)
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
-    print('{:22} {:5.2f}'.format('Test RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
+    rms_test = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
     xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    print('{:22} {:5.2f}'.format('Train RMS error: ', np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)))
+    rms_train = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
+    sp_result = subprocess.run('git rev-parse HEAD', stdout=subprocess.PIPE, shell=True, check=True)
+    nn_version = sp_result.stdout.decode('UTF-8').strip()
+    metadata = {'epoch': epoch,
+                'rms_validation': rms_val,
+                'rms_test': rms_test,
+                'rms_train': rms_train,
+                'nn_develop_version': nn_version,
+                'activation': '2/(1+exp(-2x))-1'}
+
+    with open('nn.json') as nn_file:
+        data = json.load(nn_file)
+
+    data['_metadata'] = metadata
+
+    with open('nn.json', 'w') as nn_file:
+        json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
 
 def main(_):
     if tf.gfile.Exists(FLAGS.log_dir):
@@ -547,9 +587,9 @@ if __name__ == '__main__':
                                             help='Initial learning rate')
     parser.add_argument('--dropout', type=float, default=0.9,
                                             help='Keep probability for training dropout.')
-    parser.add_argument('--data_dir', type=str, default='/tmp/tensorflow/test/input_data',
+    parser.add_argument('--data_dir', type=str, default='train_NN_run/input_data/',
                                             help='Directory for storing input data')
-    parser.add_argument('--log_dir', type=str, default='/tmp/tensorflow/test/logs/test_with_summaries',
+    parser.add_argument('--log_dir', type=str, default='train_NN_run/logs/',
                                             help='Summaries log directory')
     FLAGS, unparsed = parser.parse_known_args()
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
