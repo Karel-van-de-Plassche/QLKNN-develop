@@ -258,6 +258,7 @@ def filter_panda(panda):
     train_dim = panda.columns[-1]
     if 'efe' in train_dim or 'efi' in train_dim:
         panda = panda[panda[train_dim] < 60]
+        panda = panda[panda[train_dim] > 0]
     panda = panda[panda[train_dim] != 0]
     #panda = panda[np.isclose(panda['An'], 2)]
     #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
@@ -277,17 +278,18 @@ def train():
     # Import data
     shuffle = True
     start = time.time()
-    train_dim = 'efe_GB'
+    train_dim = os.path.basename(os.getcwd())
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
     else:
-        store = pd.HDFStore('/global/cscratch1/sd/karel/full_totflux/everything.h5', 'r')
-        panda =  store.select('/megarun1/input')
-        df = store.select('/megarun1/totflux', "columns=='" + train_dim + "'")
+        store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
+        panda =  store.select('input')
+        del panda['nions']
+        df = store.select(train_dim)
         timediff(start, 'Dataset loaded')
         panda[train_dim] = df
-        panda = filter_panda(panda)
-        #panda = load_hdf5('efe_GB.float16.h5')
+        #panda = filter_panda(panda)
+        #panda = load_hdf5('filteredfull.h5')
     timediff(start, 'Dataset filtered')
 
     train_dim = panda.columns[-1]
@@ -417,8 +419,8 @@ def train():
     epoch = 0
 
     timediff(start, 'Starting loss calculation')
-    batch_size = 100000
-    step_per_report = 10
+    batch_size = 300000
+    step_per_report = 1
     xs, ys = datasets.train.next_batch(batch_size)
     feed_dict = {x: xs, y_: ys}
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
@@ -430,7 +432,7 @@ def train():
     # Define variables for early stopping
     not_improved = 0
     best_mse = np.inf
-    early_stop = 5
+    early_stop = 0
     best_mse_checkpoint = None
     saver = tf.train.Saver(max_to_keep=early_stop)
     checkpoint_dir = 'checkpoints'
@@ -501,8 +503,8 @@ def train():
                 xs, ys = datasets.train.next_batch(batch_size)
                 feed_dict = {x: xs, y_: ys}
                 if optimizer:
-                    optimizer.minimize(sess, feed_dict=feed_dict)
-                    #optimizer.minimize(sess, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                    #optimizer.minimize(sess, feed_dict=feed_dict)
+                    optimizer.minimize(sess, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
                     ce = loss.eval(feed_dict=feed_dict)
                     meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
@@ -555,7 +557,8 @@ def train():
                 'rms_validation': rms_val,
                 'rms_test': rms_test,
                 'rms_train': rms_train,
-                'nn_develop_version': nn_version}
+                'nn_develop_version': nn_version,
+                'activation': '2/(1+exp(-2x))-1'}
 
     with open('nn.json') as nn_file:
         data = json.load(nn_file)
