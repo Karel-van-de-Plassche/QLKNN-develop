@@ -23,17 +23,14 @@ from tensorflow.python.client import timeline
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import xarray as xr
 import numpy as np
 import pandas as pd
-from IPython import embed
-from collections import OrderedDict
-from itertools import product, chain
-import collections
+#from IPython import embed
 import json
 from run_model import QuaLiKizNDNN
 
 FLAGS = None
+
 
 class Dataset():
     def __init__(self, features, target):
@@ -51,9 +48,8 @@ class Dataset():
     @property
     def num_examples(self):
         return self._num_examples
-    
+
     def next_batch(self, batch_size, shuffle=True):
-        starttime = time.time()
         start = self._index_in_epoch
         if batch_size == -1:
             batch_size = self._num_examples
@@ -70,7 +66,8 @@ class Dataset():
             # Start next epoch
             start = 0
             self._index_in_epoch = batch_size
-            assert batch_size <= self._num_examples, 'Batch size asked bigger than number of samples'
+            assert batch_size <= self._num_examples, \
+                'Batch size asked bigger than number of samples'
         end = self._index_in_epoch
         batch = (self._features.iloc[start:end], self._target.iloc[start:end])
         return batch
@@ -95,10 +92,11 @@ class Dataset():
 
 class Datasets():
     _fields = ['train', 'validation', 'test']
+
     def __init__(self, **kwargs):
         for name in self._fields:
             setattr(self, name, kwargs.pop(name))
-        assert(~bool(kwargs))
+        assert ~bool(kwargs)
 
     def to_hdf(self, file):
         for name in self._fields:
@@ -116,6 +114,7 @@ class Datasets():
             setattr(self, name, getattr(self, name).astype(dtype))
         return self
 
+
 def error_scatter(target, estimate):
     plt.figure()
     plt.scatter(target, estimate)
@@ -128,6 +127,7 @@ def error_scatter(target, estimate):
     plt.close()
     return buf
 
+
 def slice_plotter(features, target, estimate):
     plt.figure()
     plt.scatter(features, target)
@@ -138,7 +138,9 @@ def slice_plotter(features, target, estimate):
     plt.close()
     return buf
 
-def convert_panda(panda, frac_validation, frac_test, features_names, target_name, shuffle=True):
+
+def convert_panda(panda, frac_validation, frac_test, features_names,
+                  target_name, shuffle=True):
     total_size = panda.shape[0]
     # Dataset might be ordered. Shuffle to be sure
     if shuffle:
@@ -149,13 +151,17 @@ def convert_panda(panda, frac_validation, frac_test, features_names, target_name
 
     datasets = []
     for slice_ in [panda.iloc[:train_size],
-                   panda.iloc[train_size:train_size+validation_size],
-                   panda.iloc[train_size+validation_size:]]:
-        datasets.append(Dataset(slice_[features_names], slice_[target_name].to_frame()))
+                   panda.iloc[train_size:train_size + validation_size],
+                   panda.iloc[train_size + validation_size:]]:
+        datasets.append(Dataset(slice_[features_names],
+                                slice_[target_name].to_frame()))
 
-    return Datasets(train=datasets[0], validation=datasets[1], test=datasets[2])
+    return Datasets(train=datasets[0],
+                    validation=datasets[1],
+                    test=datasets[2])
 
 
+# TODO: It's just a tanh!
 def qualikiz_sigmoid(x, name=""):
     with tf.name_scope('activation'):
         act = (tf.divide(tf.constant(2, x.dtype),
@@ -165,29 +171,36 @@ def qualikiz_sigmoid(x, name=""):
                tf.constant(1, x.dtype))
     return act
 
+
 def split_panda(panda, frac=0.1):
     panda1 = panda.sample(frac=frac)
     panda2_i = panda.index ^ panda1.index
     panda2 = panda.loc[panda2_i]
     return (panda1, panda2)
 
+
 def shuffle_panda(panda):
     return panda.iloc[np.random.permutation(np.arange(len(panda)))]
 
-def model_to_json(name, feature_names, target_names, train_set, scale_factor, scale_bias):
+
+def model_to_json(name, feature_names, target_names,
+                  train_set, scale_factor, scale_bias):
     dict_ = {x.name: x.eval().tolist() for x in tf.trainable_variables()}
-    dict_['prescale_factor'] =  scale_factor.to_dict()
-    dict_['prescale_bias'] =  scale_bias.to_dict()
+    dict_['prescale_factor'] = scale_factor.to_dict()
+    dict_['prescale_bias'] = scale_bias.to_dict()
     dict_['feature_min'] = dict(train_set._features.min())
     dict_['feature_max'] = dict(train_set._features.max())
     dict_['feature_names'] = feature_names
     dict_['target_names'] = target_names
 
     with open(name, 'w') as file_:
-        json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
+        json.dump(dict_, file_, sort_keys=True,
+                  indent=4, separators=(',', ': '))
+
 
 def timediff(start, event):
     print('{:35} {:5.0f}s'.format(event + ' after', time.time() - start))
+
 
 def weight_variable(shape, **kwargs):
     """Create a weight variable with appropriate initialization."""
@@ -195,14 +208,17 @@ def weight_variable(shape, **kwargs):
     initial = tf.random_normal(shape, **kwargs)
     return tf.Variable(initial)
 
+
 def bias_variable(shape, **kwargs):
     """Create a bias variable with appropriate initialization."""
     #initial = tf.constant(0.1, shape=shape)
     initial = tf.random_normal(shape, **kwargs)
     return tf.Variable(initial)
 
+
 def variable_summaries(var):
-    """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
+    """Attach a lot of summaries to a Tensor (for TensorBoard visualization).
+    """
     with tf.name_scope('summaries'):
         mean = tf.reduce_mean(var)
         tf.summary.scalar('mean', mean)
@@ -213,7 +229,9 @@ def variable_summaries(var):
         tf.summary.scalar('min', tf.reduce_min(var))
         tf.summary.histogram('histogram', var)
 
-def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid, dtype=tf.float32, debug=False):
+
+def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid,
+             dtype=tf.float32, debug=False):
     """Reusable code for making a simple neural net layer.
     It does a matrix multiply, bias add, and then uses relu to nonlinearize.
     It also sets up name scoping so that the resultant graph is easy to read,
@@ -240,6 +258,7 @@ def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid, dtype=t
             tf.summary.histogram('activations', activations)
         return activations
 
+
 def load_hdf5(path):
     """ Loads a pandas-style hdf5 file, with checkpoints
     """
@@ -253,6 +272,7 @@ def load_hdf5(path):
         panda = pd.read_hdf(path)
         panda = filter_panda(panda)
     return panda
+
 
 def filter_panda(panda):
     train_dim = panda.columns[-1]
@@ -271,8 +291,11 @@ def filter_panda(panda):
     panda.to_hdf('filtered.h5', 'filtered', format='t')
     return panda
 
+
 def normab(panda, a, b):
-    return (b - a) / (panda.max() - panda.min()), (b - a) * panda.min() / (panda.max() - panda.min()) + a
+    return ((b - a) / (panda.max() - panda.min()),
+            (b - a) * panda.min() / (panda.max() - panda.min()) + a)
+
 
 def train():
     # Import data
@@ -283,7 +306,7 @@ def train():
         panda = pd.read_hdf('filtered.h5')
     else:
         store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
-        panda =  store.select('input')
+        panda = store.select('input')
         del panda['nions']
         df = store.select(train_dim)
         timediff(start, 'Dataset loaded')
@@ -297,7 +320,8 @@ def train():
     if os.path.exists('splitted.h5'):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
-        datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim, shuffle=shuffle)
+        datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim,
+                                 shuffle=shuffle)
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
     datasets.astype('float64')
@@ -309,14 +333,15 @@ def train():
         'smag': .7,
         'Ti_Te': 1,
         'An': 2,
-        'x': 3*.15,
+        'x': 3 * .15,
         'Nustar': 1e-2,
         'Zeffx': 1}
 
     slice_ = panda
     for col in slice_:
         try:
-            slice_ = slice_[np.isclose(slice_[col], slice_dict[col], rtol=1e-2)]
+            slice_ = slice_[np.isclose(slice_[col],
+                                       slice_dict[col], rtol=1e-2)]
         except:
             pass
     slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
@@ -326,7 +351,8 @@ def train():
 
     # Input placeholders
     with tf.name_scope('input'):
-        x = tf.placeholder(datasets.train._target.dtypes.iloc[0], [None, len(scan_dims)], name='x-input')
+        x = tf.placeholder(datasets.train._target.dtypes.iloc[0],
+                           [None, len(scan_dims)], name='x-input')
         y_ = tf.placeholder(x.dtype, [None, 1], name='y-input')
 
     nodes1 = 30
@@ -369,7 +395,9 @@ def train():
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
             #l2_norm = tf.reduce_sum(tf.square())
-            l2_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.square(var)) for var in tf.trainable_variables()]))
+            l2_norm = tf.to_double(tf.add_n(
+                [tf.reduce_sum(tf.square(var))
+                 for var in tf.trainable_variables()]))
             #mse = tf.losses.mean_squared_error(y_, y)
             l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
             tf.summary.scalar('l2_norm', l2_norm)
@@ -380,17 +408,21 @@ def train():
         tf.summary.scalar('loss', loss)
 
     optimizer = None
+    train_step = None
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
         #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
-        #train_step = tf.train.AdadeltaOptimizer(FLAGS.learning_rate, 0.60).minimize(loss)
-        #train_step = tf.train.RMSPropOptimizer(FLAGS.learning_rate).minimize(loss)
-        #train_step = tf.train.GradientDescentOptimizer(FLAGS.learning_rate).minimize(loss)
-        #optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 10000, 'pgtol': 1e2, 'eps': 1e-2, 'factr': 10000})
-        optimizer = opt.ScipyOptimizerInterface(loss, options={'maxiter': 1000})
+        #train_step = tf.train.AdadeltaOptimizer(
+        #    FLAGS.learning_rate, 0.60).minimize(loss)
+        #train_step = tf.train.RMSPropOptimizer(
+        #    FLAGS.learning_rate).minimize(loss)
+        #train_step = tf.train.GradientDescentOptimizer(
+        #    FLAGS.learning_rate).minimize(loss)
+        optimizer = opt.ScipyOptimizerInterface(loss,
+                                                options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
-    # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
+    # Merge all the summaries and write them out to /tmp/mnist_logs
     merged = tf.summary.merge_all()
 
     # Define scatter plots
@@ -407,8 +439,11 @@ def train():
     num_image = 0
     max_images = 8
     for ii in range(max_images):
-        error_scatter_summaries.append(tf.summary.image('error_scatter_' + str(ii) , error_scatter_image, max_outputs=1))
-        slice_summaries.append(tf.summary.image('slice_' + str(ii) , slice_image, max_outputs=1))
+        error_scatter_summaries.append(
+            tf.summary.image('error_scatter_' + str(ii),
+                             error_scatter_image, max_outputs=1))
+        slice_summaries.append(
+            tf.summary.image('slice_' + str(ii), slice_image, max_outputs=1))
 
     # Initialze writers and variables
     train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
@@ -433,7 +468,6 @@ def train():
     not_improved = 0
     best_mse = np.inf
     early_stop = 0
-    best_mse_checkpoint = None
     saver = tf.train.Saver(max_to_keep=early_stop)
     checkpoint_dir = 'checkpoints'
     tf.gfile.MkDir(checkpoint_dir)
@@ -444,9 +478,12 @@ def train():
                 epoch = datasets.train.epochs_completed
                 xs, ys = datasets.test.next_batch(-1, shuffle=False)
                 feed_dict = {x: xs, y_: ys}
-                run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_options = tf.RunOptions(
+                    trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-                summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict, options=run_options,
+                summary, lo, meanse = sess.run([merged, loss, mse],
+                                               feed_dict=feed_dict,
+                                               options=run_options,
                                                run_metadata=run_metadata)
                 tl = timeline.Timeline(run_metadata.step_stats)
                 ctf = tl.generate_chrome_trace_format()
@@ -456,29 +493,44 @@ def train():
                 test_writer.add_summary(summary, ii)
                 test_writer.add_run_metadata(run_metadata, 'step%d' % ii)
 
-                save_path = saver.save(sess, os.path.join(checkpoint_dir, 'model.ckpt'), global_step=ii)
+                #save_path = saver.save(sess, os.path.join(checkpoint_dir,
+                #'model.ckpt'), global_step=ii)
 
                 # Write image summaries
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 ests = y.eval({x: xs, y_: ys})
-                feed_dict = {error_scatter_buf_ph: error_scatter(ys, ests).getvalue()}
-                summary = sess.run(error_scatter_summaries[num_image], feed_dict=feed_dict)
+                feed_dict = {error_scatter_buf_ph:
+                             error_scatter(ys, ests).getvalue()}
+                summary = sess.run(error_scatter_summaries[num_image],
+                                   feed_dict=feed_dict)
                 test_writer.add_summary(summary, ii)
 
                 # Write checkpoint of NN
-                model_to_json('nn_checkpoint.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
+                model_to_json('nn_checkpoint.json', scan_dims.values.tolist(),
+                              [train_dim],
+                              datasets.train, scale_factor.astype('float64'),
+                              scale_bias.astype('float64'))
                 # Use checkpoint of NN to plot slice
                 nn = QuaLiKizNDNN.from_json('nn_checkpoint.json')
                 fluxes = nn.get_output(**slice_)
-                feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'], slice_[train_dim], fluxes).getvalue()}
-                summary = sess.run(slice_summaries[num_image], feed_dict=feed_dict)
+                feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'],
+                                                         slice_[train_dim],
+                                                         fluxes).getvalue()}
+                summary = sess.run(slice_summaries[num_image],
+                                   feed_dict=feed_dict)
                 test_writer.add_summary(summary, ii)
 
                 num_image += 1
                 if num_image % max_images == 0:
                     num_image = 0
-                print('{:5} {:07} {:23} {:5.0f}'.format('epoch', epoch, 'mse is', np.round(meanse)))
-                print('{:5} {:07} {:23} {:5.0f}'.format('epoch', epoch, 'loss is', np.round(lo)))
+                print('{:5} {:07} {:23} {:5.0f}'.format('epoch',
+                                                        epoch,
+                                                        'mse is',
+                                                        np.round(meanse)))
+                print('{:5} {:07} {:23} {:5.0f}'.format('epoch',
+                                                        epoch,
+                                                        'loss is',
+                                                        np.round(lo)))
                 timediff(start, 'completed')
                 print()
 
@@ -491,11 +543,13 @@ def train():
                     not_improved += 1
                 # If not improved in 'early_stop' epoch, stop
                 if not_improved >= early_stop:
-                    print('Not improved for %s epochs, stopping..' % (early_stop))
+                    print('Not improved for %s epochs, stopping..'
+                          % (early_stop))
                     break
             else:
                 if not ii % step_per_report:
-                    run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                    run_options = tf.RunOptions(
+                        trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
                 else:
                     run_options = None
@@ -504,12 +558,20 @@ def train():
                 feed_dict = {x: xs, y_: ys}
                 if optimizer:
                     #optimizer.minimize(sess, feed_dict=feed_dict)
-                    optimizer.minimize(sess, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                    optimizer.minimize(sess,
+                                       feed_dict=feed_dict,
+                                       options=run_options,
+                                       run_metadata=run_metadata)
                     ce = loss.eval(feed_dict=feed_dict)
                     meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
-                    ce, summary, meanse, _ = sess.run([loss, merged, mse, train_step], feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                    ce, summary, meanse, _ = sess.run([loss, merged,
+                                                       mse, train_step],
+                                                      feed_dict=feed_dict,
+                                                      options=run_options,
+                                                      run_metadata=run_metadata
+                                                      )
                 train_writer.add_summary(summary, ii)
 
                 if not ii % step_per_report:
@@ -517,8 +579,14 @@ def train():
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
-                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'loss is', np.round(ce)))
-                    print('{:5} {:06} {:23} {:5.0f}'.format('step', ii, 'mse is', np.round(meanse)))
+                    print('{:5} {:06} {:23} {:5.0f}'.format('step',
+                                                            ii,
+                                                            'loss is',
+                                                            np.round(ce)))
+                    print('{:5} {:06} {:23} {:5.0f}'.format('step',
+                                                            ii,
+                                                            'mse is',
+                                                            np.round(meanse)))
                     if np.isnan(ce):
                         raise Exception('Loss is NaN! Stopping..')
 
@@ -532,8 +600,11 @@ def train():
         saver.restore(sess, saver.last_checkpoints[epoch - not_improved])
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
-    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim], datasets.train, scale_factor.astype('float64'), scale_bias.astype('float64'))
-    
+    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim],
+                  datasets.train,
+                  scale_factor.astype('float64'),
+                  scale_bias.astype('float64'))
+
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     ests = y.eval({x: xs, y_: ys})
@@ -551,7 +622,10 @@ def train():
     rms_train = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
     print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
-    sp_result = subprocess.run('git rev-parse HEAD', stdout=subprocess.PIPE, shell=True, check=True)
+    sp_result = subprocess.run('git rev-parse HEAD',
+                               stdout=subprocess.PIPE,
+                               shell=True,
+                               check=True)
     nn_version = sp_result.stdout.decode('UTF-8').strip()
     metadata = {'epoch': epoch,
                 'rms_validation': rms_val,
@@ -566,7 +640,9 @@ def train():
     data['_metadata'] = metadata
 
     with open('nn.json', 'w') as nn_file:
-        json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
+        json.dump(data, nn_file, sort_keys=True,
+                  indent=4, separators=(',', ': '))
+
 
 def main(_):
     if tf.gfile.Exists(FLAGS.log_dir):
@@ -578,18 +654,19 @@ def main(_):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--fake_data', nargs='?', const=True, type=bool,
-                                            default=True,
-                                            help='If true, uses fake data for unit testing.')
+                        default=True,
+                        help='If true, uses fake data for unit testing.')
     #parser.add_argument('--max_steps', type=int, default=100000,
     parser.add_argument('--max_steps', type=int, default=sys.maxsize,
-                                            help='Number of steps to run trainer.')
+                        help='Number of steps to run trainer.')
     parser.add_argument('--learning_rate', type=float, default=10.,
-                                            help='Initial learning rate')
+                        help='Initial learning rate')
     parser.add_argument('--dropout', type=float, default=0.9,
-                                            help='Keep probability for training dropout.')
-    parser.add_argument('--data_dir', type=str, default='train_NN_run/input_data/',
-                                            help='Directory for storing input data')
+                        help='Keep probability for training dropout.')
+    parser.add_argument('--data_dir', type=str,
+                        default='train_NN_run/input_data/',
+                        help='Directory for storing input data')
     parser.add_argument('--log_dir', type=str, default='train_NN_run/logs/',
-                                            help='Summaries log directory')
+                        help='Summaries log directory')
     FLAGS, unparsed = parser.parse_known_args()
     tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
