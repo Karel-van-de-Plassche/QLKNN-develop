@@ -301,13 +301,15 @@ def train():
     # Import data
     shuffle = True
     start = time.time()
+    # Get train dimension from path name
     train_dim = os.path.basename(os.getcwd())
+    # Use pre-existing filtered dataset, or extract from big dataset
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
     else:
         store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
         panda = store.select('input')
-        del panda['nions']
+        del panda['nions']  # Delete leftover artifact from dataset split
         df = store.select(train_dim)
         timediff(start, 'Dataset loaded')
         panda[train_dim] = df
@@ -315,6 +317,7 @@ def train():
         #panda = load_hdf5('filteredfull.h5')
     timediff(start, 'Dataset filtered')
 
+    # Use pre-existing splitted dataset, or split in train, validation and test
     train_dim = panda.columns[-1]
     scan_dims = panda.columns[:-1]
     if os.path.exists('splitted.h5'):
@@ -327,7 +330,7 @@ def train():
     datasets.astype('float64')
     timediff(start, 'Dataset split')
 
-    # Get a slice of the data to visualize convergence
+    # Get a (random) slice of the data to visualize convergence
     slice_dict = {
         'qx': 1.5,
         'smag': .7,
@@ -355,6 +358,7 @@ def train():
                            [None, len(scan_dims)], name='x-input')
         y_ = tf.placeholder(x.dtype, [None, 1], name='y-input')
 
+    # Define NN structure
     nodes1 = 30
     nodes2 = 30
     nodes3 = 30
@@ -378,7 +382,7 @@ def train():
     #    tf.summary.scalar('dropout_keep_probability', keep_prob)
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
-    # Scale all output between -1 and 1
+    # All output scaled between -1 and 1, denomalize it
     y_scaled = nn_layer(hidden3, 1, 'layer4', dtype=x.dtype)
     with tf.name_scope('denormalize'):
         out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
@@ -395,10 +399,11 @@ def train():
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
             #l2_norm = tf.reduce_sum(tf.square())
-            l2_norm = tf.to_double(tf.add_n(
-                [tf.reduce_sum(tf.square(var))
-                 for var in tf.trainable_variables()]))
+            l2_norm = tf.to_double(
+                tf.add_n([tf.reduce_sum(tf.square(var))
+                          for var in tf.trainable_variables()]))
             #mse = tf.losses.mean_squared_error(y_, y)
+            # TODO: Check normalization
             l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
             tf.summary.scalar('l2_norm', l2_norm)
             tf.summary.scalar('l2_scale', l2_scale)
@@ -454,6 +459,7 @@ def train():
     epoch = 0
 
     timediff(start, 'Starting loss calculation')
+    # This is dependent on dataset size
     batch_size = 300000
     step_per_report = 1
     xs, ys = datasets.train.next_batch(batch_size)
