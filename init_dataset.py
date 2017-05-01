@@ -1,5 +1,5 @@
 #from train_NDNN import filter_panda, convert_panda, Datasets
-from IPython import embed
+#from IPython import embed
 import os
 import shutil
 import tarfile
@@ -8,21 +8,29 @@ import numpy as np
 
 store_name = 'everything_nions0.h5'
 filtered_store_name = 'filtered_' + store_name
-list_train_dims = ['efe_GB',
-                   'efeETG_GB',
-                   ['efe_GB', 'min', 'efeETG_GB'],
-                   'efi_GB',
-                   ['vte_GB', 'plus', 'vce_GB'],
-                   ['vti_GB', 'plus', 'vci_GB'],
-                   'dfe_GB',
-                   'dfi_GB',
-                   'vte_GB',
-                   'vce_GB',
-                   'vti_GB',
-                   'vci_GB',
-                   'gam_GB_less2max',
-                   'gam_GB_leq2max']
+#list_train_dims = ['efe_GB',
+#                   'efeETG_GB',
+#                   ['efe_GB', 'min', 'efeETG_GB'],
+#                   'efi_GB',
+#                   ['vte_GB', 'plus', 'vce_GB'],
+#                   ['vti_GB', 'plus', 'vci_GB'],
+#                   'dfe_GB',
+#                   'dfi_GB',
+#                   'vte_GB',
+#                   'vce_GB',
+#                   'vti_GB',
+#                   'vci_GB',
+#                   'gam_GB_less2max',
+#                   'gam_GB_leq2max']
 
+list_train_dims = ['efe_GB',
+                   'efi_GB',
+                   'efeETG_GB',
+                   'efeITG_GB',
+                   'efeTEM_GB',
+                   'efiITG_GB',
+                   'efiTEM_GB'
+                   ]
 
 def create_folders():
     try:
@@ -73,17 +81,24 @@ def filter_all():
 
     filtered_store = pd.HDFStore(filtered_store_name, 'a')
     # Define filter
-    embed()
     max = 60
+    min = 0
     try:
         index = filtered_store.get('index')
     except KeyError:
-        index = totflux.index[(0 < totflux['efe_GB']) &
-                              (totflux['efe_GB'] < max) &
-                              (0 < totflux['efi_GB']) &
-                              (totflux['efi_GB'] < max) &
-                              (input['Zeffx'] == 1.0) &
-                              (np.isclose(input['Nustar'], 1e-3, atol=1e-5))]
+        index = input.index[(
+                             np.isclose(input['x'], 0.15 * 3,  atol=1e-5, rtol=1e-3) &
+                             np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
+                             np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
+                             )]
+        sepflux = sepflux.loc[index]
+        for flux in ['efeETG_GB',
+                     'efeITG_GB',
+                     'efeTEM_GB',
+                     'efiITG_GB',
+                     'efiTEM_GB']:
+
+            index = sepflux.index[(sepflux[flux] > min) & (sepflux[flux] < max)]
         # Save index
         filtered_store.put('index', index.to_series())
 
@@ -93,17 +108,20 @@ def filter_all():
         print('processing input')
         input = input.loc[index]
         input = input.loc[:, (input != input.iloc[0]).any()] # Filter constant values
+        if input['Ate'].equals(input['Ati']):
+            del input['Ati']
+            input = input.rename(columns={'Ate': 'At'})
         filtered_store.put('input', input)
 
     print('processing gam')
-    name = 'gam_GB_leq2max'
     for gam_store, name in zip([gam_leq, gam_less], ['gam_GB_leq2max', 'gam_GB_less2max']):
-        try:
-            filtered_store.get(name)
-        except KeyError:
-            filtered_store.put(name, gam_store.loc[index])
-        finally:
-            list_train_dims.remove(name)
+        if name in list_train_dims:
+            try:
+                filtered_store.get(name)
+            except KeyError:
+                filtered_store.put(name, gam_store.loc[index])
+            finally:
+                list_train_dims.remove(name)
 
     not_done = []
     for train_dims in list_train_dims:

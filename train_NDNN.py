@@ -58,6 +58,7 @@ class Dataset():
             # Finished epoch
             self._epochs_completed += 1
             # Shuffle the data
+            # TODO: Use panda_shuffle function
             if shuffle:
                 perm = np.arange(self._num_examples)
                 np.random.shuffle(perm)
@@ -140,11 +141,10 @@ def slice_plotter(features, target, estimate):
 
 
 def convert_panda(panda, frac_validation, frac_test, features_names,
-                  target_name, shuffle=True):
+                  target_name):
     total_size = panda.shape[0]
     # Dataset might be ordered. Shuffle to be sure
-    if shuffle:
-        panda = shuffle_panda(panda)
+    panda = shuffle_panda(panda)
     validation_size = int(frac_validation * total_size)
     test_size = int(frac_test * total_size)
     train_size = total_size - validation_size - test_size
@@ -259,39 +259,6 @@ def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid,
         return activations
 
 
-def load_hdf5(path):
-    """ Loads a pandas-style hdf5 file, with checkpoints
-    """
-    if os.path.exists('filtered.h5'):
-        panda = pd.read_hdf('filtered.h5')
-    else:
-        try:
-            os.remove('splitted.h5')
-        except:
-            pass
-        panda = pd.read_hdf(path)
-        panda = filter_panda(panda)
-    return panda
-
-
-def filter_panda(panda):
-    train_dim = panda.columns[-1]
-    if 'efe' in train_dim or 'efi' in train_dim:
-        panda = panda[panda[train_dim] < 60]
-        panda = panda[panda[train_dim] > 0]
-    panda = panda[panda[train_dim] != 0]
-    #panda = panda[np.isclose(panda['An'], 2)]
-    #panda = panda[np.isclose(panda['x'], 3*.15, rtol=1e-2)]
-    #panda = panda[np.isclose(panda['Ti_Te'], 1)]
-    #panda = panda[np.isclose(panda['Nustar'], 1e-2, rtol=1e-2)]
-    #panda = panda[np.isclose(panda['Zeffx'], 1)]
-    for col in panda:
-        if len(np.unique(panda[col])) == 1 and col != train_dim:
-            del panda[col]
-    panda.to_hdf('filtered.h5', 'filtered', format='t')
-    return panda
-
-
 def normab(panda, a, b):
     return ((b - a) / (panda.max() - panda.min()),
             (b - a) * panda.min() / (panda.max() - panda.min()) + a)
@@ -299,22 +266,23 @@ def normab(panda, a, b):
 
 def train():
     # Import data
-    shuffle = True
     start = time.time()
     # Get train dimension from path name
     train_dim = os.path.basename(os.getcwd())
+    train_dim = 'efe_GB'
     # Use pre-existing filtered dataset, or extract from big dataset
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
     else:
         store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
         panda = store.select('input')
-        del panda['nions']  # Delete leftover artifact from dataset split
+        try:
+            del panda['nions']  # Delete leftover artifact from dataset split
+        except KeyError:
+            pass
         df = store.select(train_dim)
         timediff(start, 'Dataset loaded')
         panda[train_dim] = df
-        #panda = filter_panda(panda)
-        #panda = load_hdf5('filteredfull.h5')
     timediff(start, 'Dataset filtered')
 
     # Use pre-existing splitted dataset, or split in train, validation and test
@@ -323,21 +291,21 @@ def train():
     if os.path.exists('splitted.h5'):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
-        datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim,
-                                 shuffle=shuffle)
+        datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
     datasets.astype('float64')
     timediff(start, 'Dataset split')
 
     # Get a (random) slice of the data to visualize convergence
+    # TODO: Make general
     slice_dict = {
         'qx': 1.5,
         'smag': .7,
-        'Ti_Te': 1,
+    #    'Ti_Te': 1,
         'An': 2,
-        'x': 3 * .15,
-        'Nustar': 1e-2,
+    #    'x': 3 * .15,
+    #    'Nustar': 1e-2,
         'Zeffx': 1}
 
     slice_ = panda
@@ -347,7 +315,7 @@ def train():
                                        slice_dict[col], rtol=1e-2)]
         except:
             pass
-    slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
+    #slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
 
     # Start tensorflow session
     sess = tf.InteractiveSession()
@@ -356,7 +324,7 @@ def train():
     with tf.name_scope('input'):
         x = tf.placeholder(datasets.train._target.dtypes.iloc[0],
                            [None, len(scan_dims)], name='x-input')
-        y_ = tf.placeholder(x.dtype, [None, 1], name='y-input')
+        y_ds = tf.placeholder(x.dtype, [None, 1], name='y-input')
 
     # Define NN structure
     nodes1 = 30
@@ -394,7 +362,7 @@ def train():
     # Define loss functions
     with tf.name_scope('Loss'):
         with tf.name_scope('mse'):
-            mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_, y))))
+            mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_ds, y))))
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
@@ -460,10 +428,10 @@ def train():
 
     timediff(start, 'Starting loss calculation')
     # This is dependent on dataset size
-    batch_size = 300000
+    batch_size = int(np.floor(datasets.train.num_examples/10))
     step_per_report = 1
     xs, ys = datasets.train.next_batch(batch_size)
-    feed_dict = {x: xs, y_: ys}
+    feed_dict = {x: xs, y_ds: ys}
     summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
     print()
@@ -483,7 +451,7 @@ def train():
             if datasets.train.epochs_completed > epoch:
                 epoch = datasets.train.epochs_completed
                 xs, ys = datasets.test.next_batch(-1, shuffle=False)
-                feed_dict = {x: xs, y_: ys}
+                feed_dict = {x: xs, y_ds: ys}
                 run_options = tf.RunOptions(
                     trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
@@ -504,7 +472,7 @@ def train():
 
                 # Write image summaries
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
-                ests = y.eval({x: xs, y_: ys})
+                ests = y.eval({x: xs, y_ds: ys})
                 feed_dict = {error_scatter_buf_ph:
                              error_scatter(ys, ests).getvalue()}
                 summary = sess.run(error_scatter_summaries[num_image],
@@ -552,7 +520,7 @@ def train():
                     print('Not improved for %s epochs, stopping..'
                           % (early_stop))
                     break
-            else:
+            else: # If NOT epoch done
                 if not ii % step_per_report:
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
@@ -561,7 +529,7 @@ def train():
                     run_options = None
                     run_metadata = None
                 xs, ys = datasets.train.next_batch(batch_size)
-                feed_dict = {x: xs, y_: ys}
+                feed_dict = {x: xs, y_ds: ys}
                 if optimizer:
                     #optimizer.minimize(sess, feed_dict=feed_dict)
                     optimizer.minimize(sess,
@@ -613,19 +581,19 @@ def train():
 
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
-    ests = y.eval({x: xs, y_: ys})
+    ests = y.eval({x: xs, y_ds: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
-    rms_val = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    rms_val = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
     plt.plot(line_x, line_x)
     plt.scatter(ys, ests)
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
-    rms_test = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    rms_test = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
     print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
     xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    rms_train = np.round(np.sqrt(mse.eval({x: xs, y_: ys})), 2)
+    rms_train = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
     print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
     sp_result = subprocess.run('git rev-parse HEAD',
