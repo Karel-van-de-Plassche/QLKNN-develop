@@ -1,9 +1,10 @@
 #from train_NDNN import filter_panda, convert_panda, Datasets
-#from IPython import embed
+from IPython import embed
 import os
 import shutil
 import tarfile
 import pandas as pd
+import numpy as np
 
 store_name = 'everything_nions0.h5'
 filtered_store_name = 'filtered_' + store_name
@@ -44,10 +45,9 @@ def create_folders():
                                 filtered_store_name),
                    os.path.join(dir, filtered_store_name))
 
-
-def extract_nns():
+def extract_nns(path):
     tar = tarfile.open("nns.tar.gz", "w:gz")
-    root = os.path.join(os.curdir, 'nns')
+    root = os.path.join(os.curdir, path)
     for train_dims in list_train_dims:
         if train_dims.__class__ == str:
             name = train_dims
@@ -71,36 +71,54 @@ def filter_all():
     gam_less = store['/megarun1/gam_GB_less2max']
     gam_leq = store['/megarun1/gam_GB_leq2max']
 
-    # Define filter
-    max = 60
-    index = totflux.index[(0 < totflux['efe_GB']) &
-                          (totflux['efe_GB'] < max) &
-                          (0 < totflux['efi_GB']) &
-                          (totflux['efi_GB'] < max)]
     filtered_store = pd.HDFStore(filtered_store_name, 'a')
-    #index = filtered_store.get('index')
-    filtered_store.put('gam_GB_leq2max', gam_leq.loc[index])
-    filtered_store.put('gam_GB_less2max', gam_less.loc[index])
-    list_train_dims.remove('gam_GB_less2max')
-    list_train_dims.remove('gam_GB_leq2max')
+    # Define filter
+    embed()
+    max = 60
+    try:
+        index = filtered_store.get('index')
+    except KeyError:
+        index = totflux.index[(0 < totflux['efe_GB']) &
+                              (totflux['efe_GB'] < max) &
+                              (0 < totflux['efi_GB']) &
+                              (totflux['efi_GB'] < max) &
+                              (input['Zeffx'] == 1.0) &
+                              (np.isclose(input['Nustar'], 1e-3, atol=1e-5))]
+        # Save index
+        filtered_store.put('index', index.to_series())
 
-    # Save index
-    filtered_store.put('index', index.to_series())
-    filtered_store.put('input', input.loc[index])
+    try:
+        input = filtered_store.get('input')
+    except KeyError:
+        print('processing input')
+        input = input.loc[index]
+        input = input.loc[:, (input != input.iloc[0]).any()] # Filter constant values
+        filtered_store.put('input', input)
+
+    print('processing gam')
+    name = 'gam_GB_leq2max'
+    for gam_store, name in zip([gam_leq, gam_less], ['gam_GB_leq2max', 'gam_GB_less2max']):
+        try:
+            filtered_store.get(name)
+        except KeyError:
+            filtered_store.put(name, gam_store.loc[index])
+        finally:
+            list_train_dims.remove(name)
 
     not_done = []
     for train_dims in list_train_dims:
         name = None
         set = None
+        print('starting on')
+        print(train_dims)
         if train_dims.__class__ == str:
             if train_dims in totflux:
                 set = totflux
             elif train_dims in sepflux:
                 set = sepflux
-
-            if set:
+            if set is not None:
                 name = train_dims
-                df = totflux[train_dims].loc[index]
+                df = set[train_dims].loc[index]
                 if name == 'efe_GB':
                     efe_GB = df
         else:
@@ -112,9 +130,10 @@ def filter_all():
                     df = df1 + df2
                 elif train_dims[1] == 'min':
                     df = df1 - df2
-        if name:
+        if name is not None:
             print('putting ' + name)
-            filtered_store.put(name, df)
+            filtered_store.put(name, df.squeeze())
+            print('putting ' + name + ' done')
         else:
             not_done.append(train_dims)
     del totflux
@@ -129,9 +148,10 @@ def filter_all():
                 df = df1 + df2
             elif train_dims[1] == 'min':
                 df = df1 - df2
-        if name:
+        if name is not None:
             print('putting ' + name)
-            filtered_store.put(name, df)
+            filtered_store.put(name, df.squeeze())
+            print('putting ' + name + ' done')
         else:
             really_not_done.append(train_dims)
 
@@ -140,7 +160,8 @@ def filter_all():
         print(really_not_done)
 
 
-filter_all()
-create_folders()
 #extract_nns()
+filter_all()
+#create_folders()
+#extract_nns('9D_RAPTOR_NNs')
 print('Script done')
