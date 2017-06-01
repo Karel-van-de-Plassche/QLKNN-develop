@@ -8,29 +8,16 @@ import numpy as np
 
 store_name = 'everything_nions0.h5'
 filtered_store_name = 'filtered_' + store_name
-#list_train_dims = ['efe_GB',
-#                   'efeETG_GB',
-#                   ['efe_GB', 'min', 'efeETG_GB'],
-#                   'efi_GB',
-#                   ['vte_GB', 'plus', 'vce_GB'],
-#                   ['vti_GB', 'plus', 'vci_GB'],
-#                   'dfe_GB',
-#                   'dfi_GB',
-#                   'vte_GB',
-#                   'vce_GB',
-#                   'vti_GB',
-#                   'vci_GB',
-#                   'gam_GB_less2max',
-#                   'gam_GB_leq2max']
 
 list_train_dims = ['efe_GB',
                    'efi_GB',
+                   'efiITG_GB',
+                   'efiTEM_GB',
                    'efeETG_GB',
                    'efeITG_GB',
                    'efeTEM_GB',
-                   'efiITG_GB',
-                   'efiTEM_GB'
-                   ]
+                   'gam_GB_less2max',
+                   'gam_GB_leq2max']
 
 def create_folders():
     try:
@@ -87,18 +74,9 @@ def filter_all():
         index = filtered_store.get('index')
     except KeyError:
         index = input.index[(
-                             np.isclose(input['x'], 0.15 * 3,  atol=1e-5, rtol=1e-3) &
                              np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
                              np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
                              )]
-        sepflux = sepflux.loc[index]
-        for flux in ['efeETG_GB',
-                     'efeITG_GB',
-                     'efeTEM_GB',
-                     'efiITG_GB',
-                     'efiTEM_GB']:
-
-            index = sepflux.index[(sepflux[flux] > min) & (sepflux[flux] < max)]
         # Save index
         filtered_store.put('index', index.to_series())
 
@@ -140,14 +118,25 @@ def filter_all():
                 if name == 'efe_GB':
                     efe_GB = df
         else:
-            if train_dims[0] in totflux and train_dims[2] in totflux:
+            if train_dims[0] in totflux:
+                set0 = totflux
+            elif train_dims[0] in sepflux:
+                set0 = sepflux
+            if train_dims[2] in totflux:
+                set2 = totflux
+            elif train_dims[2] in sepflux:
+                set2 = sepflux
                 name = '_'.join(train_dims)
-                df1 = totflux[train_dims[0]].loc[index]
-                df2 = totflux[train_dims[2]].loc[index]
+                df1 = set0[train_dims[0]].loc[index]
+                df2 = set2[train_dims[2]].loc[index]
                 if train_dims[1] == 'plus':
                     df = df1 + df2
                 elif train_dims[1] == 'min':
                     df = df1 - df2
+                elif train_dims[1] == 'div':
+                    df = df1 / df2
+                elif train_dims[1] == 'times':
+                    df = df1 * df2
         if name is not None:
             print('putting ' + name)
             filtered_store.put(name, df.squeeze())
