@@ -20,7 +20,7 @@ list_train_dims = ['efe_GB',
                    'gam_GB_less2max',
                    'gam_GB_leq2max']
 
-def create_folders():
+def create_folders(store_name):
     try:
         shutil.rmtree('nns')
     except FileNotFoundError:
@@ -37,9 +37,9 @@ def create_folders():
         os.mkdir(dir)
         os.symlink(os.path.abspath('train_NDNN.py'),
                    os.path.join(dir, 'train_NDNN.py'))
-        os.symlink(os.path.join('/home/kvdplassche/working/nn_data',
-                                filtered_store_name),
-                   os.path.join(dir, filtered_store_name))
+        os.symlink(os.path.join(os.path.abspath(os.curdir),
+                                store_name),
+                   os.path.join(dir, store_name))
 
 def extract_nns(path):
     tar = tarfile.open("nns.tar.gz", "w:gz")
@@ -211,7 +211,7 @@ def filter_individual(store_name):
         newstore[name] = var
 #extract_nns()
 #filter_all('everything_nions0.h5')
-filter_individual('clipped_nions0_zeffx1_nustar1e-3_sepfluxes.h5')
-#create_folders()
+#filter_individual('clipped_nions0_zeffx1_nustar1e-3_sepfluxes.h5')
+#create_folders('filtered_everything_nions0.h5')
 #extract_nns('9D_RAPTOR_NNs')
 print('Script done')

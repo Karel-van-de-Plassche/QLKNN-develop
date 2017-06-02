@@ -25,7 +25,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-#from IPython import embed
+from IPython import embed
 import json
 from run_model import QuaLiKizNDNN
 
@@ -275,14 +275,15 @@ def train():
         panda = pd.read_hdf('filtered.h5')
     else:
         store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
-        panda = store.select('input')
+        panda = store.select(train_dim)
+        input = store.select('input')
         try:
-            del panda['nions']  # Delete leftover artifact from dataset split
+            del input['nions']  # Delete leftover artifact from dataset split
         except KeyError:
             pass
-        df = store.select(train_dim)
+        input = input.loc[panda.index]
+        panda = pd.concat([input, panda], axis=1)
         timediff(start, 'Dataset loaded')
-        panda[train_dim] = df
     timediff(start, 'Dataset filtered')
 
     # Use pre-existing splitted dataset, or split in train, validation and test
@@ -534,8 +535,9 @@ def train():
                     #optimizer.minimize(sess, feed_dict=feed_dict)
                     optimizer.minimize(sess,
                                        feed_dict=feed_dict,
-                                       options=run_options,
-                                       run_metadata=run_metadata)
+                    #                   options=run_options,
+                    #                   run_metadata=run_metadata)
+                                      )
                     ce = loss.eval(feed_dict=feed_dict)
                     meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
