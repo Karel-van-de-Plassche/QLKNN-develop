@@ -70,7 +70,7 @@ def filter_all(store_name):
     filtered_store = pd.HDFStore('filtered' + store_name, 'a')
     # Define filter
     max = 60
-    min = 0
+    min = 0.1
     try:
         index = filtered_store.get('index')
     except KeyError:
