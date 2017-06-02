@@ -30,6 +30,8 @@ list_train_dims = ['efe_GB',
                              )]
 
 # sepflux based filter
+    max = 60
+    min = 0
         sepflux = sepflux.loc[index]
         for flux in ['efeETG_GB',
                      'efeITG_GB',
