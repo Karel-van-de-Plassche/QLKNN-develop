@@ -32,6 +32,8 @@ def create_folders(store_name):
             name = train_dims
         else:
             name = '_'.join(train_dims)
+        if 'gam' in name:
+            continue
         print(name)
         dir = os.path.join(root, name)
         os.mkdir(dir)
@@ -67,7 +69,7 @@ def filter_all(store_name):
     gam_less = store['/megarun1/gam_GB_less2max']
     gam_leq = store['/megarun1/gam_GB_leq2max']
 
-    filtered_store = pd.HDFStore('filtered' + store_name, 'a')
+    filtered_store = pd.HDFStore('filtered_' + store_name, 'w')
     # Define filter
     max = 60
     min = 0.1
@@ -113,7 +115,7 @@ def filter_all(store_name):
             try:
                 filtered_store.get(name)
             except KeyError:
-                filtered_store.put(name, gam_store.loc[index])
+                filtered_store.put(name, gam_store.loc[index].squeeze())
             finally:
                 list_train_dims.remove(name)
 
@@ -153,13 +155,13 @@ def filter_all(store_name):
                 df = df1 / df2
             elif train_dims[1] == 'times':
                 df = df1 * df2
+            df.name = name
         if name is not None:
             print('putting ' + name)
             filtered_store.put(name, df.squeeze())
             print('putting ' + name + ' done')
         else:
             not_done.append(train_dims)
-    del totflux
 
     #really_not_done = []
     #for train_dims in not_done:
@@ -181,6 +183,8 @@ def filter_all(store_name):
     if len(not_done) != 0:
         print('Some filtering failed..')
         print(not_done)
+    store.close()
+    filtered_store.close()
 
 def filter_individual(store_name):
     store = pd.HDFStore(store_name, 'r')
@@ -195,13 +199,13 @@ def filter_individual(store_name):
             var = var.loc[var != 0]
         if 'efi' in name and 'efe' not in name:
             print('efi_style')
-            var = var.loc[(gam_less != 0).iloc[:, 0]]
+            var = var.loc[gam_less != 0]
         elif 'efe' in name and 'efi' not in name:
             print('efe_style')
-            var = var.loc[(gam_leq != 0).iloc[:, 0]]
+            var = var.loc[gam_leq != 0]
         elif 'efe' in name and 'efi' in name:
             print('mixed_style')
-            var = var.loc[(gam_less != 0).iloc[:, 0]]
+            var = var.loc[gam_less != 0]
             var = var.loc[(var != np.inf) & (var != -np.inf) & (var != np.nan)]
         elif 'index' in name:
             pass
@@ -209,9 +213,11 @@ def filter_individual(store_name):
             print('weird_style')
             pass
         newstore[name] = var
+    store.close()
+    newstore.close()
 #extract_nns()
 #filter_all('everything_nions0.h5')
-#filter_individual('clipped_nions0_zeffx1_nustar1e-3_sepfluxes.h5')
+#filter_individual('filtered_everything_nions0.h5')
 #create_folders('filtered_everything_nions0.h5')
-#extract_nns('9D_RAPTOR_NNs')
+extract_nns('7D_filtered_NNs')
 print('Script done')
