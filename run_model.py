@@ -82,6 +82,51 @@ class QuaLiKizMultiNN():
             feature_min = nn.feature_min.combine(feature_min, max)
         return feature_min
 
+class QuaLiKizComboNN():
+    def __init__(self, target_name, nns, combo_func):
+        self._nns = nns
+        feature_names = nns[0]
+        for nn in self._nns:
+            if np.all(nn.feature_names.ne(feature_names)):
+                Exception('Supplied NNs have different feature names')
+        if np.any(self.feature_min > self.feature_max):
+            raise Exception('Feature min > feature max')
+
+        self._combo_func = combo_func
+        self._target_name = target_name
+
+    def get_output(self, **kwargs):
+        output = pd.DataFrame()
+        #output1 = self._nn1.get_output(**kwargs).values
+        #output2 = self._nn2.get_output(**kwargs).values
+        #output[self._target_name] = np.squeeze(self._combo_func(output1, output2))
+        output[self._target_name] = np.squeeze(self._combo_func(*[nn.get_output(**kwargs).as_matrix() for nn in self._nns]))
+        return output
+
+    @property
+    def target_names(self):
+        return [self._target_name]
+
+    @property
+    def feature_names(self):
+        return self._nns[0].feature_names
+
+    @property
+    def feature_max(self):
+        feature_max = pd.Series(np.full_like(self._nns[0].feature_max, np.inf),
+                                index=self._nns[0].feature_max.index)
+        for nn in self._nns:
+            feature_max = nn.feature_max.combine(feature_max, min)
+        return feature_max
+
+    @property
+    def feature_min(self):
+        feature_min = pd.Series(np.full_like(self._nns[0].feature_min, -np.inf),
+                                index=self._nns[0].feature_min.index)
+        for nn in self._nns:
+            feature_min = nn.feature_min.combine(feature_min, max)
+        return feature_min
+
 class QuaLiKizDuoNN():
     def __init__(self, target_name, nn1, nn2, combo_func):
         self._nn1 = nn1
@@ -215,7 +260,6 @@ class QuaLiKizNDNN():
 
         if any(kwargs):
             for name in kwargs:
-                print(name)
                 warn('input dict not fully parsed! Did not use ' + name)
         return output
 
