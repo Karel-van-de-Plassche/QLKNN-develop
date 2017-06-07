@@ -178,7 +178,7 @@ class QuaLiKizNDNN():
                 parsed[name] = dict(value)
         # These variables do not depend on the amount of layers in the NN
         for name in ['prescale_bias', 'prescale_factor', 'feature_min',
-                     'feature_max', 'feature_names', 'target_names']:
+                     'feature_max', 'feature_names', 'target_names', 'target_min', 'target_max']:
             setattr(self, name, pd.Series(parsed.pop(name), name=name))
         self.layers = []
         # Now find out the amount of layers in our NN, and save the weigths and biases
@@ -193,12 +193,17 @@ class QuaLiKizNDNN():
                 # This name does not exist in the JSON,
                 # so our previously read layer was the one
                 break
+        try:
+            self._clip_zeros = parsed['_metadata']['clip_bounds']
+        except KeyError:
+            self._clip_zeros = False
         # Ignore metadata
         try:
             del parsed['_metadata']
         except KeyError:
             pass
-        assert not any(parsed), 'nn_dict not fully parsed! ' + str(parsed)
+        if any(parsed):
+            warn('nn_dict not fully parsed! ' + str(parsed))
 
     def apply_layers(self, input):
         """ Apply all NN layers to the given input
@@ -225,7 +230,7 @@ class QuaLiKizNDNN():
             self.activation = activation 
 
         def apply(self, input):
-            preactivation = np.matmul(input, self.weight) + self.bias
+            preactivation = np.dot(input, self.weight) + self.bias
             result = self.activation(preactivation)
             return result
 
@@ -235,7 +240,7 @@ class QuaLiKizNDNN():
         def __str__(self):
             return ('NNLayer shape ' + str(self.shape()))
 
-    def get_output(self, **kwargs):
+    def get_output(self, clip_data=True, **kwargs):
         """ Calculate the output given a specific input
 
         This function accepts inputs in the form of a dict with
@@ -257,6 +262,11 @@ class QuaLiKizNDNN():
         for name in self.target_names:
             nn_output = (np.squeeze(self.apply_layers(nn_input)) - self.prescale_bias[name]) / self.prescale_factor[name]
             output[name] = nn_output
+
+        if clip_data:
+            for name, column in output.items():
+                output[output < self.target_min[name]] = self.target_min[name]
+                output[output > self.target_max[name]] = self.target_max[name]
 
         if any(kwargs):
             for name in kwargs:
