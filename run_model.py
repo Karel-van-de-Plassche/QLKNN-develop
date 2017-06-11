@@ -48,8 +48,9 @@ class QuaLiKizMultiNN():
         feature_min = np.inf
         for nn in self._nns:
             if len(nn.target_names) == 1:
-                name = nn.target_names[0]
-                results[name] = nn.get_output(**kwargs)
+                #name = nn.target_names[0]
+                out = nn.get_output(**kwargs)
+                results[out.columns] = nn.get_output(**kwargs)
             elif target in nn.target_names.values:
                 NotImplementedError('Multitarget not implemented yet')
 
@@ -162,7 +163,7 @@ class QuaLiKizDuoNN():
         return self._nn1.feature_min.combine(self._nn2.feature_min, max)
 
 class QuaLiKizNDNN():
-    def __init__(self, nn_dict):
+    def __init__(self, nn_dict, target_names_mask=None):
         """ General ND fully-connected multilayer perceptron neural network
 
         Initialize this class using a nn_dict. This dict is usually read 
@@ -194,12 +195,14 @@ class QuaLiKizNDNN():
                 # so our previously read layer was the one
                 break
         try:
-            self._clip_zeros = parsed['_metadata']['clip_bounds']
+            self._clip_bounds = parsed['_metadata']['clip_bounds']
         except KeyError:
-            self._clip_zeros = False
+            self._clip_bounds = False
+
+        self._target_names_mask = target_names_mask
         # Ignore metadata
         try:
-            del parsed['_metadata']
+            self._metadata = parsed.pop('_metadata')
         except KeyError:
             pass
         if any(parsed):
@@ -271,13 +274,16 @@ class QuaLiKizNDNN():
         if any(kwargs):
             for name in kwargs:
                 warn('input dict not fully parsed! Did not use ' + name)
+
+        if self._target_names_mask is not None:
+            output.columns = self._target_names_mask
         return output
 
     @classmethod
-    def from_json(cls, json_file):
+    def from_json(cls, json_file, **kwargs):
         with open(json_file) as file_:
             dict_ = json.load(file_)
-        nn = QuaLiKizNDNN(dict_)
+        nn = QuaLiKizNDNN(dict_, **kwargs)
         return nn
 
 if __name__ == '__main__':
