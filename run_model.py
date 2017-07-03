@@ -9,8 +9,8 @@ from warnings import warn
 def sigm_tf(x):
     return 1./(1 + np.exp(-1 * x))
 
-def sigm(x):
-    return 2./(1 + np.exp(-2 * x)) - 1
+#def sigm(x):
+#    return 2./(1 + np.exp(-2 * x)) - 1
 
 class QuaLiKizMultiNN():
     def __init__(self, nns):
@@ -163,7 +163,7 @@ class QuaLiKizDuoNN():
         return self._nn1.feature_min.combine(self._nn2.feature_min, max)
 
 class QuaLiKizNDNN():
-    def __init__(self, nn_dict, target_names_mask=None):
+    def __init__(self, nn_dict, activation=np.tanh, target_names_mask=None):
         """ General ND fully-connected multilayer perceptron neural network
 
         Initialize this class using a nn_dict. This dict is usually read 
@@ -188,7 +188,7 @@ class QuaLiKizNDNN():
                 name = 'layer' + str(ii)
                 weight = parsed.pop(name + '/weights/Variable:0')
                 bias = parsed.pop(name + '/biases/Variable:0')
-                activation = sigm
+                activation = activation
                 self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, activation))
             except KeyError:
                 # This name does not exist in the JSON,
@@ -243,7 +243,7 @@ class QuaLiKizNDNN():
         def __str__(self):
             return ('NNLayer shape ' + str(self.shape()))
 
-    def get_output(self, clip_data=True, **kwargs):
+    def get_output(self, clip_low=True, clip_high=True, low_bound=None, high_bound=None, **kwargs):
         """ Calculate the output given a specific input
 
         This function accepts inputs in the form of a dict with
@@ -266,10 +266,16 @@ class QuaLiKizNDNN():
             nn_output = (np.squeeze(self.apply_layers(nn_input)) - self.prescale_bias[name]) / self.prescale_factor[name]
             output[name] = nn_output
 
-        if clip_data:
+        if clip_low:
             for name, column in output.items():
-                output[output < self.target_min[name]] = self.target_min[name]
-                output[output > self.target_max[name]] = self.target_max[name]
+                if low_bound is None:
+                    low_bound = self.target_min[name]
+                output[output < low_bound] = low_bound
+        if clip_high:
+            for name, column in output.items():
+                if high_bound is None:
+                    high_bound = self.target_max[name]
+                output[output > high_bound] = high_bound
 
         if any(kwargs):
             for name in kwargs:
