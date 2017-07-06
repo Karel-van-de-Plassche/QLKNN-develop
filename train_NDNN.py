@@ -20,9 +20,7 @@ import tensorflow as tf
 from tensorflow.contrib import opt
 from tensorflow.python.client import timeline
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
+
 import numpy as np
 import pandas as pd
 from IPython import embed
@@ -115,31 +113,6 @@ class Datasets():
             setattr(self, name, getattr(self, name).astype(dtype))
         return self
 
-
-def error_scatter(target, estimate):
-    plt.figure()
-    plt.scatter(target, estimate)
-    line_x = np.linspace(float(target.min()), float(target.max()))
-    plt.plot(line_x, line_x)
-    #plt.scatter(real, estimate)
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
-    buf.seek(0)
-    plt.close()
-    return buf
-
-
-def slice_plotter(features, target, estimate):
-    plt.figure()
-    plt.scatter(features, target)
-    plt.plot(features, estimate)
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png')
-    buf.seek(0)
-    plt.close()
-    return buf
-
-
 def convert_panda(panda, frac_validation, frac_test, features_names,
                   target_name):
     total_size = panda.shape[0]
@@ -159,18 +132,6 @@ def convert_panda(panda, frac_validation, frac_test, features_names,
     return Datasets(train=datasets[0],
                     validation=datasets[1],
                     test=datasets[2])
-
-
-# TODO: It's just a tanh!
-def qualikiz_sigmoid(x, name=""):
-    with tf.name_scope('activation'):
-        act = (tf.divide(tf.constant(2, x.dtype),
-                         tf.add(tf.constant(1, x.dtype),
-                                tf.exp(tf.multiply(tf.constant(-2, x.dtype),
-                                                   x)))) -
-               tf.constant(1, x.dtype))
-    return act
-
 
 def split_panda(panda, frac=0.1):
     panda1 = panda.sample(frac=frac)
@@ -244,7 +205,7 @@ def variable_summaries(var):
         tf.summary.histogram('histogram', var)
 
 
-def nn_layer(input_tensor, output_dim, layer_name, act=qualikiz_sigmoid,
+def nn_layer(input_tensor, output_dim, layer_name, act=tf.tanh,
              dtype=tf.float32, debug=False):
     """Reusable code for making a simple neural net layer.
     It does a matrix multiply, bias add, and then uses relu to nonlinearize.
@@ -283,7 +244,7 @@ def train():
     start = time.time()
     # Get train dimension from path name
     train_dim = os.path.basename(os.getcwd())
-    train_dim = 'efeETG_GB'
+    train_dim = 'efe_GB'
     # Use pre-existing filtered dataset, or extract from big dataset
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
@@ -312,17 +273,17 @@ def train():
     datasets.astype('float64')
     timediff(start, 'Dataset split')
 
+    """
     # Get a (random) slice of the data to visualize convergence
     # TODO: Make general
     slice_dict = {
         'qx': 1.5,
         'smag': .7,
-        'Ti_Te': 1,
+    #    'Ti_Te': 1,
         'An': 2,
-        'x': 3 * .15,
+    #    'x': 3 * .15,
     #    'Nustar': 1e-2,
-    #    'Zeffx': 1
-    }
+        'Zeffx': 1}
 
     slice_ = panda
     for col in slice_:
@@ -332,6 +293,7 @@ def train():
         except:
             pass
     #slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
+    """
 
     # Start tensorflow session
     sess = tf.InteractiveSession()
@@ -343,9 +305,7 @@ def train():
         y_ds = tf.placeholder(x.dtype, [None, 1], name='y-input')
 
     # Define NN structure
-    nodes1 = 30
-    nodes2 = 30
-    nodes3 = 30
+    hidden_neurons = [30, 30, 30]
 
     # Scale all input between -1 and 1
     with tf.name_scope('normalize'):
@@ -357,9 +317,9 @@ def train():
     timediff(start, 'Scaling defined')
 
     # Define neural network
-    hidden1 = nn_layer(x_scaled, nodes1, 'layer1', dtype=x.dtype)
-    hidden2 = nn_layer(hidden1, nodes2, 'layer2', dtype=x.dtype)
-    hidden3 = nn_layer(hidden2, nodes3, 'layer3', dtype=x.dtype)
+    layers = [x_scaled]
+    for ii, neurons in enumerate(hidden_neurons):
+        layers.append(nn_layer(layers[-1], neurons, 'layer' + str(i), dtype=x.dtype))
 
     #with tf.name_scope('dropout'):
     #    keep_prob = tf.placeholder(tf.float32)
@@ -367,7 +327,7 @@ def train():
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
     # All output scaled between -1 and 1, denomalize it
-    y_scaled = nn_layer(hidden3, 1, 'layer4', dtype=x.dtype)
+    y_scaled = nn_layer(layers[-1], 1, 'layer4', dtype=x.dtype)
     with tf.name_scope('denormalize'):
         out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
         out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
@@ -400,39 +360,19 @@ def train():
     train_step = None
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
-        train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
+        #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
         #train_step = tf.train.AdadeltaOptimizer(
         #    FLAGS.learning_rate, 0.60).minimize(loss)
         #train_step = tf.train.RMSPropOptimizer(
         #    FLAGS.learning_rate).minimize(loss)
         #train_step = tf.train.GradientDescentOptimizer(
         #    FLAGS.learning_rate).minimize(loss)
-        #optimizer = opt.ScipyOptimizerInterface(loss,
-        #                                        options={'maxiter': 1000})
+        optimizer = opt.ScipyOptimizerInterface(loss,
+                                                options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs
     merged = tf.summary.merge_all()
-
-    # Define scatter plots
-    error_scatter_buf_ph = tf.placeholder(tf.string)
-    error_scatter_image = tf.image.decode_png(error_scatter_buf_ph, channels=4)
-    error_scatter_image = tf.expand_dims(error_scatter_image, 0)
-    error_scatter_summaries = []
-    # Define slice plots
-    slice_buf_ph = tf.placeholder(tf.string)
-    slice_image = tf.image.decode_png(slice_buf_ph, channels=4)
-    slice_image = tf.expand_dims(slice_image, 0)
-    slice_summaries = []
-    # Add images to tensorboard
-    num_image = 0
-    max_images = 8
-    for ii in range(max_images):
-        error_scatter_summaries.append(
-            tf.summary.image('error_scatter_' + str(ii),
-                             error_scatter_image, max_outputs=1))
-        slice_summaries.append(
-            tf.summary.image('slice_' + str(ii), slice_image, max_outputs=1))
 
     # Initialze writers and variables
     train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
@@ -486,34 +426,12 @@ def train():
                 #save_path = saver.save(sess, os.path.join(checkpoint_dir,
                 #'model.ckpt'), global_step=ii)
 
-                # Write image summaries
-                xs, ys = datasets.validation.next_batch(-1, shuffle=False)
-                ests = y.eval({x: xs, y_ds: ys})
-                feed_dict = {error_scatter_buf_ph:
-                             error_scatter(ys, ests).getvalue()}
-                summary = sess.run(error_scatter_summaries[num_image],
-                                   feed_dict=feed_dict)
-                test_writer.add_summary(summary, ii)
-
                 # Write checkpoint of NN
-                checkpoint_name = 'nn_checkpoint_' + str(epoch) + '.json'
-                model_to_json(checkpoint_name, scan_dims.values.tolist(),
+                model_to_json('nn_checkpoint.json', scan_dims.values.tolist(),
                               [train_dim],
                               datasets.train, scale_factor.astype('float64'),
-                              scale_bias.astype('float64'), l2_scale)
-                # Use checkpoint of NN to plot slice
-                nn = QuaLiKizNDNN.from_json(checkpoint_name)
-                fluxes = nn.get_output(**slice_[scan_dims])
-                feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'],
-                                                         slice_[train_dim],
-                                                         fluxes).getvalue()}
-                summary = sess.run(slice_summaries[num_image],
-                                   feed_dict=feed_dict)
-                test_writer.add_summary(summary, ii)
+                              scale_bias.astype('float64'))
 
-                num_image += 1
-                if num_image % max_images == 0:
-                    num_image = 0
                 print('{:5} {:07} {:23} {:5.0f}'.format('epoch',
                                                         epoch,
                                                         'mse is',
@@ -527,7 +445,7 @@ def train():
 
                 # Early stepping, check if MSE is better
                 if meanse < best_mse:
-                    copyfile(checkpoint_name, 'nn_best.json')
+                    copyfile('nn_checkpoint.json', 'nn_best.json')
                     best_mse = meanse
                     not_improved = 0
                 else:
@@ -579,8 +497,8 @@ def train():
                                                             ii,
                                                             'mse is',
                                                             np.round(meanse)))
-                    if np.isnan(ce):
-                        raise Exception('Loss is NaN! Stopping..')
+                if np.isnan(ce):
+                    raise Exception('Loss is NaN! Stopping..')
 
     except KeyboardInterrupt:
         print('KeyboardInterrupt Stopping..')
@@ -604,8 +522,6 @@ def train():
     line_x = np.linspace(float(ys.min()), float(ys.max()))
     rms_val = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
-    plt.plot(line_x, line_x)
-    plt.scatter(ys, ests)
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
@@ -618,7 +534,9 @@ def train():
     metadata = {'epoch': epoch,
                 'rms_validation': rms_val,
                 'rms_test': rms_test,
-                'rms_train': rms_train}
+                'rms_train': rms_train,
+                'nn_develop_version': nn_version,
+                'activation': '2/(1+exp(-2x))-1'}
 
     with open('nn.json') as nn_file:
         data = json.load(nn_file)

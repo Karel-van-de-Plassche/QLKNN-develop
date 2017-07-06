@@ -61,7 +61,7 @@ def extract_nns(path):
         dir = os.path.join(root, name)
         try:
             filename = 'nn_' + name + '.json'
-            tar.add(os.path.join(dir, 'nn_checkpoint.json'), 'nns/' + filename)
+            tar.add(os.path.join(dir, 'nn.json'), 'nns/' + filename)
         except OSError:
             print('NN not done')
 
@@ -78,6 +78,8 @@ def filter_all(store_name):
 
     filtered_store = pd.HDFStore('filtered_' + store_name, 'w')
     # Define filter
+    max = 60
+    min = 0.1
     try:
         index = filtered_store.get('index')
     except KeyError:
@@ -178,7 +180,6 @@ def filter_all(store_name):
 
 def filter_individual(store_name):
     store = pd.HDFStore(store_name, 'r')
-    input = store['input']
     newstore = pd.HDFStore('filtered_' + store_name, 'w')
     gam_leq = store['gam_leq_GB']
     gam_less = store['gam_less_GB']
@@ -201,7 +202,7 @@ def filter_individual(store_name):
         elif 'efe' in name and 'efi' in name:
             print('mixed_style')
             var = var.loc[gam_less != 0]
-            var = var.loc[(var != np.inf) & (var != -np.inf)]
+            var = var.loc[(var != np.inf) & (var != -np.inf) & (var != np.nan)]
         elif 'index' in name:
             print('index_style')
             pass
@@ -220,5 +221,5 @@ def filter_individual(store_name):
 filter_all('7D_nions0_flat.h5')
 #filter_individual('filtered_7D_nions0_flat.h5')
 #create_folders('filtered_everything_nions0.h5')
-#extract_nns('9D_RAPTOR_NNs')
+extract_nns('7D_filtered_NNs')
 print('Script done')
