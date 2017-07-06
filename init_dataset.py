@@ -17,8 +17,14 @@ list_train_dims = ['efe_GB',
                    ['efiITG_GB', 'plus', 'efeITG_GB'],
                    ['efiTEM_GB', 'div', 'efeTEM_GB'],
                    ['efiTEM_GB', 'plus', 'efeTEM_GB'],
-                   'gam_GB_less2max',
-                   'gam_GB_leq2max']
+                   ['efi_GB', 'div', 'efe_GB'],
+                   ['efi_GB', 'plus', 'efe_GB'],
+                    #'efi_GB_div_9_efe_GB_min_efeETG_GB_0',
+                    #'efi_GB_plus_9_efe_GB_min_efeETG_GB_0',
+                   ['efi_GB', 'div', '9', 'efe_GB', 'min', 'efeETF_GB', '0'],
+                   ['efi_GB', 'plus', '9', 'efe_GB', 'min', 'efeETF_GB', '0'],
+                   'gam_less_GB',
+                   'gam_leq_GB']
 
 def create_folders(store_name):
     try:
@@ -55,7 +61,7 @@ def extract_nns(path):
         dir = os.path.join(root, name)
         try:
             filename = 'nn_' + name + '.json'
-            tar.add(os.path.join(dir, 'nn.json'), 'nns/' + filename)
+            tar.add(os.path.join(dir, 'nn_checkpoint.json'), 'nns/' + filename)
         except OSError:
             print('NN not done')
 
@@ -63,16 +69,15 @@ def extract_nns(path):
 def filter_all(store_name):
     store = pd.HDFStore(store_name, 'r')
     # Pre-load everything
-    totflux = store['/megarun1/totflux']
+    #totflux = store['/megarun1/totflux']
     input = store['/megarun1/input']
-    sepflux = store['/megarun1/sepflux']
-    gam_less = store['/megarun1/gam_GB_less2max']
-    gam_leq = store['/megarun1/gam_GB_leq2max']
+    data = store['megarun1/flattened']
+    #sepflux = store['/megarun1/sepflux']
+    #gam_less = store['/megarun1/gam_GB_less2max']
+    #gam_leq = store['/megarun1/gam_GB_leq2max']
 
     filtered_store = pd.HDFStore('filtered_' + store_name, 'w')
     # Define filter
-    max = 60
-    min = 0.1
     try:
         index = filtered_store.get('index')
     except KeyError:
@@ -80,20 +85,19 @@ def filter_all(store_name):
                              np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
                              np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
                              )]
-        sepflux = sepflux.loc[index]
+        index = input.index
+        data = data.loc[index]
         for flux in ['efeETG_GB',
                      'efeITG_GB',
                      'efeTEM_GB',
                      'efiITG_GB',
-                     'efiTEM_GB']:
-
-            sepflux = sepflux.loc[(sepflux[flux] >= min) & (sepflux[flux] < max)]
-        index = sepflux.index
-        totflux = totflux.loc[index]
-        for flux in ['efe_GB',
+                     'efiTEM_GB',
+                     'efe_GB',
                      'efi_GB']:
-            totflux = totflux.loc[(totflux[flux] >= min) & (totflux[flux] < max)]
-        index = totflux.index
+            #data = data.loc[(data[flux] >= min) & (data[flux] < max)]
+            data = data.loc[(data[flux] >= 0)]
+            print(data.size)
+        index = data.index
 
         # Save index
         filtered_store.put('index', index.to_series())
@@ -109,89 +113,78 @@ def filter_all(store_name):
             input = input.rename(columns={'Ate': 'At'})
         filtered_store.put('input', input)
 
-    print('processing gam')
-    for gam_store, name in zip([gam_leq, gam_less], ['gam_GB_leq2max', 'gam_GB_less2max']):
-        if name in list_train_dims:
-            try:
-                filtered_store.get(name)
-            except KeyError:
-                filtered_store.put(name, gam_store.loc[index].squeeze())
-            finally:
-                list_train_dims.remove(name)
-
     not_done = []
+    min = 0.1
+    max = 60
     for train_dims in list_train_dims:
         name = None
-        set = None
         print('starting on')
         print(train_dims)
         if train_dims.__class__ == str:
-            if train_dims in totflux:
-                set = totflux
-            elif train_dims in sepflux:
-                set = sepflux
-            if set is not None:
-                name = train_dims
-                df = set[train_dims].loc[index]
-                if name == 'efe_GB':
-                    efe_GB = df
+            name = train_dims
+            if 'gam' not in name:
+                df = data[train_dims]
+                df = df.loc[(df > min) & (df < max)]
+            else:
+                df = data['gam_leq_GB']
         else:
-            if train_dims[0] in totflux:
-                set0 = totflux
-            elif train_dims[0] in sepflux:
-                set0 = sepflux
-            if train_dims[2] in totflux:
-                set2 = totflux
-            elif train_dims[2] in sepflux:
-                set2 = sepflux
-            name = '_'.join(train_dims)
-            df1 = set0[train_dims[0]].loc[index]
-            df2 = set2[train_dims[2]].loc[index]
-            if train_dims[1] == 'plus':
-                df = df1 + df2
-            elif train_dims[1] == 'min':
-                df = df1 - df2
-            elif train_dims[1] == 'div':
-                df = df1 / df2
-            elif train_dims[1] == 'times':
-                df = df1 * df2
-            df.name = name
+            if len(train_dims) == 3:
+                if train_dims[0] in data and train_dims[2] in data:
+                    name = '_'.join(train_dims)
+                    df1 = data[train_dims[0]]
+                    df2 = data[train_dims[2]]
+                    df1 = df1.loc[(df1 > min) & (df1 < max)]
+                    df2 = df2.loc[(df2 > min) & (df2 < max)]
+                    if train_dims[1] == 'plus':
+                        df = df1 + df2
+                    elif train_dims[1] == 'min':
+                        df = df1 - df2
+                    elif train_dims[1] == 'div':
+                        df = df1 / df2
+                    elif train_dims[1] == 'times':
+                        df = df1 * df2
         if name is not None:
             print('putting ' + name)
+            df.name = name
             filtered_store.put(name, df.squeeze())
             print('putting ' + name + ' done')
         else:
             not_done.append(train_dims)
 
-    #really_not_done = []
-    #for train_dims in not_done:
-    #    if train_dims[0] == 'efe_GB' and train_dims[2] == 'efeETG_GB':
-    #        name = '_'.join(train_dims)
-    #        df1 = efe_GB
-    #        df2 = sepflux[train_dims[2]].loc[index]
-    #        if train_dims[1] == 'plus':
-    #            df = df1 + df2
-    #        elif train_dims[1] == 'min':
-    #            df = df1 - df2
-    #    if name is not None:
-    #        print('putting ' + name)
-    #        filtered_store.put(name, df.squeeze())
-    #        print('putting ' + name + ' done')
-    #    else:
-    #        really_not_done.append(train_dims)
 
     if len(not_done) != 0:
         print('Some filtering failed..')
         print(not_done)
+
+    # some specials..
+    df1 = data['efi_GB']
+    df2 = data['efe_GB']
+    df3 = data['efeETG_GB']
+    df1 = df1.loc[(df1 > min) & (df1 < max)]
+    df2 = df2.loc[(df2 > min) & (df2 < max)]
+    df3 = df2.loc[(df3 > min) & (df3 < max)]
+    name = 'efi_GB_div_9_efe_GB_min_efeETG_GB_0'
+    df = (df1 / (df2 - df3))
+    df.name = name
+    filtered_store[name]  = df
+
+    name = 'efi_GB_plus_9_efe_GB_min_efeETG_GB_0'
+    df = (df1 + (df2 - df3))
+    df.name = name
+    filtered_store[name]  = df
+
     store.close()
     filtered_store.close()
 
 def filter_individual(store_name):
     store = pd.HDFStore(store_name, 'r')
+    input = store['input']
     newstore = pd.HDFStore('filtered_' + store_name, 'w')
-    gam_less = store['gam_GB_less2max']
-    gam_leq = store['gam_GB_leq2max']
+    gam_leq = store['gam_leq_GB']
+    gam_less = store['gam_less_GB']
     index = pd.Int64Index(store['index'])
+    min = 0.1
+    max = 60
     for name in store.keys():
         print(name)
         var = store[name]
@@ -199,25 +192,29 @@ def filter_individual(store_name):
             var = var.loc[var != 0]
         if 'efi' in name and 'efe' not in name:
             print('efi_style')
+            var = var.loc[(var > min) & (var < max)]
             var = var.loc[gam_less != 0]
         elif 'efe' in name and 'efi' not in name:
             print('efe_style')
+            var = var.loc[(var > min) & (var < max)]
             var = var.loc[gam_leq != 0]
         elif 'efe' in name and 'efi' in name:
             print('mixed_style')
             var = var.loc[gam_less != 0]
-            var = var.loc[(var != np.inf) & (var != -np.inf) & (var != np.nan)]
+            var = var.loc[(var != np.inf) & (var != -np.inf)]
         elif 'index' in name:
             pass
         else:
             print('weird_style')
             pass
+        if 'input' not in name:
+            var = var.loc[~var.isnull()]
         newstore[name] = var
     store.close()
     newstore.close()
 #extract_nns()
-#filter_all('everything_nions0.h5')
-#filter_individual('filtered_everything_nions0.h5')
+filter_all('7D_nions0_flat.h5')
+#filter_individual('filtered_7D_nions0_flat.h5')
 #create_folders('filtered_everything_nions0.h5')
-extract_nns('7D_filtered_NNs')
+#extract_nns('9D_RAPTOR_NNs')
 print('Script done')
