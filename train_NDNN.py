@@ -184,7 +184,7 @@ def shuffle_panda(panda):
 
 
 def model_to_json(name, feature_names, target_names,
-                  train_set, scale_factor, scale_bias):
+                  train_set, scale_factor, scale_bias, l2_scale):
     dict_ = {x.name: x.eval().tolist() for x in tf.trainable_variables()}
     dict_['prescale_factor'] = scale_factor.to_dict()
     dict_['prescale_bias'] = scale_bias.to_dict()
@@ -192,6 +192,20 @@ def model_to_json(name, feature_names, target_names,
     dict_['feature_max'] = dict(train_set._features.max())
     dict_['feature_names'] = feature_names
     dict_['target_names'] = target_names
+    dict_['target_min'] = dict(train_set._target.min())
+    dict_['target_max'] = dict(train_set._target.max())
+
+    sp_result = subprocess.run('git rev-parse HEAD',
+                               stdout=subprocess.PIPE,
+                               shell=True,
+                               check=True)
+    nn_version = sp_result.stdout.decode('UTF-8').strip()
+    metadata = {
+        'nn_develop_version': nn_version,
+        'activation': 'tanh(x)',
+        'c_L2': l2_scale.eval()
+    }
+    dict_['_metadata'] = metadata
 
     with open(name, 'w') as file_:
         json.dump(dict_, file_, sort_keys=True,
@@ -269,7 +283,7 @@ def train():
     start = time.time()
     # Get train dimension from path name
     train_dim = os.path.basename(os.getcwd())
-    train_dim = 'efe_GB'
+    train_dim = 'efeETG_GB'
     # Use pre-existing filtered dataset, or extract from big dataset
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
@@ -303,11 +317,12 @@ def train():
     slice_dict = {
         'qx': 1.5,
         'smag': .7,
-    #    'Ti_Te': 1,
+        'Ti_Te': 1,
         'An': 2,
-    #    'x': 3 * .15,
+        'x': 3 * .15,
     #    'Nustar': 1e-2,
-        'Zeffx': 1}
+    #    'Zeffx': 1
+    }
 
     slice_ = panda
     for col in slice_:
@@ -385,15 +400,15 @@ def train():
     train_step = None
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
-        #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
+        train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
         #train_step = tf.train.AdadeltaOptimizer(
         #    FLAGS.learning_rate, 0.60).minimize(loss)
         #train_step = tf.train.RMSPropOptimizer(
         #    FLAGS.learning_rate).minimize(loss)
         #train_step = tf.train.GradientDescentOptimizer(
         #    FLAGS.learning_rate).minimize(loss)
-        optimizer = opt.ScipyOptimizerInterface(loss,
-                                                options={'maxiter': 1000})
+        #optimizer = opt.ScipyOptimizerInterface(loss,
+        #                                        options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs
@@ -481,13 +496,14 @@ def train():
                 test_writer.add_summary(summary, ii)
 
                 # Write checkpoint of NN
-                model_to_json('nn_checkpoint.json', scan_dims.values.tolist(),
+                checkpoint_name = 'nn_checkpoint_' + str(epoch) + '.json'
+                model_to_json(checkpoint_name, scan_dims.values.tolist(),
                               [train_dim],
                               datasets.train, scale_factor.astype('float64'),
-                              scale_bias.astype('float64'))
+                              scale_bias.astype('float64'), l2_scale)
                 # Use checkpoint of NN to plot slice
-                nn = QuaLiKizNDNN.from_json('nn_checkpoint.json')
-                fluxes = nn.get_output(**slice_)
+                nn = QuaLiKizNDNN.from_json(checkpoint_name)
+                fluxes = nn.get_output(**slice_[scan_dims])
                 feed_dict = {slice_buf_ph: slice_plotter(slice_['Ate'],
                                                          slice_[train_dim],
                                                          fluxes).getvalue()}
@@ -511,7 +527,7 @@ def train():
 
                 # Early stepping, check if MSE is better
                 if meanse < best_mse:
-                    copyfile('nn_checkpoint.json', 'nn_best.json')
+                    copyfile(checkpoint_name, 'nn_best.json')
                     best_mse = meanse
                     not_improved = 0
                 else:
@@ -579,7 +595,8 @@ def train():
     model_to_json('nn.json', scan_dims.values.tolist(), [train_dim],
                   datasets.train,
                   scale_factor.astype('float64'),
-                  scale_bias.astype('float64'))
+                  scale_bias.astype('float64'),
+                  l2_scale)
 
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
@@ -598,22 +615,15 @@ def train():
     rms_train = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
     print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
-    sp_result = subprocess.run('git rev-parse HEAD',
-                               stdout=subprocess.PIPE,
-                               shell=True,
-                               check=True)
-    nn_version = sp_result.stdout.decode('UTF-8').strip()
     metadata = {'epoch': epoch,
                 'rms_validation': rms_val,
                 'rms_test': rms_test,
-                'rms_train': rms_train,
-                'nn_develop_version': nn_version,
-                'activation': '2/(1+exp(-2x))-1'}
+                'rms_train': rms_train}
 
     with open('nn.json') as nn_file:
         data = json.load(nn_file)
 
-    data['_metadata'] = metadata
+    data['_metadata'].update(metadata)
 
     with open('nn.json', 'w') as nn_file:
         json.dump(data, nn_file, sort_keys=True,
