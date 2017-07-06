@@ -203,6 +203,10 @@ def filter_individual(store_name):
             var = var.loc[gam_less != 0]
             var = var.loc[(var != np.inf) & (var != -np.inf)]
         elif 'index' in name:
+            print('index_style')
+            pass
+        elif 'input' in name:
+            print('input_style')
             pass
         else:
             print('weird_style')
