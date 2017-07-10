@@ -19,6 +19,7 @@ import subprocess
 import tensorflow as tf
 from tensorflow.contrib import opt
 from tensorflow.python.client import timeline
+from itertools import product
 
 
 import numpy as np
@@ -241,10 +242,16 @@ def normab(panda, a, b):
 
 def train():
     # Import data
+    settings = {'hidden_neurons': [30, 30, 30],
+                'scaling': 'minmax_0_1',
+                'cost_l2_scale': 0.1,
+                'early_stop_after': 2,
+                'optimizer_name': 'lbfgs'
+                }
     start = time.time()
     # Get train dimension from path name
     train_dim = os.path.basename(os.getcwd())
-    train_dim = 'efe_GB'
+    #train_dim = 'efe_GB'
     # Use pre-existing filtered dataset, or extract from big dataset
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
@@ -304,12 +311,12 @@ def train():
                            [None, len(scan_dims)], name='x-input')
         y_ds = tf.placeholder(x.dtype, [None, 1], name='y-input')
 
-    # Define NN structure
-    hidden_neurons = [30, 30, 30]
-
-    # Scale all input between -1 and 1
+    # Scale all input
     with tf.name_scope('normalize'):
-        scale_factor, scale_bias = normab(panda, 0, 1)
+        if settings['scaling'].startswith('minmax'):
+            min = float(settings['scaling'][-3])
+            max = float(settings['scaling'][-1])
+            scale_factor, scale_bias = normab(panda, min, max)
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
@@ -318,8 +325,8 @@ def train():
 
     # Define neural network
     layers = [x_scaled]
-    for ii, neurons in enumerate(hidden_neurons):
-        layers.append(nn_layer(layers[-1], neurons, 'layer' + str(i), dtype=x.dtype))
+    for ii, neurons in enumerate(settings['hidden_neurons'], start=1):
+        layers.append(nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype))
 
     #with tf.name_scope('dropout'):
     #    keep_prob = tf.placeholder(tf.float32)
@@ -327,7 +334,7 @@ def train():
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
     # All output scaled between -1 and 1, denomalize it
-    y_scaled = nn_layer(layers[-1], 1, 'layer4', dtype=x.dtype)
+    y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype)
     with tf.name_scope('denormalize'):
         out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
         out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
@@ -341,14 +348,14 @@ def train():
             mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_ds, y))))
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('l2'):
-            l2_scale = tf.Variable(.7, dtype=x.dtype, trainable=False)
+            l2_scale = tf.Variable(settings['cost_l2_scale'], dtype=x.dtype, trainable=False)
             #l2_norm = tf.reduce_sum(tf.square())
-            l2_norm = tf.to_double(
-                tf.add_n([tf.reduce_sum(tf.square(var))
-                          for var in tf.trainable_variables()]))
+            l2_norm = tf.to_double(tf.add_n([tf.nn.l2_loss(var)
+                                    for var in tf.trainable_variables()
+                                    if 'weights' in var.name]))
             #mse = tf.losses.mean_squared_error(y_, y)
             # TODO: Check normalization
-            l2_loss = l2_scale * tf.divide(l2_norm, tf.to_double(tf.size(y)))
+            l2_loss = l2_scale * l2_norm
             tf.summary.scalar('l2_norm', l2_norm)
             tf.summary.scalar('l2_scale', l2_scale)
             tf.summary.scalar('l2_loss', l2_loss)
@@ -360,53 +367,69 @@ def train():
     train_step = None
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
-        #train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
-        #train_step = tf.train.AdadeltaOptimizer(
-        #    FLAGS.learning_rate, 0.60).minimize(loss)
-        #train_step = tf.train.RMSPropOptimizer(
-        #    FLAGS.learning_rate).minimize(loss)
-        #train_step = tf.train.GradientDescentOptimizer(
-        #    FLAGS.learning_rate).minimize(loss)
-        optimizer = opt.ScipyOptimizerInterface(loss,
-                                                options={'maxiter': 1000})
+        if settings['optimizer_name'] == 'adam':
+            train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
+        elif settings['optimizer_name'] == 'adadelta':
+            train_step = tf.train.AdadeltaOptimizer(
+                FLAGS.learning_rate, 0.60).minimize(loss)
+        elif settings['optimizer_name'] == 'rmsprop':
+            train_step = tf.train.RMSPropOptimizer(
+                FLAGS.learning_rate).minimize(loss)
+        if settings['optimizer_name'] == 'grad':
+            train_step = tf.train.GradientDescentOptimizer(
+                FLAGS.learning_rate).minimize(loss)
+        if settings['optimizer_name'] == 'lbfgs':
+            optimizer = opt.ScipyOptimizerInterface(loss,
+                                                    options={'maxiter': 1000})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs
     merged = tf.summary.merge_all()
 
     # Initialze writers and variables
-    train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
-    test_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test', sess.graph)
+    log_dir = 'train_NDNN/logs'
+    if tf.gfile.Exists(log_dir):
+        tf.gfile.DeleteRecursively(log_dir)
+    tf.gfile.MakeDirs(log_dir)
+    train_writer = tf.summary.FileWriter(log_dir + '/train', sess.graph)
+    validation_writer = tf.summary.FileWriter(log_dir + '/validation', sess.graph)
     tf.global_variables_initializer().run()
     timediff(start, 'Variables initialized')
 
     epoch = 0
 
-    timediff(start, 'Starting loss calculation')
+    train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse'])
+    validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse'])
+
     # This is dependent on dataset size
     batch_size = int(np.floor(datasets.train.num_examples/10))
-    step_per_report = 1
-    xs, ys = datasets.train.next_batch(batch_size)
+
+    timediff(start, 'Starting loss calculation')
+    xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys}
-    summary, lo = sess.run([merged, loss], feed_dict=feed_dict)
+    summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
     print()
     print('epoch {:07} {:23} {:5.0f}'.format(epoch, 'loss is', np.round(lo)))
     print()
+    validation_log.loc[0] = (epoch, 0, lo, meanse)
 
     # Define variables for early stopping
     not_improved = 0
     best_mse = np.inf
-    early_stop = 0
-    saver = tf.train.Saver(max_to_keep=early_stop)
+
+    saver = tf.train.Saver(max_to_keep=settings['early_stop_after'])
     checkpoint_dir = 'checkpoints'
     tf.gfile.MkDir(checkpoint_dir)
+
+    step_per_report = 1
+    train_start = time.time()
     try:
-        for ii in range(FLAGS.max_steps):
+        for ii in range(sys.maxsize):
             # Write figures, summaries and check early stopping each epoch
             if datasets.train.epochs_completed > epoch:
                 epoch = datasets.train.epochs_completed
-                xs, ys = datasets.test.next_batch(-1, shuffle=False)
+                xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 feed_dict = {x: xs, y_ds: ys}
                 run_options = tf.RunOptions(
                     trace_level=tf.RunOptions.FULL_TRACE)
@@ -420,8 +443,8 @@ def train():
                 with open('timeline.json', 'w') as f:
                     f.write(ctf)
 
-                test_writer.add_summary(summary, ii)
-                test_writer.add_run_metadata(run_metadata, 'step%d' % ii)
+                validation_writer.add_summary(summary, ii)
+                validation_writer.add_run_metadata(run_metadata, 'step%d' % ii)
 
                 #save_path = saver.save(sess, os.path.join(checkpoint_dir,
                 #'model.ckpt'), global_step=ii)
@@ -430,7 +453,8 @@ def train():
                 model_to_json('nn_checkpoint.json', scan_dims.values.tolist(),
                               [train_dim],
                               datasets.train, scale_factor.astype('float64'),
-                              scale_bias.astype('float64'))
+                              scale_bias.astype('float64'),
+                              l2_scale)
 
                 print('{:5} {:07} {:23} {:5.0f}'.format('epoch',
                                                         epoch,
@@ -440,6 +464,8 @@ def train():
                                                         epoch,
                                                         'loss is',
                                                         np.round(lo)))
+                validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
+                print(validation_log)
                 timediff(start, 'completed')
                 print()
 
@@ -451,9 +477,9 @@ def train():
                 else:
                     not_improved += 1
                 # If not improved in 'early_stop' epoch, stop
-                if not_improved >= early_stop:
+                if not_improved >= settings['early_stop_after']:
                     print('Not improved for %s epochs, stopping..'
-                          % (early_stop))
+                          % (not_improved))
                     break
             else: # If NOT epoch done
                 if not ii % step_per_report:
@@ -472,11 +498,11 @@ def train():
                     #                   options=run_options,
                     #                   run_metadata=run_metadata)
                                       )
-                    ce = loss.eval(feed_dict=feed_dict)
+                    lo = loss.eval(feed_dict=feed_dict)
                     meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
-                    ce, summary, meanse, _ = sess.run([loss, merged,
+                    lo, summary, meanse, _ = sess.run([loss, merged,
                                                        mse, train_step],
                                                       feed_dict=feed_dict,
                                                       options=run_options,
@@ -492,24 +518,28 @@ def train():
                     print('{:5} {:06} {:23} {:5.0f}'.format('step',
                                                             ii,
                                                             'loss is',
-                                                            np.round(ce)))
+                                                            np.round(lo)))
                     print('{:5} {:06} {:23} {:5.0f}'.format('step',
                                                             ii,
                                                             'mse is',
                                                             np.round(meanse)))
-                if np.isnan(ce):
+                train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
+                print(train_log)
+                if np.isnan(lo):
                     raise Exception('Loss is NaN! Stopping..')
 
     except KeyboardInterrupt:
         print('KeyboardInterrupt Stopping..')
 
     train_writer.close()
-    test_writer.close()
+    validation_writer.close()
 
     try:
-        saver.restore(sess, saver.last_checkpoints[epoch - not_improved])
+        best_epoch = epoch - not_improved
+        saver.restore(sess, saver.last_checkpoints[best_epoch])
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
+        best_epoch = epoch
     model_to_json('nn.json', scan_dims.values.tolist(), [train_dim],
                   datasets.train,
                   scale_factor.astype('float64'),
@@ -532,11 +562,11 @@ def train():
     print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
     metadata = {'epoch': epoch,
+                'best_epoch': best_epoch,
                 'rms_validation': rms_val,
                 'rms_test': rms_test,
                 'rms_train': rms_train,
-                'nn_develop_version': nn_version,
-                'activation': '2/(1+exp(-2x))-1'}
+                'activation': 'tanh'}
 
     with open('nn.json') as nn_file:
         data = json.load(nn_file)
@@ -547,30 +577,30 @@ def train():
         json.dump(data, nn_file, sort_keys=True,
                   indent=4, separators=(',', ': '))
 
+    train_log.to_csv('train_log.csv')
+    validation_log.to_csv('validation_log.csv')
+
 
 def main(_):
-    if tf.gfile.Exists(FLAGS.log_dir):
-        tf.gfile.DeleteRecursively(FLAGS.log_dir)
-    tf.gfile.MakeDirs(FLAGS.log_dir)
     train()
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--fake_data', nargs='?', const=True, type=bool,
-                        default=True,
-                        help='If true, uses fake data for unit testing.')
+    #parser = argparse.ArgumentParser()
+    #parser.add_argument('--fake_data', nargs='?', const=True, type=bool,
+    #                    default=True,
+    #                    help='If true, uses fake data for unit testing.')
     #parser.add_argument('--max_steps', type=int, default=100000,
-    parser.add_argument('--max_steps', type=int, default=sys.maxsize,
-                        help='Number of steps to run trainer.')
-    parser.add_argument('--learning_rate', type=float, default=10.,
-                        help='Initial learning rate')
-    parser.add_argument('--dropout', type=float, default=0.9,
-                        help='Keep probability for training dropout.')
-    parser.add_argument('--data_dir', type=str,
-                        default='train_NN_run/input_data/',
-                        help='Directory for storing input data')
-    parser.add_argument('--log_dir', type=str, default='train_NN_run/logs/',
-                        help='Summaries log directory')
-    FLAGS, unparsed = parser.parse_known_args()
-    tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+    #parser.add_argument('--max_steps', type=int, default=sys.maxsize,
+    #                    help='Number of steps to run trainer.')
+    #parser.add_argument('--learning_rate', type=float, default=10.,
+    #                    help='Initial learning rate')
+    #parser.add_argument('--dropout', type=float, default=0.9,
+    #                    help='Keep probability for training dropout.')
+    #parser.add_argument('--data_dir', type=str,
+    #                    default='train_NN_run/input_data/',
+    #                    help='Directory for storing input data')
+    #parser.add_argument('--log_dir', type=str, default='train_NN_run/logs/',
+    #                    help='Summaries log directory')
+    #FLAGS, unparsed = parser.parse_known_args()
+    tf.app.run(main=main, argv=[sys.argv[0]])
