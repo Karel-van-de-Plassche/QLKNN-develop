@@ -246,7 +246,10 @@ def train():
                 'scaling': 'minmax_0_1',
                 'cost_l2_scale': 0.1,
                 'early_stop_after': 2,
-                'optimizer_name': 'lbfgs'
+                'optimizer': 'lbfgs'
+                'lbfgs_maxfun': 1000,
+                'lbfgs_maxiter': 15000,
+                'lbfgs_maxls': 20
                 }
     start = time.time()
     # Get train dimension from path name
@@ -380,7 +383,9 @@ def train():
                 FLAGS.learning_rate).minimize(loss)
         if settings['optimizer_name'] == 'lbfgs':
             optimizer = opt.ScipyOptimizerInterface(loss,
-                                                    options={'maxiter': 1000})
+                                                    options={'maxiter': options['lbfgs_maxiter'],
+                                                             'maxfun': options['lbfgs_maxfun'],
+                                                             'maxls': options['lbfgs_maxls']})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs
