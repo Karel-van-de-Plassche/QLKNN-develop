@@ -5,6 +5,7 @@ import shutil
 import tarfile
 import pandas as pd
 import numpy as np
+import json
 
 list_train_dims = ['efe_GB',
                    'efi_GB',
@@ -48,6 +49,11 @@ def create_folders(store_name):
         os.symlink(os.path.join(os.path.abspath(os.curdir),
                                 store_name),
                    os.path.join(dir, store_name))
+        with open('default_settings.json') as file_:
+            settings = json.load(file_)
+            settings['train_dim'] = name
+        with open(os.path.join(dir, 'settings.json'), 'w') as file_:
+            json.dump(settings, file_)
 
 def extract_nns(path):
     tar = tarfile.open("nns.tar.gz", "w:gz")

@@ -1,5 +1,5 @@
 {
-    "train_dim": "efeITG_GB",
+    "train_dim": "",
     "hidden_neurons": [
         30,
         30,
