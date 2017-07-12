@@ -239,6 +239,11 @@ def normab(panda, a, b):
     return ((b - a) / (panda.max() - panda.min()),
             (b - a) * panda.min() / (panda.max() - panda.min()) + a)
 
+def print_last_row(df, header=False):
+    print(df.iloc[[-1]].to_string(header=header,
+                                  float_format=lambda self: u'{:.2f}'.format(self),
+                                  col_space=12,
+                                  justify='left'))
 
 def train():
     # Import data
@@ -414,10 +419,9 @@ def train():
     feed_dict = {x: xs, y_ds: ys}
     summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
-    print()
-    print('epoch {:07} {:23} {:5.0f}'.format(epoch, 'loss is', np.round(lo)))
-    print()
+    train_log.loc[0] = (epoch, 0, lo, meanse)
     validation_log.loc[0] = (epoch, 0, lo, meanse)
+    print_last_row(train_log, header=True)
 
     # Define variables for early stopping
     not_improved = 0
@@ -461,15 +465,8 @@ def train():
                               scale_bias.astype('float64'),
                               l2_scale)
 
-                print('{:5} {:07} {:23} {:5.0f}'.format('epoch',
-                                                        epoch,
-                                                        'mse is',
-                                                        np.round(meanse)))
-                print('{:5} {:07} {:23} {:5.0f}'.format('epoch',
-                                                        epoch,
-                                                        'loss is',
-                                                        np.round(lo)))
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
+                print()
                 print(validation_log)
                 timediff(start, 'completed')
                 print()
@@ -520,16 +517,8 @@ def train():
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
-                    print('{:5} {:06} {:23} {:5.0f}'.format('step',
-                                                            ii,
-                                                            'loss is',
-                                                            np.round(lo)))
-                    print('{:5} {:06} {:23} {:5.0f}'.format('step',
-                                                            ii,
-                                                            'mse is',
-                                                            np.round(meanse)))
                 train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
-                print(train_log)
+                print_last_row(train_log)
                 if np.isnan(lo):
                     raise Exception('Loss is NaN! Stopping..')
 
