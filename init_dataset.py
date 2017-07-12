@@ -7,25 +7,24 @@ import pandas as pd
 import numpy as np
 import json
 
-list_train_dims = ['efe_GB',
-                   'efi_GB',
-                   'efiITG_GB',
-                   'efiTEM_GB',
-                   'efeETG_GB',
-                   'efeITG_GB',
-                   'efeTEM_GB',
-                   ['efiITG_GB', 'div', 'efeITG_GB'],
-                   ['efiITG_GB', 'plus', 'efeITG_GB'],
-                   ['efiTEM_GB', 'div', 'efeTEM_GB'],
-                   ['efiTEM_GB', 'plus', 'efeTEM_GB'],
-                   ['efi_GB', 'div', 'efe_GB'],
-                   ['efi_GB', 'plus', 'efe_GB'],
-                    #'efi_GB_div_9_efe_GB_min_efeETG_GB_0',
-                    #'efi_GB_plus_9_efe_GB_min_efeETG_GB_0',
-                   ['efi_GB', 'div', '9', 'efe_GB', 'min', 'efeETF_GB', '0'],
-                   ['efi_GB', 'plus', '9', 'efe_GB', 'min', 'efeETF_GB', '0'],
-                   'gam_less_GB',
-                   'gam_leq_GB']
+list_train_dims = [['both', 'efe_GB'],
+                   ['ion', 'efi_GB'],
+                   ['ion', 'efiITG_GB'],
+                   ['ion', 'efiTEM_GB'],
+                   ['elec', 'efeETG_GB'],
+                   ['ion', 'efeITG_GB'],
+                   ['ion', 'efeTEM_GB'],
+                   ['ion', ['efe_GB', 'min', 'efeETG_GB']],
+                   ['ion', ['efiITG_GB', 'div', 'efeITG_GB']],
+                   ['ion', ['efiITG_GB', 'plus', 'efeITG_GB']],
+                   ['ion', ['efiTEM_GB', 'div', 'efeTEM_GB']],
+                   ['ion', ['efiTEM_GB', 'plus', 'efeTEM_GB']],
+                   ['both', ['efi_GB', 'div', 'efe_GB']],
+                   ['both', ['efi_GB', 'plus', 'efe_GB']],
+                   ['ion', ['efi_GB', 'div', '9', 'efe_GB', 'min', 'efeETG_GB', '0']],
+                   ['ion', ['efi_GB', 'plus', '9', 'efe_GB', 'min', 'efeETG_GB', '0']],
+                   ['none', 'gam_less_GB'],
+                   ['none', 'gam_leq_GB']]
 
 def create_folders(store_name):
     try:
@@ -84,8 +83,6 @@ def filter_all(store_name):
 
     filtered_store = pd.HDFStore('filtered_' + store_name, 'w')
     # Define filter
-    max = 60
-    min = 0.1
     try:
         index = filtered_store.get('index')
     except KeyError:
@@ -94,6 +91,8 @@ def filter_all(store_name):
         #                     np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
         #                     )]
         index = input.index
+        min = 0
+        max = 60
         data = data.loc[index]
         for flux in ['efeETG_GB',
                      'efeITG_GB',
@@ -102,9 +101,11 @@ def filter_all(store_name):
                      'efiTEM_GB',
                      'efe_GB',
                      'efi_GB']:
-            #data = data.loc[(data[flux] >= min) & (data[flux] < max)]
             data = data.loc[(data[flux] >= 0)]
-            print(data.size)
+        data = data.loc[(data['efe_GB'] != 0) | (data['efi_GB'] != 0)]
+        data = data.loc[(data['efe_GB'] < max) & (data['efi_GB'] < max)]
+
+
         index = data.index
 
         # Save index
@@ -122,27 +123,19 @@ def filter_all(store_name):
         filtered_store.put('input', input)
 
     not_done = []
-    min = 0
-    max = 60
-    for train_dims in list_train_dims:
+    for gam_filter, train_dims in list_train_dims:
         name = None
         print('starting on')
         print(train_dims)
         if train_dims.__class__ == str:
             name = train_dims
-            if 'gam' not in name:
-                df = data[train_dims]
-                df = df.loc[(df > min) & (df < max)]
-            else:
-                df = data['gam_leq_GB']
+            df = data[train_dims]
         else:
             if len(train_dims) == 3:
                 if train_dims[0] in data and train_dims[2] in data:
                     name = '_'.join(train_dims)
                     df1 = data[train_dims[0]]
                     df2 = data[train_dims[2]]
-                    df1 = df1.loc[(df1 > min) & (df1 < max)]
-                    df2 = df2.loc[(df2 > min) & (df2 < max)]
                     if train_dims[1] == 'plus':
                         df = df1 + df2
                     elif train_dims[1] == 'min':
@@ -152,6 +145,14 @@ def filter_all(store_name):
                     elif train_dims[1] == 'times':
                         df = df1 * df2
         if name is not None:
+            if gam_filter == 'ion':
+                df = df.loc[data['gam_less_GB'] != 0]
+            elif gam_filter == 'elec':
+                df = df.loc[data['gam_leq_GB'] != 0]
+            elif gam_filter == 'both':
+                df = df.loc[(data['gam_less_GB'] != 0) | (data['gam_leq_GB'] != 0)]
+            else:
+                pass
             print('putting ' + name)
             df.name = name
             filtered_store.put(name, df.squeeze())
@@ -168,17 +169,16 @@ def filter_all(store_name):
     df1 = data['efi_GB']
     df2 = data['efe_GB']
     df3 = data['efeETG_GB']
-    df1 = df1.loc[(df1 > min) & (df1 < max)]
-    df2 = df2.loc[(df2 > min) & (df2 < max)]
-    df3 = df2.loc[(df3 > min) & (df3 < max)]
     name = 'efi_GB_div_9_efe_GB_min_efeETG_GB_0'
     df = (df1 / (df2 - df3))
     df.name = name
+    df = df.loc[data['gam_less_GB'] != 0]
     filtered_store[name]  = df
 
     name = 'efi_GB_plus_9_efe_GB_min_efeETG_GB_0'
     df = (df1 + (df2 - df3))
     df.name = name
+    df = df.loc[data['gam_less_GB'] != 0]
     filtered_store[name]  = df
 
     store.close()
@@ -224,8 +224,8 @@ def filter_individual(store_name):
     store.close()
     newstore.close()
 #extract_nns()
-#filter_all('7D_nions0_flat.h5')
+filter_all('7D_nions0_flat.h5')
 #filter_individual('filtered_7D_nions0_flat.h5')
-create_folders('filtered_everything_nions0.h5')
+#create_folders('filtered_everything_nions0.h5')
 #extract_nns('7D_filtered_NNs')
 print('Script done')
