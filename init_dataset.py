@@ -83,10 +83,10 @@ def filter_all(store_name):
     try:
         index = filtered_store.get('index')
     except KeyError:
-        index = input.index[(
-                             np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
-                             np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
-                             )]
+        #index = input.index[(
+        #                     np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
+        #                     np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
+        #                     )]
         index = input.index
         data = data.loc[index]
         for flux in ['efeETG_GB',
@@ -218,8 +218,8 @@ def filter_individual(store_name):
     store.close()
     newstore.close()
 #extract_nns()
-filter_all('7D_nions0_flat.h5')
+#filter_all('7D_nions0_flat.h5')
 #filter_individual('filtered_7D_nions0_flat.h5')
-#create_folders('filtered_everything_nions0.h5')
-extract_nns('7D_filtered_NNs')
+create_folders('filtered_everything_nions0.h5')
+#extract_nns('7D_filtered_NNs')
 print('Script done')

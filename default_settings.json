@@ -1,0 +1,15 @@
+{
+    "train_dim": "efeITG_GB",
+    "hidden_neurons": [
+        30,
+        30,
+        30
+    ],
+    "scaling": "minmax_0_1",
+    "cost_l2_scale": 0.1,
+    "early_stop_after": 2,
+    "optimizer": "lbfgs",
+    "lbfgs_maxfun": 1000,
+    "lbfgs_maxiter": 15000,
+    "lbfgs_maxls": 20
+}

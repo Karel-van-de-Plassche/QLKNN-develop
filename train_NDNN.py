@@ -245,21 +245,12 @@ def print_last_row(df, header=False):
                                   col_space=12,
                                   justify='left'))
 
-def train():
+def train(settings):
     # Import data
-    settings = {'hidden_neurons': [30, 30, 30],
-                'scaling': 'minmax_0_1',
-                'cost_l2_scale': 0.1,
-                'early_stop_after': 2,
-                'optimizer': 'lbfgs'
-                'lbfgs_maxfun': 1000,
-                'lbfgs_maxiter': 15000,
-                'lbfgs_maxls': 20
-                }
     start = time.time()
     # Get train dimension from path name
-    train_dim = os.path.basename(os.getcwd())
-    #train_dim = 'efe_GB'
+    #train_dim = os.path.basename(os.getcwd())
+    train_dim = settings['train_dim']
     # Use pre-existing filtered dataset, or extract from big dataset
     if os.path.exists('filtered.h5'):
         panda = pd.read_hdf('filtered.h5')
@@ -375,22 +366,22 @@ def train():
     train_step = None
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
-        if settings['optimizer_name'] == 'adam':
+        if settings['optimizer'] == 'adam':
             train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
-        elif settings['optimizer_name'] == 'adadelta':
+        elif settings['optimizer'] == 'adadelta':
             train_step = tf.train.AdadeltaOptimizer(
                 FLAGS.learning_rate, 0.60).minimize(loss)
-        elif settings['optimizer_name'] == 'rmsprop':
+        elif settings['optimizer'] == 'rmsprop':
             train_step = tf.train.RMSPropOptimizer(
                 FLAGS.learning_rate).minimize(loss)
-        if settings['optimizer_name'] == 'grad':
+        elif settings['optimizer'] == 'grad':
             train_step = tf.train.GradientDescentOptimizer(
                 FLAGS.learning_rate).minimize(loss)
-        if settings['optimizer_name'] == 'lbfgs':
+        elif settings['optimizer'] == 'lbfgs':
             optimizer = opt.ScipyOptimizerInterface(loss,
-                                                    options={'maxiter': options['lbfgs_maxiter'],
-                                                             'maxfun': options['lbfgs_maxfun'],
-                                                             'maxls': options['lbfgs_maxls']})
+                                                    options={'maxiter': settings['lbfgs_maxiter'],
+                                                             'maxfun': settings['lbfgs_maxfun'],
+                                                             'maxls': settings['lbfgs_maxls']})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
     # Merge all the summaries and write them out to /tmp/mnist_logs
@@ -576,7 +567,9 @@ def train():
 
 
 def main(_):
-    train()
+    with open('./settings.json') as file_:
+        settings = json.load(file_)
+    train(settings)
 
 
 if __name__ == '__main__':
