@@ -116,7 +116,7 @@ def filter_all(store_name):
         filtered_store.put('input', input)
 
     not_done = []
-    min = 0.1
+    min = 0
     max = 60
     for train_dims in list_train_dims:
         name = None
@@ -184,7 +184,7 @@ def filter_individual(store_name):
     gam_leq = store['gam_leq_GB']
     gam_less = store['gam_less_GB']
     index = pd.Int64Index(store['index'])
-    min = 0.1
+    min = 0
     max = 60
     for name in store.keys():
         print(name)
