@@ -236,8 +236,16 @@ def nn_layer(input_tensor, output_dim, layer_name, act=tf.tanh,
 
 
 def normab(panda, a, b):
-    return ((b - a) / (panda.max() - panda.min()),
-            (b - a) * panda.min() / (panda.max() - panda.min()) + a)
+    factor = (b - a) / (panda.max() - panda.min())
+    bias = (b - a) * panda.min() / (panda.max() - panda.min()) + a
+    return factor, bias
+
+def normsm(panda, s_t, m_t):
+    m_s = np.mean(panda)
+    s_s = np.std(panda)
+    factor = s_t / s_s
+    bias = -m_s * s_t / s_s + m_t
+    return factor, bias
 
 def print_last_row(df, header=False):
     print(df.iloc[[-1]].to_string(header=header,
@@ -266,6 +274,7 @@ def train(settings):
         panda = pd.concat([input, panda], axis=1)
         timediff(start, 'Dataset loaded')
     timediff(start, 'Dataset filtered')
+    panda = panda.astype('float64')
 
     # Use pre-existing splitted dataset, or split in train, validation and test
     train_dim = panda.columns[-1]
@@ -276,7 +285,6 @@ def train(settings):
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
-    datasets.astype('float64')
     timediff(start, 'Dataset split')
 
     """
@@ -313,9 +321,13 @@ def train(settings):
     # Scale all input
     with tf.name_scope('normalize'):
         if settings['scaling'].startswith('minmax'):
-            min = float(settings['scaling'][-3])
-            max = float(settings['scaling'][-1])
+            min = float(settings['scaling'].split('_')[-2])
+            max = float(settings['scaling'].split('_')[-1])
             scale_factor, scale_bias = normab(panda, min, max)
+        if settings['scaling'].startswith('normsm'):
+            s_t = float(settings['scaling'].split('_')[-2])
+            m_t = float(settings['scaling'].split('_')[-1])
+            scale_factor, scale_bias = normsm(panda, s_t, m_t)
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
@@ -510,8 +522,9 @@ def train(settings):
                         f.write(ctf)
                 train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
                 print_last_row(train_log)
-                if np.isnan(lo):
-                    raise Exception('Loss is NaN! Stopping..')
+            if np.isnan(lo) or np.isinf(lo):
+                print('Loss is {}! Stopping..'.format(lo))
+                break
 
     except KeyboardInterrupt:
         print('KeyboardInterrupt Stopping..')
