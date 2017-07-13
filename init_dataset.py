@@ -33,7 +33,7 @@ def create_folders(store_name):
         pass
     root = os.path.join(os.curdir, 'nns')
     os.mkdir(root)
-    for train_dims in list_train_dims:
+    for gam_filter, train_dims in list_train_dims:
         if train_dims.__class__ == str:
             name = train_dims
         else:
@@ -153,6 +153,7 @@ def filter_all(store_name):
                 df = df.loc[(data['gam_less_GB'] != 0) | (data['gam_leq_GB'] != 0)]
             else:
                 pass
+            df = df.loc[(df != np.inf) & (df != -np.inf) & (df != np.nan)]
             print('putting ' + name)
             df.name = name
             filtered_store.put(name, df.squeeze())
@@ -173,12 +174,14 @@ def filter_all(store_name):
     df = (df1 / (df2 - df3))
     df.name = name
     df = df.loc[data['gam_less_GB'] != 0]
+    df = df.loc[(df != np.inf) & (df != -np.inf) & (df != np.nan)]
     filtered_store[name]  = df
 
     name = 'efi_GB_plus_9_efe_GB_min_efeETG_GB_0'
     df = (df1 + (df2 - df3))
     df.name = name
     df = df.loc[data['gam_less_GB'] != 0]
+    df = df.loc[(df != np.inf) & (df != -np.inf) & (df != np.nan)]
     filtered_store[name]  = df
 
     store.close()
@@ -226,6 +229,6 @@ def filter_individual(store_name):
 #extract_nns()
 filter_all('7D_nions0_flat.h5')
 #filter_individual('filtered_7D_nions0_flat.h5')
-#create_folders('filtered_everything_nions0.h5')
+create_folders('filtered_everything_nions0.h5')
 #extract_nns('7D_filtered_NNs')
 print('Script done')
