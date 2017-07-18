@@ -5,7 +5,7 @@
         30,
         30
     ],
-    "scaling": "minmax_0_1",
+    "standardization": "minmax_0_1",
     "cost_l2_scale": 0.1,
     "early_stop_after": 2,
     "optimizer": "lbfgs",

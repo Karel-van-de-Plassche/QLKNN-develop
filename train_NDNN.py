@@ -320,13 +320,13 @@ def train(settings):
 
     # Scale all input
     with tf.name_scope('normalize'):
-        if settings['scaling'].startswith('minmax'):
-            min = float(settings['scaling'].split('_')[-2])
-            max = float(settings['scaling'].split('_')[-1])
+        if settings['standardization'].startswith('minmax'):
+            min = float(settings['standardization'].split('_')[-2])
+            max = float(settings['standardization'].split('_')[-1])
             scale_factor, scale_bias = normab(panda, min, max)
-        if settings['scaling'].startswith('normsm'):
-            s_t = float(settings['scaling'].split('_')[-2])
-            m_t = float(settings['scaling'].split('_')[-1])
+        if settings['standardization'].startswith('normsm'):
+            s_t = float(settings['standardization'].split('_')[-2])
+            m_t = float(settings['standardization'].split('_')[-1])
             scale_factor, scale_bias = normsm(panda, s_t, m_t)
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)

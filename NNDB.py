@@ -125,7 +125,7 @@ class Network(BaseModel):
             settings = json.load(file_)
             hyperpar = Hyperparameters(network=network,
                                        hidden_neurons=settings['hidden_neurons'],
-                                       scaling=settings['scaling'],
+                                       standardization=settings['standardization'],
                                        cost_l2_scale=settings['cost_l2_scale'],
                                        early_stop_after=settings['early_stop_after'])
             hyperpar.save()
@@ -208,9 +208,9 @@ class TrainMetadata(BaseModel):
 
 
 class Hyperparameters(BaseModel):
-    network = ForeignKeyField(Network)
+    network = ForeignKeyField(Network, related_name='hyperparameters')
     hidden_neurons = ArrayField(IntegerField)
-    scaling = TextField()
+    standardization = TextField()
     cost_l2_scale = FloatField()
     early_stop_after = FloatField()
 
