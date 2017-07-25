@@ -188,11 +188,14 @@ class NetworkMetadata(BaseModel):
 class TrainMetadata(BaseModel):
     network = ForeignKeyField(Network)
     set = TextField(choices=['train', 'test', 'validation'])
-    step =     ArrayField(IntegerField)
-    epoch =    ArrayField(IntegerField)
-    walltime = ArrayField(FloatField)
-    loss =     ArrayField(FloatField)
-    mse =      ArrayField(FloatField)
+    step =         ArrayField(IntegerField)
+    epoch =        ArrayField(IntegerField)
+    walltime =     ArrayField(FloatField)
+    loss =         ArrayField(FloatField)
+    mse =          ArrayField(FloatField)
+    mabse =        ArrayField(FloatField)
+    l1_loss =      ArrayField(FloatField)
+    l2_loss =      ArrayField(FloatField)
     hostname = TextField()
 
     @classmethod
@@ -215,6 +218,9 @@ class TrainMetadata(BaseModel):
                         walltime=df['walltime'],
                         loss=df['loss'],
                         mse=df['mse'],
+                        mabse=df['mabse'],
+                        l1_loss=df['l1_loss'],
+                        l2_loss=df['l2_loss'],
                         hostname=socket.gethostname()
                     )
                     # TODO: Only works on debian-like

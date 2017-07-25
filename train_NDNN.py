@@ -379,6 +379,9 @@ def train(settings):
         with tf.name_scope('mse'):
             mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_ds, y))))
             tf.summary.scalar('MSE', mse)
+        with tf.name_scope('mabse'):
+            mabse = tf.to_double(tf.reduce_mean(tf.abs(tf.subtract(y_ds, y))))
+            tf.summary.scalar('MABSE', mabse)
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(settings['cost_l2_scale'], dtype=x.dtype, trainable=False)
             #l2_norm = tf.reduce_sum(tf.square())
@@ -391,8 +394,25 @@ def train(settings):
             tf.summary.scalar('l2_norm', l2_norm)
             tf.summary.scalar('l2_scale', l2_scale)
             tf.summary.scalar('l2_loss', l2_loss)
+        with tf.name_scope('l1'):
+            l1_scale = tf.Variable(settings['cost_l1_scale'], dtype=x.dtype, trainable=False)
+            l1_norm = tf.to_double(tf.add_n([tf.abs(var)
+                                    for var in tf.trainable_variables()
+                                    if 'weights' in var.name]))
+            # TODO: Check normalization
+            l1_loss = l1_scale * l1_norm
+            tf.summary.scalar('l1_norm', l1_norm)
+            tf.summary.scalar('l1_scale', l1_scale)
+            tf.summary.scalar('l1_loss', l1_loss)
         #loss = mse
-        loss = mse + l2_loss
+        if settings['goodness'] == 'mse':
+            loss = mse
+        elif settings['goodness'] == 'mabse':
+            loss = mabse
+        if settings['cost_l1_scale'] != 0:
+            loss += l1_loss
+        if settings['cost_l2_scale'] != 0:
+            loss += l2_loss
         tf.summary.scalar('loss', loss)
 
     optimizer = None
@@ -442,8 +462,8 @@ def train(settings):
 
     epoch = 0
 
-    train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse'])
-    validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse'])
+    train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
+    validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
 
     # This is dependent on dataset size
     batch_size = int(np.floor(datasets.train.num_examples/10))
@@ -451,10 +471,11 @@ def train(settings):
     timediff(start, 'Starting loss calculation')
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys}
-    summary, lo, meanse = sess.run([merged, loss, mse], feed_dict=feed_dict)
+    summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
+                                                              feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
-    train_log.loc[0] = (epoch, 0, lo, meanse)
-    validation_log.loc[0] = (epoch, 0, lo, meanse)
+    train_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
+    validation_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
     print_last_row(train_log, header=True)
 
     # Define variables for early stopping
@@ -477,7 +498,7 @@ def train(settings):
                 run_options = tf.RunOptions(
                     trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-                summary, lo, meanse = sess.run([merged, loss, mse],
+                summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
                                                feed_dict=feed_dict,
                                                options=run_options,
                                                run_metadata=run_metadata)
@@ -502,7 +523,7 @@ def train(settings):
                               l2_scale,
                               settings)
 
-                validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
+                validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
                 print()
                 print(validation_log)
                 timediff(start, 'completed')
@@ -541,7 +562,7 @@ def train(settings):
                     meanse = mse.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
-                    lo, summary, meanse, _ = sess.run([loss, merged,
+                    summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
                                                        mse, train_step],
                                                       feed_dict=feed_dict,
                                                       options=run_options,
@@ -554,7 +575,7 @@ def train(settings):
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
-                train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
+                train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
                 print_last_row(train_log)
             if np.isnan(lo) or np.isinf(lo):
                 print('Loss is {}! Stopping..'.format(lo))

@@ -12,6 +12,7 @@
     ],
     "output_activation": "none",
     "standardization": "normsm_1_0",
+    "goodness": "mse",
     "cost_l2_scale": 0.1,
     "early_stop_after": 5,
 
