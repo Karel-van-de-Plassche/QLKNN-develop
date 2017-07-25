@@ -24,4 +24,4 @@ for l2_scale in l2_scales:
         settings['train_dim'] = train_dim
         settings['cost_l2_scale'] = l2_scale
         with open(os.path.join(dir, 'settings.json'), 'w') as file_:
-            json.dump(settings, file_)
+            json.dump(settings, file_, indent=4)
