@@ -14,12 +14,13 @@
     "standardization": "normsm_1_0",
     "cost_l2_scale": 0.1,
     "early_stop_after": 2,
-    "optimizer": "lbfgs",
+
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+
     "lbfgs_maxfun": 1000,
     "lbfgs_maxiter": 15000,
     "lbfgs_maxls": 20,
-
-    "learning_rate": 0.001,
     "adam_beta1": 0.9,
     "adam_beta2": 0.999,
     "adadelta_rho": 0.95,
