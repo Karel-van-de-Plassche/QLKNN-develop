@@ -396,7 +396,7 @@ def train(settings):
             tf.summary.scalar('l2_loss', l2_loss)
         with tf.name_scope('l1'):
             l1_scale = tf.Variable(settings['cost_l1_scale'], dtype=x.dtype, trainable=False)
-            l1_norm = tf.to_double(tf.add_n([tf.abs(var)
+            l1_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.abs(var))
                                     for var in tf.trainable_variables()
                                     if 'weights' in var.name]))
             # TODO: Check normalization
@@ -560,10 +560,12 @@ def train(settings):
                                       )
                     lo = loss.eval(feed_dict=feed_dict)
                     meanse = mse.eval(feed_dict=feed_dict)
+                    meanabse = mabse.eval(feed_dict=feed_dict)
+                    l1norm = l1_norm.eval(feed_dict=feed_dict)
+                    l2norm = l2_norm.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else:
-                    summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
-                                                       mse, train_step],
+                    summary, lo, meanse, meanabse, l1norm, l2norm, _  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, train_step],
                                                       feed_dict=feed_dict,
                                                       options=run_options,
                                                       run_metadata=run_metadata
