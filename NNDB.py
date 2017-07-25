@@ -106,46 +106,47 @@ class Network(BaseModel):
                     else:
                         dict_[name] = {str(key): str(val) for key, val in attr.items()}
 
-        dict_['train_script'] = train_script
-        dict_['filter_id'] = filter_id
-        network = Network(**dict_)
-        network.save()
+            dict_['train_script'] = train_script
+            dict_['filter_id'] = filter_id
+            network = Network(**dict_)
+            network.save()
 
-        with open(os.path.join(pwd, 'settings.json')) as file_:
-            settings = json.load(file_)
-            hyperpar = Hyperparameters(network=network,
-                                       hidden_neurons=settings['hidden_neurons'],
-                                       standardization=settings['standardization'],
-                                       cost_l2_scale=settings['cost_l2_scale'],
-                                       early_stop_after=settings['early_stop_after'])
-            hyperpar.save()
-            if settings['optimizer'] == 'lbfgs':
-                optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
-                                           maxfun=settings['lbfgs_maxfun'],
-                                           maxiter=settings['lbfgs_maxiter'],
-                                           maxls=settings['lbfgs_maxls'])
-                optimizer.save()
-            if settings['optimizer'] == 'adam':
-                optimizer = AdamOptimizer(hyperparameters=hyperpar,
-                                          learning_rate=settings['learning_rate'],
-                                          beta1=settings['adam_beta1'],
-                                          beta2=settings['adam_beta2'])
-                optimizer.save()
+            with open(os.path.join(pwd, 'settings.json')) as file_:
+                settings = json.load(file_)
+                hyperpar = Hyperparameters(network=network,
+                                           hidden_neurons=settings['hidden_neurons'],
+                                           standardization=settings['standardization'],
+                                           goodness=settings['goodness'],
+                                           cost_l2_scale=settings['cost_l2_scale'],
+                                           early_stop_after=settings['early_stop_after'])
+                hyperpar.save()
+                if settings['optimizer'] == 'lbfgs':
+                    optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
+                                               maxfun=settings['lbfgs_maxfun'],
+                                               maxiter=settings['lbfgs_maxiter'],
+                                               maxls=settings['lbfgs_maxls'])
+                    optimizer.save()
+                if settings['optimizer'] == 'adam':
+                    optimizer = AdamOptimizer(hyperparameters=hyperpar,
+                                              learning_rate=settings['learning_rate'],
+                                              beta1=settings['adam_beta1'],
+                                              beta2=settings['adam_beta2'])
+                    optimizer.save()
 
-        activations = settings['hidden_activation'] + [settings['output_activation']]
-        for ii, layer in enumerate(nn.layers):
-            nwlayer = NetworkLayer(network = network,
-                                   weights = layer.weight.tolist(),
-                                   biases = layer.bias.tolist(),
-                                   activation = activations[ii])
-            nwlayer.save()
+            activations = settings['hidden_activation'] + [settings['output_activation']]
+            for ii, layer in enumerate(nn.layers):
+                nwlayer = NetworkLayer(network = network,
+                                       weights = layer.weight.tolist(),
+                                       biases = layer.bias.tolist(),
+                                       activation = activations[ii])
+                nwlayer.save()
 
-        NetworkMetadata.from_dict(json_dict['_metadata'], network)
-        TrainMetadata.from_folder(pwd, network)
+            NetworkMetadata.from_dict(json_dict['_metadata'], network)
+            TrainMetadata.from_folder(pwd, network)
 
-        network_json = NetworkJSON(network=network, network_json=json_dict, settings_json=settings)
-        network_json.save()
-        return network
+            network_json = NetworkJSON(network=network, network_json=json_dict, settings_json=settings)
+            network_json.save()
+            return network
 
 class NetworkJSON(BaseModel):
     network = ForeignKeyField(Network)
@@ -210,20 +211,34 @@ class TrainMetadata(BaseModel):
                 except FileNotFoundError:
                     pass
                 else:
-                    train_metadata = TrainMetadata(
-                        network=network,
-                        set=name,
-                        step=[int(x) for x in df.index],
-                        epoch=[int(x) for x in df['epoch']],
-                        walltime=df['walltime'],
-                        loss=df['loss'],
-                        mse=df['mse'],
-                        mabse=df['mabse'],
-                        l1_loss=df['l1_loss'],
-                        l2_loss=df['l2_loss'],
-                        hostname=socket.gethostname()
-                    )
-                    # TODO: Only works on debian-like
+                    try:
+                        # TODO: Only works on debian-like
+                        train_metadata = TrainMetadata(
+                            network=network,
+                            set=name,
+                            step=[int(x) for x in df.index],
+                            epoch=[int(x) for x in df['epoch']],
+                            walltime=df['walltime'],
+                            loss=df['loss'],
+                            mse=df['mse'],
+                            mabse=df['mabse'],
+                            l1_loss=df['l1_loss'],
+                            l2_loss=df['l2_loss'],
+                            hostname=socket.gethostname()
+                        )
+                    except KeyError:
+                        print('Legacy file.. Fallback')
+                        # TODO: Only works on debian-like
+                        train_metadata = TrainMetadata(
+                            network=network,
+                            set=name,
+                            step=[int(x) for x in df.index],
+                            epoch=[int(x) for x in df['epoch']],
+                            walltime=df['walltime'],
+                            loss=df['loss'],
+                            mse=df['mse'],
+                            hostname=socket.gethostname()
+                        )
                     train_metadata.save()
                     train_metadatas.append(train_metadata)
         return train_metadatas
@@ -233,6 +248,7 @@ class Hyperparameters(BaseModel):
     network = ForeignKeyField(Network, related_name='hyperparameters')
     hidden_neurons = ArrayField(IntegerField)
     standardization = TextField()
+    goodness = TextField()
     cost_l2_scale = FloatField()
     early_stop_after = FloatField()
 
