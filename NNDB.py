@@ -125,13 +125,21 @@ class Network(BaseModel):
                                                maxfun=settings['lbfgs_maxfun'],
                                                maxiter=settings['lbfgs_maxiter'],
                                                maxls=settings['lbfgs_maxls'])
-                    optimizer.save()
-                if settings['optimizer'] == 'adam':
+                elif settings['optimizer'] == 'adam':
                     optimizer = AdamOptimizer(hyperparameters=hyperpar,
                                               learning_rate=settings['learning_rate'],
                                               beta1=settings['adam_beta1'],
                                               beta2=settings['adam_beta2'])
-                    optimizer.save()
+                elif settings['optimizer'] == 'adadelta':
+                    optimizer = AdadeltaOptimizer(hyperparameters=hyperpar,
+                                                  learning_rate=settings['learning_rate'],
+                                                  rho=settings['adadelta_rho'])
+                elif settings['optimizer'] == 'rmsprop':
+                    optimizer = RmspropOptimizer(hyperparameters=hyperpar,
+                                                  learning_rate=settings['learning_rate'],
+                                                  decay=settings['rmsprop_decay'],
+                                                  momentum=settings['rmsprop_momentum'])
+                optimizer.save()
 
             activations = settings['hidden_activation'] + [settings['output_activation']]
             for ii, layer in enumerate(nn.layers):
@@ -194,9 +202,9 @@ class TrainMetadata(BaseModel):
     walltime =     ArrayField(FloatField)
     loss =         ArrayField(FloatField)
     mse =          ArrayField(FloatField)
-    mabse =        ArrayField(FloatField)
-    l1_loss =      ArrayField(FloatField)
-    l2_loss =      ArrayField(FloatField)
+    mabse =        ArrayField(FloatField, null=True)
+    l1_loss =      ArrayField(FloatField, null=True)
+    l2_loss =      ArrayField(FloatField, null=True)
     hostname = TextField()
 
     @classmethod
@@ -264,9 +272,20 @@ class AdamOptimizer(BaseModel):
     beta1 = FloatField()
     beta2 = FloatField()
 
+class AdadeltaOptimizer(BaseModel):
+    hyperparameters = ForeignKeyField(Hyperparameters)
+    learning_rate = FloatField()
+    rho = FloatField()
+
+class RmspropOptimizer(BaseModel):
+    hyperparameters = ForeignKeyField(Hyperparameters)
+    learning_rate = FloatField()
+    decay = FloatField()
+    momentum = FloatField()
+
 def create_tables():
     db.execute_sql('SET ROLE developer')
-    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, TrainScript])
+    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript])
 
 def purge_tables():
     clsmembers = inspect.getmembers(sys.modules[__name__], lambda member: inspect.isclass(member) and member.__module__ == __name__)
