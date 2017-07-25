@@ -568,7 +568,7 @@ def train(settings):
 
     try:
         best_epoch = epoch - not_improved
-        saver.restore(sess, saver.last_checkpoints[best_epoch])
+        saver.restore(sess, saver.last_checkpoints[-not_improved])
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
