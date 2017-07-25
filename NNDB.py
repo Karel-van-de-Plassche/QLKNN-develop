@@ -5,13 +5,12 @@ import inspect
 import sys
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
 from IPython import embed
-import scipy as sc
-from scipy import io
 import os
 from run_model import QuaLiKizNDNN
 import json
 import pandas as pd
 import subprocess
+import socket
 
 db = PostgresqlExtDatabase(database='nndb', host='gkdb.org')
 class BaseModel(Model):
@@ -71,9 +70,6 @@ class Network(BaseModel):
     target_names = ArrayField(TextField)
     target_min = HStoreField()
     target_max = HStoreField()
-    #weights = ArrayField(FloatField, dimensions=3)
-    #biases = ArrayField(FloatField, dimensions=2)
-    json = JSONField()
 
     @classmethod
     def from_folders(cls, pwd, **kwargs):
@@ -100,7 +96,7 @@ class Network(BaseModel):
             nn = QuaLiKizNDNN.from_json(json_path)
             with open(json_path) as file_:
                 json_dict = json.load(file_)
-                dict_ = {'json': json_dict}
+                dict_ = {}
                 for name in ['prescale_bias', 'prescale_factor',
                              'feature_names', 'feature_min', 'feature_max',
                              'target_names', 'target_min', 'target_max']:
@@ -114,12 +110,6 @@ class Network(BaseModel):
         dict_['filter_id'] = filter_id
         network = Network(**dict_)
         network.save()
-        for layer in nn.layers:
-            nwlayer = NetworkLayer(network = network,
-                                   weights = layer.weight.tolist(),
-                                   biases = layer.bias.tolist(),
-                                   activation = nn._metadata['activation'])
-            nwlayer.save()
 
         with open(os.path.join(pwd, 'settings.json')) as file_:
             settings = json.load(file_)
@@ -135,11 +125,32 @@ class Network(BaseModel):
                                            maxiter=settings['lbfgs_maxiter'],
                                            maxls=settings['lbfgs_maxls'])
                 optimizer.save()
+            if settings['optimizer'] == 'adam':
+                optimizer = AdamOptimizer(hyperparameters=hyperpar,
+                                          learning_rate=settings['learning_rate'],
+                                          beta1=settings['adam_beta1'],
+                                          beta2=settings['adam_beta2'])
+                optimizer.save()
+
+        activations = settings['hidden_activation'] + [settings['output_activation']]
+        for ii, layer in enumerate(nn.layers):
+            nwlayer = NetworkLayer(network = network,
+                                   weights = layer.weight.tolist(),
+                                   biases = layer.bias.tolist(),
+                                   activation = activations[ii])
+            nwlayer.save()
 
         NetworkMetadata.from_dict(json_dict['_metadata'], network)
         TrainMetadata.from_folder(pwd, network)
 
+        network_json = NetworkJSON(network=network, network_json=json_dict, settings_json=settings)
+        network_json.save()
         return network
+
+class NetworkJSON(BaseModel):
+    network = ForeignKeyField(Network)
+    network_json = JSONField()
+    settings_json = JSONField()
 
 class NetworkLayer(BaseModel):
     network = ForeignKeyField(Network)
@@ -177,34 +188,39 @@ class NetworkMetadata(BaseModel):
 class TrainMetadata(BaseModel):
     network = ForeignKeyField(Network)
     set = TextField(choices=['train', 'test', 'validation'])
-    step = IntegerField()
-    epoch = IntegerField()
-    walltime = FloatField()
-    loss = FloatField()
-    mse = FloatField()
+    step =     ArrayField(IntegerField)
+    epoch =    ArrayField(IntegerField)
+    walltime = ArrayField(FloatField)
+    loss =     ArrayField(FloatField)
+    mse =      ArrayField(FloatField)
+    hostname = TextField()
 
     @classmethod
     def from_folder(cls, pwd, network):
+        train_metadatas = None
         with db.atomic() as txn:
             for name in cls.set.choices:
                 train_metadatas = []
                 try:
                     with open(os.path.join(pwd, name + '_log.csv')) as file_:
                         df = pd.DataFrame.from_csv(file_)
-                        for row in df.iterrows():
-                            train_metadata = TrainMetadata(
-                                network=network,
-                                set=name,
-                                step=row[0],
-                                epoch=row[1]['epoch'],
-                                walltime=row[1]['walltime'],
-                                loss=row[1]['loss'],
-                                mse=row[1]['mse']
-                            )
-                            train_metadata.save()
-                            train_metadatas.append(train_metadata)
                 except FileNotFoundError:
                     pass
+                else:
+                    train_metadata = TrainMetadata(
+                        network=network,
+                        set=name,
+                        step=[int(x) for x in df.index],
+                        epoch=[int(x) for x in df['epoch']],
+                        walltime=df['walltime'],
+                        loss=df['loss'],
+                        mse=df['mse'],
+                        hostname=socket.gethostname()
+                    )
+                    # TODO: Only works on debian-like
+                    train_metadata.save()
+                    train_metadatas.append(train_metadata)
+        return train_metadatas
 
 
 class Hyperparameters(BaseModel):
@@ -220,9 +236,15 @@ class LbfgsOptimizer(BaseModel):
     maxiter = IntegerField()
     maxls = IntegerField()
 
+class AdamOptimizer(BaseModel):
+    hyperparameters = ForeignKeyField(Hyperparameters)
+    learning_rate = FloatField()
+    beta1 = FloatField()
+    beta2 = FloatField()
+
 def create_tables():
     db.execute_sql('SET ROLE developer')
-    db.create_tables([Filter, Network, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, TrainScript])
+    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, TrainScript])
 
 def purge_tables():
     clsmembers = inspect.getmembers(sys.modules[__name__], lambda member: inspect.isclass(member) and member.__module__ == __name__)
