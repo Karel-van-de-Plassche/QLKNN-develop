@@ -163,17 +163,19 @@ class QuaLiKizDuoNN():
         return self._nn1.feature_min.combine(self._nn2.feature_min, max)
 
 class QuaLiKizNDNN():
-    def __init__(self, nn_dict, activation=np.tanh, target_names_mask=None):
+    def __init__(self, nn_dict, target_names_mask=None):
         """ General ND fully-connected multilayer perceptron neural network
 
-        Initialize this class using a nn_dict. This dict is usually read 
+        Initialize this class using a nn_dict. This dict is usually read
         directly from JSON, and has a specific structure. Generate this JSON
         file using the supplied function in QuaLiKiz-Tensorflow
         """
         parsed = {}
         # Read and parse the json. E.g. put arrays in arrays and the rest in a dict
         for name, value in nn_dict.items():
-            if value.__class__ == list:
+            if name == 'hidden_activation' or name == 'output_activation':
+                parsed[name] = value
+            elif value.__class__ == list:
                 parsed[name] = np.array(value)
             else:
                 parsed[name] = dict(value)
@@ -183,17 +185,29 @@ class QuaLiKizNDNN():
             setattr(self, name, pd.Series(parsed.pop(name), name=name))
         self.layers = []
         # Now find out the amount of layers in our NN, and save the weigths and biases
-        for ii in range(1, len(parsed)+1):
+        activations = parsed['hidden_activation'] + [parsed['output_activation']]
+        for ii in range(1, len(activations) + 1):
             try:
                 name = 'layer' + str(ii)
+                print(name)
                 weight = parsed.pop(name + '/weights/Variable:0')
                 bias = parsed.pop(name + '/biases/Variable:0')
-                activation = activation
-                self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, activation))
+                print(activations)
+                activation = activations.pop(0)
+                if activation == 'tanh':
+                    act = np.tanh
+                elif activation == 'relu':
+                    act = lambda x: x * (x > 0)
+                elif activation == 'none':
+                    act = lambda x: x
+                self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, act))
             except KeyError:
                 # This name does not exist in the JSON,
-                # so our previously read layer was the one
+                # so our previously read layer was the output layer
                 break
+        if len(activations) == 0:
+            del parsed['hidden_activation']
+            del parsed['output_activation']
         try:
             self._clip_bounds = parsed['_metadata']['clip_bounds']
         except KeyError:
@@ -230,7 +244,7 @@ class QuaLiKizNDNN():
         def __init__(self, weight, bias, activation):
             self.weight = weight
             self.bias = bias
-            self.activation = activation 
+            self.activation = activation
 
         def apply(self, input):
             preactivation = np.dot(input, self.weight) + self.bias

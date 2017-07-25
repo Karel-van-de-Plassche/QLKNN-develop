@@ -5,11 +5,24 @@
         30,
         30
     ],
-    "standardization": "minmax_0_1",
+    "hidden_activation": [
+        "tanh",
+        "tanh",
+        "tanh"
+    ],
+    "output_activation": "none",
+    "standardization": "normsm_1_0",
     "cost_l2_scale": 0.1,
     "early_stop_after": 2,
     "optimizer": "lbfgs",
     "lbfgs_maxfun": 1000,
     "lbfgs_maxiter": 15000,
-    "lbfgs_maxls": 20
+    "lbfgs_maxls": 20,
+
+    "learning_rate": 0.001,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.999,
+    "adadelta_rho": 0.95,
+    "rmsprop_decay": 0.9,
+    "rmsprop_momentum": 0.0
 }

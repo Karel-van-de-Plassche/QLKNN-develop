@@ -146,7 +146,7 @@ def shuffle_panda(panda):
 
 
 def model_to_json(name, feature_names, target_names,
-                  train_set, scale_factor, scale_bias, l2_scale):
+                  train_set, scale_factor, scale_bias, l2_scale, settings):
     dict_ = {x.name: x.eval().tolist() for x in tf.trainable_variables()}
     dict_['prescale_factor'] = scale_factor.to_dict()
     dict_['prescale_bias'] = scale_bias.to_dict()
@@ -156,6 +156,8 @@ def model_to_json(name, feature_names, target_names,
     dict_['target_names'] = target_names
     dict_['target_min'] = dict(train_set._target.min())
     dict_['target_max'] = dict(train_set._target.max())
+    dict_['hidden_activation'] = settings['hidden_activation']
+    dict_['output_activation'] = settings['output_activation']
 
     sp_result = subprocess.run('git rev-parse HEAD',
                                stdout=subprocess.PIPE,
@@ -164,7 +166,6 @@ def model_to_json(name, feature_names, target_names,
     nn_version = sp_result.stdout.decode('UTF-8').strip()
     metadata = {
         'nn_develop_version': nn_version,
-        'activation': 'tanh(x)',
         'c_L2': l2_scale.eval()
     }
     dict_['_metadata'] = metadata
@@ -206,7 +207,7 @@ def variable_summaries(var):
         tf.summary.histogram('histogram', var)
 
 
-def nn_layer(input_tensor, output_dim, layer_name, act=tf.tanh,
+def nn_layer(input_tensor, output_dim, layer_name, act=tf.nn.relu,
              dtype=tf.float32, debug=False):
     """Reusable code for making a simple neural net layer.
     It does a matrix multiply, bias add, and then uses relu to nonlinearize.
@@ -229,7 +230,10 @@ def nn_layer(input_tensor, output_dim, layer_name, act=tf.tanh,
             preactivate = tf.matmul(input_tensor, weights) + biases
             if debug:
                 tf.summary.histogram('pre_activations', preactivate)
-        activations = act(preactivate, name='activation')
+        if act is not None:
+            activations = act(preactivate, name='activation')
+        else:
+            activations = preactivate
         if debug:
             tf.summary.histogram('activations', activations)
         return activations
@@ -311,6 +315,10 @@ def train(settings):
 
     # Start tensorflow session
     sess = tf.InteractiveSession()
+    #config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, \
+    #                    allow_soft_placement=True, device_count = {'CPU': 1})
+    #session = tf.Session(config=config)
+    #K.set_session(session)
 
     # Input placeholders
     with tf.name_scope('input'):
@@ -336,8 +344,14 @@ def train(settings):
 
     # Define neural network
     layers = [x_scaled]
-    for ii, neurons in enumerate(settings['hidden_neurons'], start=1):
-        layers.append(nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype))
+    for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
+        if activation == 'tanh':
+            act = tf.tanh
+        elif activation == 'relu':
+            act = tf.nn.relu
+        elif activation == 'none':
+            act = None
+        layers.append(nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act))
 
     #with tf.name_scope('dropout'):
     #    keep_prob = tf.placeholder(tf.float32)
@@ -345,7 +359,14 @@ def train(settings):
     #    dropped = tf.nn.dropout(hidden1, keep_prob)
 
     # All output scaled between -1 and 1, denomalize it
-    y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype)
+    activation = settings['output_activation']
+    if activation == 'tanh':
+        act = tf.tanh
+    elif activation == 'relu':
+        act = tf.nn.relu
+    elif activation == 'none':
+        act = None
+    y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype, act=act)
     with tf.name_scope('denormalize'):
         out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
         out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
@@ -378,17 +399,27 @@ def train(settings):
     train_step = None
     # Define fitting algorithm. Kept old algorithms commented out.
     with tf.name_scope('train'):
+        lr = settings['learning_rate']
         if settings['optimizer'] == 'adam':
-            train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
+            beta1 = settings['adam_beta1']
+            beta2 = settings['adam_beta2']
+            train_step = tf.train.AdamOptimizer(lr,
+                                                beta1,
+                                                beta2,
+                                                ).minimize(loss)
         elif settings['optimizer'] == 'adadelta':
-            train_step = tf.train.AdadeltaOptimizer(
-                FLAGS.learning_rate, 0.60).minimize(loss)
+            rho = settings['adadelta_rho']
+            train_step = tf.train.AdadeltaOptimizer(lr,
+                                                    rho,
+                                                    ).minimize(loss)
         elif settings['optimizer'] == 'rmsprop':
-            train_step = tf.train.RMSPropOptimizer(
-                FLAGS.learning_rate).minimize(loss)
+            decay = settings['rmsprop_decay']
+            momentum = settings['rmsprop_momentum']
+            train_step = tf.train.RMSPropOptimizer(lr,
+                                                   decay,
+                                                   momentum).minimize(loss)
         elif settings['optimizer'] == 'grad':
-            train_step = tf.train.GradientDescentOptimizer(
-                FLAGS.learning_rate).minimize(loss)
+            train_step = tf.train.GradientDescentOptimizer(lr).minimize(loss)
         elif settings['optimizer'] == 'lbfgs':
             optimizer = opt.ScipyOptimizerInterface(loss,
                                                     options={'maxiter': settings['lbfgs_maxiter'],
@@ -430,7 +461,7 @@ def train(settings):
     not_improved = 0
     best_mse = np.inf
 
-    saver = tf.train.Saver(max_to_keep=settings['early_stop_after'])
+    saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
     checkpoint_dir = 'checkpoints'
     tf.gfile.MkDir(checkpoint_dir)
 
@@ -458,15 +489,18 @@ def train(settings):
                 validation_writer.add_summary(summary, ii)
                 validation_writer.add_run_metadata(run_metadata, 'step%d' % ii)
 
-                #save_path = saver.save(sess, os.path.join(checkpoint_dir,
-                #'model.ckpt'), global_step=ii)
+                save_path = saver.save(sess, os.path.join(checkpoint_dir,
+                'model.ckpt'), global_step=ii)
 
                 # Write checkpoint of NN
-                model_to_json('nn_checkpoint.json', scan_dims.values.tolist(),
+                nn_checkpoint_file = os.path.join(checkpoint_dir,
+                                                  'nn_checkpoint_' + str(epoch) + '.json')
+                model_to_json(nn_checkpoint_file, scan_dims.values.tolist(),
                               [train_dim],
                               datasets.train, scale_factor.astype('float64'),
                               scale_bias.astype('float64'),
-                              l2_scale)
+                              l2_scale,
+                              settings)
 
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse)
                 print()
@@ -476,7 +510,7 @@ def train(settings):
 
                 # Early stepping, check if MSE is better
                 if meanse < best_mse:
-                    copyfile('nn_checkpoint.json', 'nn_best.json')
+                    copyfile(nn_checkpoint_file, 'nn_best.json')
                     best_mse = meanse
                     not_improved = 0
                 else:
@@ -542,7 +576,8 @@ def train(settings):
                   datasets.train,
                   scale_factor.astype('float64'),
                   scale_bias.astype('float64'),
-                  l2_scale)
+                  l2_scale,
+                  settings)
 
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
