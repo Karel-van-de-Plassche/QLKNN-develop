@@ -189,10 +189,8 @@ class QuaLiKizNDNN():
         for ii in range(1, len(activations) + 1):
             try:
                 name = 'layer' + str(ii)
-                print(name)
                 weight = parsed.pop(name + '/weights/Variable:0')
                 bias = parsed.pop(name + '/biases/Variable:0')
-                print(activations)
                 activation = activations.pop(0)
                 if activation == 'tanh':
                     act = np.tanh
