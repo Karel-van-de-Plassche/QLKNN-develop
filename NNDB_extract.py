@@ -1,5 +1,6 @@
 from IPython import embed
 #import mega_nn
+import gc
 import numpy as np
 import pandas as pd
 from NNDB import Network, NetworkJSON
@@ -37,6 +38,8 @@ for query_res in query:
             df_nn = nn.get_output(**input)
             df_nn.index = input.index
             store[network_name] = df_nn
+            del df_nn
+            gc.collect()
 embed()
 #df_nn = nn.get_outputs(**input)
 #df_nn.index = input.index
