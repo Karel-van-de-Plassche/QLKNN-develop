@@ -200,19 +200,38 @@ class Network(BaseModel):
             network_json.save()
             return network
 
+    def to_QuaLiKizNDNN(self):
+        json_dict = self.networkjson_set.get().network_json
+        nn = QuaLiKizNDNN(json_dict)
+        return nn
+
+    def summarize(self):
+        net = self.select().get()
+        print({'target_names':     net.target_names,
+               'rms_test':         net.network_metadata.get().rms_test,
+               'rms_train':        net.network_metadata.get().rms_train,
+               'rms_validation':   net.network_metadata.get().rms_validation,
+               'epoch':            net.network_metadata.get().epoch,
+               'train_time':       net.train_metadata.get().walltime[-1],
+               'hidden_neurons':   net.hyperparameters.get().hidden_neurons,
+               'standardization':  net.hyperparameters.get().standardization,
+               'cost_l2_scale':    net.hyperparameters.get().cost_l2_scale,
+               'early_stop_after': net.hyperparameters.get().early_stop_after}
+        )
+
 class NetworkJSON(BaseModel):
-    network = ForeignKeyField(Network)
+    network = ForeignKeyField(Network, related_name='network_json')
     network_json = JSONField()
     settings_json = JSONField()
 
 class NetworkLayer(BaseModel):
-    network = ForeignKeyField(Network)
+    network = ForeignKeyField(Network, related_name='network_layer')
     weights = ArrayField(FloatField)
     biases = ArrayField(FloatField)
     activation = TextField()
 
 class NetworkMetadata(BaseModel):
-    network = ForeignKeyField(Network)
+    network = ForeignKeyField(Network, related_name='network_metadata')
     nn_develop_version = TextField()
     epoch = IntegerField()
     best_epoch = IntegerField()
@@ -239,7 +258,7 @@ class NetworkMetadata(BaseModel):
             return network_metadata
 
 class TrainMetadata(BaseModel):
-    network = ForeignKeyField(Network)
+    network = ForeignKeyField(Network, related_name='train_metadata')
     set = TextField(choices=['train', 'test', 'validation'])
     step =         ArrayField(IntegerField)
     epoch =        ArrayField(IntegerField)
@@ -309,24 +328,24 @@ class Hyperparameters(BaseModel):
     early_stop_after = FloatField()
 
 class LbfgsOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters)
+    hyperparameters = ForeignKeyField(Hyperparameters, related_name='lbfgs_optimizer')
     maxfun = IntegerField()
     maxiter = IntegerField()
     maxls = IntegerField()
 
 class AdamOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters)
+    hyperparameters = ForeignKeyField(Hyperparameters, related_name='adam_optimizer')
     learning_rate = FloatField()
     beta1 = FloatField()
     beta2 = FloatField()
 
 class AdadeltaOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters)
+    hyperparameters = ForeignKeyField(Hyperparameters, related_name='adadelta_optimizer')
     learning_rate = FloatField()
     rho = FloatField()
 
 class RmspropOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters)
+    hyperparameters = ForeignKeyField(Hyperparameters, related_name='rmsprop_optimizer')
     learning_rate = FloatField()
     decay = FloatField()
     momentum = FloatField()
@@ -344,8 +363,43 @@ def purge_tables():
             except ProgrammingError:
                 db.rollback()
 
+def create_views():
+    """
+    CREATE VIEW
+    SUMMARY AS
+    SELECT A.id, target_names, hidden_neurons, standardization, cost_l2_scale, early_stop_after, best_rms_test, best_rms_validation, best_rms_train, final_rms_validation, final_rms_train FROM
+    (
+    SELECT network.id, network.target_names, hyperparameters.hidden_neurons, hyperparameters.standardization, hyperparameters.cost_l2_scale, hyperparameters.early_stop_after, networkmetadata.rms_test as best_rms_test, networkmetadata.rms_validation as best_rms_validation, networkmetadata.rms_train as best_rms_train
+    FROM network
+    INNER JOIN hyperparameters
+    ON network.id = hyperparameters.network_id
+    INNER JOIN networkmetadata
+    ON network.id = networkmetadata.network_id
+    ) A
+    INNER JOIN
+    (
+    SELECT network.id AS id_B, sqrt(trainmetadata.mse[array_length(trainmetadata.mse, 1)]) as final_rms_validation
+    FROM network
+    INNER JOIN trainmetadata
+    ON network.id = trainmetadata.network_id
+    WHERE trainmetadata.set = 'validation'
+    ) B
+    ON A.id = B.id_B
+    INNER JOIN
+    (
+    SELECT network.id AS id_C, sqrt(trainmetadata.mse[array_length(trainmetadata.mse, 1)]) as final_rms_train
+    FROM network
+    INNER JOIN trainmetadata
+    ON network.id = trainmetadata.network_id
+    WHERE trainmetadata.set = 'train'
+    ) C
+    ON A.id = C.id_C
+    """)
+
+
 
 
 #purge_tables()
 #create_tables()
+#create_views()
 #Network.from_folder('finished_nns_filter2/efiITG_GB_filter2', filter_id=3)
