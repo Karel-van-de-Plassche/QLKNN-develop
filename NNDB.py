@@ -1,5 +1,6 @@
 from peewee import *
-from peewee import FloatField, FloatField, ProgrammingError, IntegerField, BooleanField
+from peewee import (FloatField, FloatField, ProgrammingError, IntegerField, BooleanField,
+                    Param, Passthrough)
 import numpy as np
 import inspect
 import sys
@@ -72,6 +73,42 @@ class Network(BaseModel):
     target_max = HStoreField()
 
     @classmethod
+    def find_similar_topology(cls, settings_path):
+        with open(settings_path) as file_:
+            json_dict = json.load(file_)
+        query = (Network.select()
+                 .where(Network.target_names == Param([json_dict['train_dim']]))
+                 .join(Hyperparameters)
+                 .where(Hyperparameters.hidden_neurons ==
+                        Param(json_dict['hidden_neurons']))
+                 .where(Hyperparameters.hidden_activation ==
+                        Param(json_dict['hidden_activation']))
+                 .where(Hyperparameters.output_activation ==
+                        Param(json_dict['output_activation'])))
+        return query
+
+    @classmethod
+    def find_similar_hyperpar(cls, settings_path):
+        with open(settings_path) as file_:
+            json_dict = json.load(file_)
+
+        query = (Network.select()
+                 .where(Network.target_names == Param([json_dict['train_dim']]))
+                 .join(Hyperparameters)
+                 .where(Hyperparameters.standardization ==
+                        json_dict['standardization'])
+                 .where(Hyperparameters.goodness ==
+                        json_dict['goodness'])
+                 .where(Hyperparameters.cost_l2_scale ==
+                        Passthrough(str(json_dict['cost_l2_scale'])))
+                 .where(Hyperparameters.cost_l1_scale ==
+                        Passthrough(str(json_dict['cost_l1_scale'])))
+                 .where(Hyperparameters.optimizer ==
+                        Passthrough(str(json_dict['optimizer'])))
+                 )
+        return query
+
+    @classmethod
     def from_folders(cls, pwd, **kwargs):
         for path_ in os.listdir(pwd):
             path_ = os.path.join(pwd, path_)
@@ -115,9 +152,13 @@ class Network(BaseModel):
                 settings = json.load(file_)
                 hyperpar = Hyperparameters(network=network,
                                            hidden_neurons=settings['hidden_neurons'],
+                                           hidden_activation=settings['hidden_activation'],
+                                           output_activation=settings['output_activation'],
                                            standardization=settings['standardization'],
                                            goodness=settings['goodness'],
+                                           optimizer=settings['optimizer'],
                                            cost_l2_scale=settings['cost_l2_scale'],
+                                           cost_l1_scale=settings['cost_l1_scale'],
                                            early_stop_after=settings['early_stop_after'])
                 hyperpar.save()
                 if settings['optimizer'] == 'lbfgs':
@@ -255,9 +296,13 @@ class TrainMetadata(BaseModel):
 class Hyperparameters(BaseModel):
     network = ForeignKeyField(Network, related_name='hyperparameters')
     hidden_neurons = ArrayField(IntegerField)
+    hidden_activation = ArrayField(TextField)
+    output_activation = TextField()
     standardization = TextField()
     goodness = TextField()
+    optimizer = TextField()
     cost_l2_scale = FloatField()
+    cost_l1_scale = FloatField()
     early_stop_after = FloatField()
 
 class LbfgsOptimizer(BaseModel):
@@ -295,6 +340,7 @@ def purge_tables():
                 db.drop_table(cls, cascade=True)
             except ProgrammingError:
                 db.rollback()
+
 
 
 #purge_tables()
