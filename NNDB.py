@@ -113,7 +113,10 @@ class Network(BaseModel):
         for path_ in os.listdir(pwd):
             path_ = os.path.join(pwd, path_)
             if os.path.isdir(path_):
-                Network.from_folder(path_, **kwargs)
+                try:
+                    Network.from_folder(path_, **kwargs)
+                except FileNotFoundError:
+                    print('Could not parse', path_, 'is training done?')
 
     @classmethod
     def from_folder(cls, pwd, filter_id=None):
