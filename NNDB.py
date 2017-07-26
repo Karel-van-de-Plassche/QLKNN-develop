@@ -367,7 +367,7 @@ def create_views():
     """
     CREATE VIEW
     SUMMARY AS
-    SELECT A.id, target_names, hidden_neurons, standardization, cost_l2_scale, early_stop_after, best_rms_test, best_rms_validation, best_rms_train, final_rms_validation, final_rms_train FROM
+    SELECT A.id, target_names, hidden_neurons, standardization, cost_l2_scale, early_stop_after, best_rms_test, best_rms_validation, best_rms_train, final_rms_validation, final_rms_train, walltime, hostname FROM
     (
     SELECT network.id, network.target_names, hyperparameters.hidden_neurons, hyperparameters.standardization, hyperparameters.cost_l2_scale, hyperparameters.early_stop_after, networkmetadata.rms_test as best_rms_test, networkmetadata.rms_validation as best_rms_validation, networkmetadata.rms_train as best_rms_train
     FROM network
@@ -387,14 +387,14 @@ def create_views():
     ON A.id = B.id_B
     INNER JOIN
     (
-    SELECT network.id AS id_C, sqrt(trainmetadata.mse[array_length(trainmetadata.mse, 1)]) as final_rms_train
+    SELECT network.id AS id_C, sqrt(trainmetadata.mse[array_length(trainmetadata.mse, 1)]) as final_rms_train, trainmetadata.walltime[array_length(trainmetadata.walltime, 1)], trainmetadata.hostname
     FROM network
     INNER JOIN trainmetadata
     ON network.id = trainmetadata.network_id
     WHERE trainmetadata.set = 'train'
     ) C
     ON A.id = C.id_C
-    """)
+    """
 
 
 
