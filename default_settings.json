@@ -16,6 +16,8 @@
     "cost_l2_scale": 0.1,
     "cost_l1_scale": 0.0,
     "early_stop_after": 5,
+    "early_stop_measure": "loss",
+    "minibatches": 10,
 
     "optimizer": "adam",
     "learning_rate": 0.001,

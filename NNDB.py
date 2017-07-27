@@ -153,16 +153,33 @@ class Network(BaseModel):
 
             with open(os.path.join(pwd, 'settings.json')) as file_:
                 settings = json.load(file_)
-                hyperpar = Hyperparameters(network=network,
-                                           hidden_neurons=settings['hidden_neurons'],
-                                           hidden_activation=settings['hidden_activation'],
-                                           output_activation=settings['output_activation'],
-                                           standardization=settings['standardization'],
-                                           goodness=settings['goodness'],
-                                           optimizer=settings['optimizer'],
-                                           cost_l2_scale=settings['cost_l2_scale'],
-                                           cost_l1_scale=settings['cost_l1_scale'],
-                                           early_stop_after=settings['early_stop_after'])
+                try:
+                    hyperpar = Hyperparameters(network=network,
+                                               hidden_neurons=settings['hidden_neurons'],
+                                               hidden_activation=settings['hidden_activation'],
+                                               output_activation=settings['output_activation'],
+                                               standardization=settings['standardization'],
+                                               goodness=settings['goodness'],
+                                               optimizer=settings['optimizer'],
+                                               cost_l2_scale=settings['cost_l2_scale'],
+                                               cost_l1_scale=settings['cost_l1_scale'],
+                                               early_stop_after=settings['early_stop_after'],
+                                               early_stop_measure=settings['early_stop_measure'],
+                                               minibatches=settings['minibatches']
+                    )
+                except KeyError:
+                    print('Legacy file.. Fallback')
+                    hyperpar = Hyperparameters(network=network,
+                                               hidden_neurons=settings['hidden_neurons'],
+                                               hidden_activation=settings['hidden_activation'],
+                                               output_activation=settings['output_activation'],
+                                               standardization=settings['standardization'],
+                                               goodness=settings['goodness'],
+                                               optimizer=settings['optimizer'],
+                                               cost_l2_scale=settings['cost_l2_scale'],
+                                               cost_l1_scale=settings['cost_l1_scale'],
+                                               early_stop_after=settings['early_stop_after'],
+                    )
                 hyperpar.save()
                 if settings['optimizer'] == 'lbfgs':
                     optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
@@ -326,6 +343,8 @@ class Hyperparameters(BaseModel):
     cost_l2_scale = FloatField()
     cost_l1_scale = FloatField()
     early_stop_after = FloatField()
+    early_stop_measure = TextField()
+    minibatches = IntegerField()
 
 class LbfgsOptimizer(BaseModel):
     hyperparameters = ForeignKeyField(Hyperparameters, related_name='lbfgs_optimizer')

@@ -466,7 +466,7 @@ def train(settings):
     validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
 
     # This is dependent on dataset size
-    batch_size = int(np.floor(datasets.train.num_examples/10))
+    batch_size = int(np.floor(datasets.train.num_examples/settings['minibatches']))
 
     timediff(start, 'Starting loss calculation')
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
@@ -480,7 +480,8 @@ def train(settings):
 
     # Define variables for early stopping
     not_improved = 0
-    best_mse = np.inf
+    best_early_measure = np.inf
+    early_measure = np.inf
 
     saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
     checkpoint_dir = 'checkpoints'
@@ -525,14 +526,19 @@ def train(settings):
 
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
                 print()
-                print(validation_log)
+                print_last_row(validation_log, header=True)
                 timediff(start, 'completed')
                 print()
 
-                # Early stepping, check if MSE is better
-                if meanse < best_mse:
+                if settings['early_stop_measure'] == 'mse':
+                    early_measure = meanse
+                elif settings['early_stop_measure'] == 'loss':
+                    early_measure = lo
+
+                # Early stopping, check if measure is better
+                if early_measure < best_early_measure:
+                    best_early_measure = early_measure
                     copyfile(nn_checkpoint_file, 'nn_best.json')
-                    best_mse = meanse
                     not_improved = 0
                 else:
                     not_improved += 1
@@ -591,7 +597,7 @@ def train(settings):
 
     try:
         best_epoch = epoch - not_improved
-        saver.restore(sess, saver.last_checkpoints[-not_improved])
+        saver.restore(sess, saver.last_checkpoints[best_epoch - epoch])
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
@@ -606,23 +612,29 @@ def train(settings):
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     ests = y.eval({x: xs, y_ds: ys})
     line_x = np.linspace(float(ys.min()), float(ys.max()))
-    rms_val = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
+    rms_val = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
+    loss_val = np.round(loss.eval({x: xs, y_ds: ys}), 4)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
-    rms_test = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
+    rms_test = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
+    loss_test = np.round(loss.eval({x: xs, y_ds: ys}), 4)
     print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
     xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    rms_train = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 2)
+    rms_train = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
+    loss_train = np.round(loss.eval({x: xs, y_ds: ys}), 4)
     print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
-    metadata = {'epoch': epoch,
-                'best_epoch': best_epoch,
-                'rms_validation': rms_val,
-                'rms_test': rms_test,
-                'rms_train': rms_train,
-                'activation': 'tanh'}
+    metadata = {'epoch':           epoch,
+                'best_epoch':      best_epoch,
+                'rms_validation':  rms_val,
+                'rms_test':        rms_test,
+                'rms_train':       rms_train,
+                'loss_validation': loss_val,
+                'loss_test':       loss_test,
+                'loss_train':      loss_train
+                }
 
     with open('nn.json') as nn_file:
         data = json.load(nn_file)
