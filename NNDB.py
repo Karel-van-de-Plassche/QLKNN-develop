@@ -283,8 +283,8 @@ class TrainMetadata(BaseModel):
     loss =         ArrayField(FloatField)
     mse =          ArrayField(FloatField)
     mabse =        ArrayField(FloatField, null=True)
-    l1_loss =      ArrayField(FloatField, null=True)
-    l2_loss =      ArrayField(FloatField, null=True)
+    l1_norm =      ArrayField(FloatField, null=True)
+    l2_norm =      ArrayField(FloatField, null=True)
     hostname = TextField()
 
     @classmethod
@@ -310,8 +310,8 @@ class TrainMetadata(BaseModel):
                             loss=df['loss'],
                             mse=df['mse'],
                             mabse=df['mabse'],
-                            l1_loss=df['l1_loss'],
-                            l2_loss=df['l2_loss'],
+                            l1_norm=df['l1_norm'],
+                            l2_norm=df['l2_norm'],
                             hostname=socket.gethostname()
                         )
                     except KeyError:
