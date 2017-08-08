@@ -36,10 +36,21 @@ for query_res in query:
         nn = QuaLiKizNDNN(json_dict)
         network_name = parent_name + str(id)
         if network_name in store:
-            continue
+            pass
         else:
             print('Generating ', network_name)
-            df_nn = nn.get_output(**input)
+            df_nn = nn.get_output(**input, clip_low=True, clip_high=True)
+            df_nn.index = input.index
+            store[network_name] = df_nn
+            del df_nn
+            gc.collect()
+
+        network_name = parent_name + str(id) + '_noclip'
+        if network_name in store:
+            pass
+        else:
+            print('Generating ', network_name)
+            df_nn = nn.get_output(**input, clip_low=False, clip_high=False)
             df_nn.index = input.index
             store[network_name] = df_nn
             del df_nn
