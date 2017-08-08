@@ -43,12 +43,14 @@ def create_folders(store_name):
         print(name)
         dir = os.path.join(root, name)
         os.mkdir(dir)
-        os.symlink(os.path.abspath('train_NDNN.py'),
+        os.symlink(os.path.abspath('training/train_NDNN.py'),
                    os.path.join(dir, 'train_NDNN.py'))
+        os.symlink(os.path.abspath('networks/run_model.py'),
+                   os.path.join(dir, 'run_model.py'))
         os.symlink(os.path.join(os.path.abspath(os.curdir),
                                 store_name),
                    os.path.join(dir, store_name))
-        with open('default_settings.json') as file_:
+        with open('training/default_settings.json') as file_:
             settings = json.load(file_)
             settings['train_dim'] = name
         with open(os.path.join(dir, 'settings.json'), 'w') as file_:
@@ -227,7 +229,7 @@ def filter_individual(store_name):
     store.close()
     newstore.close()
 #extract_nns()
-filter_all('7D_nions0_flat.h5')
+#filter_all('7D_nions0_flat.h5')
 #filter_individual('filtered_7D_nions0_flat.h5')
 create_folders('filtered_everything_nions0.h5')
 #extract_nns('7D_filtered_NNs')

@@ -2,8 +2,12 @@ from IPython import embed
 #import mega_nn
 import numpy as np
 import pandas as pd
-from NNDB import Network, NetworkJSON, TrainMetadata
+from model import Network, NetworkJSON, TrainMetadata
 from peewee import Param
+import os
+import sys
+networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
+sys.path.append(networks_path)
 from run_model import QuaLiKizNDNN
 import matplotlib as mpl
 import matplotlib.pyplot as plt

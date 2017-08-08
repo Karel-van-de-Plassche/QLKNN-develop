@@ -3,8 +3,12 @@ from IPython import embed
 import gc
 import numpy as np
 import pandas as pd
-from NNDB import Network, NetworkJSON
+from model import Network, NetworkJSON
 from peewee import Param
+import os
+import sys
+networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
+sys.path.append(networks_path)
 from run_model import QuaLiKizNDNN
 
 store = pd.HDFStore('./7D_nions0_flat.h5')

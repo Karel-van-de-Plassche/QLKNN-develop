@@ -7,6 +7,8 @@ import sys
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
 from IPython import embed
 import os
+networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
+sys.path.append(networks_path)
 from run_model import QuaLiKizNDNN
 import json
 import pandas as pd
