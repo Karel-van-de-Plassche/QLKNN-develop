@@ -7,17 +7,23 @@ import os
 import sys
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
 NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
+training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../training'))
 sys.path.append(networks_path)
 sys.path.append(NNDB_path)
+sys.path.append(training_path)
 from model import Network, NetworkJSON
 from run_model import QuaLiKizNDNN
+from train_NDNN import shuffle_panda
 
 import matplotlib.pyplot as plt
 from load_data import load_data
 
-def zero_linregress(x, y):
+def zero_linregress(x, y, force_xy=True):
     x_ = x[:,np.newaxis]
-    a, _, _, _ = np.linalg.lstsq(x_, y)
+    if force_xy:
+        a = 1
+    else:
+        a, _, _, _ = np.linalg.lstsq(x_, y)
 
     f = a * x
     y_bar = np.sum(y) / len(y)
@@ -40,6 +46,8 @@ df = df[df['target']>=0]
 
 df = df[df['target']>0.1]
 #df = df[df['prediction']>0]
+#df = df.loc[(df['residuals']**2).sort_values(ascending=False)[int(0.1 * len(df)):].index]
+#df = shuffle_panda(df)[int(0.99 * len(df)):]
 
 x = df['target']
 y = df['prediction']
