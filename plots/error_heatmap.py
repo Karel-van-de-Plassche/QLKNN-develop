@@ -35,7 +35,7 @@ def zero_linregress(x, y, force_xy=True):
 ##############################################################################
 # Load Data                                                                  #
 ##############################################################################
-_, df, __ = load_data(61)
+_, df, __ = load_data(37)
 
 ##############################################################################
 # Filter dataset                                                             #
@@ -44,7 +44,7 @@ df = df[df['target']<60]
 #df = df[df['prediction']<10]
 df = df[df['target']>=0]
 
-df = df[df['target']>0.1]
+#df = df[df['target']>0.1]
 #df = df[df['prediction']>0]
 #df = df.loc[(df['residuals']**2).sort_values(ascending=False)[int(0.1 * len(df)):].index]
 #df = shuffle_panda(df)[int(0.99 * len(df)):]
@@ -80,4 +80,4 @@ fig.colorbar(cax)
 #g = sns.lmplot("target", "prediction", data=df)
 
 plt.show()
-embed()
+#embed()
