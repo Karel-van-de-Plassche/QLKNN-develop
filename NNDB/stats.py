@@ -3,7 +3,7 @@ from IPython import embed
 import numpy as np
 import pandas as pd
 from model import Network, NetworkJSON, TrainMetadata, Hyperparameters
-from peewee import Param
+from peewee import Param, JOIN_LEFT_OUTER
 import os
 import sys
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
@@ -11,33 +11,114 @@ sys.path.append(networks_path)
 from run_model import QuaLiKizNDNN
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from warnings import warn
 
 #query = (Network.select(Network.id).where(Network.id == 16))
 #nn = query.get().to_QuaLiKizNDNN()
-def draw_convergence(network_id, only_last_epochs=True):
+def draw_convergence(network_id, only_last_epochs=False):
     query = (TrainMetadata.select(TrainMetadata.step,
                                   TrainMetadata.epoch,
-                                  TrainMetadata.mse)
+                                  TrainMetadata.loss,
+                                  TrainMetadata.walltime)
              .where(TrainMetadata.network == network_id)
              .dicts()
     )
-    df = pd.DataFrame(query.where(TrainMetadata.set == 'train').get())
-    df.set_index('step', inplace=True)
-    df.rename(columns = {'mse':'mse_train'}, inplace = True)
+    train = pd.DataFrame(query.where(TrainMetadata.set == 'train').get())
+    #df.set_index('step', inplace=True)
+    train.rename(columns = {'loss':'loss_train'}, inplace = True)
+    train.index.name = 'minibatch'
+
     val = pd.DataFrame(query.where(TrainMetadata.set == 'validation').get())
-    val.set_index('step', inplace=True)
-    val.rename(columns = {'mse':'mse_validation'}, inplace = True)
-    val.index = val.index - 1
-    df = pd.concat([df, val], axis=1)
+    steps_per_epoch = val[val['epoch'] == 1]['step'].iloc[0]
+    minibatches_per_epoch = steps_per_epoch - 1
+    val.index = val['epoch'] * minibatches_per_epoch
+    val.index.name = 'minibatch'
+    val.rename(columns = {'loss':'loss_validation'}, inplace = True)
+    #val.index = val.index - 1 # Shift steps to avond NaN gaps
+    df = pd.concat([train, val], axis=1)
     if only_last_epochs:
-        df = df.iloc[-100*10:, :]
+        df = df.iloc[-100*steps_per_epoch-1:, :]
 
     fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.scatter(df.index, np.sqrt(df['mse_validation']))
-    ax.scatter(df.index, np.sqrt(df['mse_train']), s=4)
-    ax.set_xticklabels(np.floor(ax.xaxis.get_ticklocs()/11))
+    ax1 = fig.add_subplot(111)
+    ax2 = ax1.twiny()
+    ax1.scatter(df.index, df['loss_validation'], label='Validation')
+    #for line in df['loss_validation'].dropna().index:
+    #    ax1.axvline(line)
+    ax1.scatter(df.index, df['loss_train'], s=4, label='Train')
+    ax1.set_xticklabels(np.floor(ax1.xaxis.get_ticklocs()/minibatches_per_epoch))
+    ax1.set_xlabel('epochs')
+    ax1.set_ylabel('loss')
+    ax1.legend()
+    #ax1.set_ylim([-0.1, 20])
+
+    def steps_to_walltime(steps):
+        tottime = df['walltime'].iloc[-1, 1]
+        times_seconds = steps * tottime / df.index[-1]
+        return([seconds_to_human(x) for x in times_seconds])
+
+    def seconds_to_human(c):
+        days =    int(c // 86400)
+        hours =   int(c // 3600 % 24)
+        minutes = int(c // 60 % 60)
+        seconds = int(c % 60)
+        if days > 0:
+            warn('Careful! Run took more than one day!')
+        if c < 0:
+            formatted = ''
+        else:
+            formatted = '{:02d}:{:02d}:{:02d}'.format(hours, minutes, seconds)
+        return formatted
+
+    ax2.set_xlim(ax1.get_xlim())
+    #ax2.set_xticks(ax1.xaxis.get_ticklocs())
+    ax2.set_xticklabels(steps_to_walltime(ax1.xaxis.get_ticklocs()))
+    #ax2.set_xticklabels(ax1.xaxis.get_ticklocs())
+    ax2.set_xlabel("time (HH:MM:SS)")
+
+
+    hostname = (TrainMetadata.select(TrainMetadata.hostname)
+             .where(TrainMetadata.network == network_id)
+             .tuples()
+    ).get()[0]
+    ax2.text(0.01,0.98, hostname, fontsize=15, transform=fig.transFigure)
+    ax2.text(0.01,0.96, 'network ' + str(network_id), fontsize=15, transform=fig.transFigure)
     return fig
+
+def find_similar_convergence(network_id):
+    query = Network.find_similar_topology_by_id(network_id)
+    query &= Network.find_similar_networkpar_by_id(network_id)
+    train_dim, minibatches, optimizer, standardization, hostname = (
+        Network
+        .select(Network.target_names,
+                Hyperparameters.minibatches,
+                Hyperparameters.optimizer,
+                Hyperparameters.standardization,
+                TrainMetadata.hostname)
+        .where(Network.id == network_id)
+        .join(Hyperparameters, on=Network.id == Hyperparameters.network_id)
+        .join(TrainMetadata, on=Network.id == TrainMetadata.network_id)
+    ).tuples().get()
+
+    query &= (
+        Network.select()
+        .where(Network.target_names == Param(train_dim))
+        .join(Hyperparameters)
+        .where(Hyperparameters.minibatches == minibatches)
+        #.where(Hyperparameters.optimizer == optimizer)
+        .where(Hyperparameters.optimizer != 'adadelta')
+        .where(Hyperparameters.standardization == standardization)
+        .join(TrainMetadata, on=Network.id == TrainMetadata.network_id)
+        .where(TrainMetadata.hostname == hostname)
+    )
+    query &= (
+        Network.select()
+        .where(Network.id != network_id)
+    )
+
+    if query.count() > 1:
+        warn('multiple candidates! Returning the first')
+    return query.get().id
 
 def get_target_prediction(network_id):
     query = (Network.select(Network.target_names).where(Network.id==network_id).tuples())
@@ -95,7 +176,10 @@ def draw_mispred():
     plt.legend()
 
 
-#draw_convergence(22)
-draw_mispred()
+orig_id = 46
+draw_convergence(orig_id)
+new_id = find_similar_convergence(orig_id)
+draw_convergence(new_id)
+#draw_mispred()
 plt.show()
 #embed()
