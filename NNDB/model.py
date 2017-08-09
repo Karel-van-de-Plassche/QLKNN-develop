@@ -6,6 +6,7 @@ import inspect
 import sys
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
 from IPython import embed
+from warnings import warn
 import os
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
 sys.path.append(networks_path)
@@ -75,40 +76,134 @@ class Network(BaseModel):
     target_max = HStoreField()
 
     @classmethod
-    def find_similar_topology(cls, settings_path):
+    def find_similar_topology_by_settings(cls, settings_path):
         with open(settings_path) as file_:
             json_dict = json.load(file_)
-        query = (Network.select()
-                 .where(Network.target_names == Param([json_dict['train_dim']]))
-                 .join(Hyperparameters)
-                 .where(Hyperparameters.hidden_neurons ==
-                        Param(json_dict['hidden_neurons']))
-                 .where(Hyperparameters.hidden_activation ==
-                        Param(json_dict['hidden_activation']))
-                 .where(Hyperparameters.output_activation ==
-                        Param(json_dict['output_activation'])))
+            cls.find_similar_topology_by_values(json_dict['train_dim'],
+                                                json_dict['hidden_neurons'],
+                                                json_dict['hidden_activation'],
+                                                json_dict['output_activation'])
         return query
 
     @classmethod
-    def find_similar_hyperpar(cls, settings_path):
+    def find_similar_topology_by_id(cls, network_id):
+        query = (Network
+                 .select(Network.target_names,
+                         Hyperparameters.hidden_neurons,
+                         Hyperparameters.hidden_activation,
+                         Hyperparameters.output_activation)
+                 .where(Network.id == network_id)
+                 .join(Hyperparameters)
+        )
+        return cls.find_similar_topology_by_values(*query.tuples().get())
+
+    @classmethod
+    def find_similar_topology_by_values(cls, train_dim, hidden_neurons, hidden_activation, output_activation):
+        query = (Network.select()
+                 .where(Network.target_names == Param(train_dim))
+                 .join(Hyperparameters)
+                 .where(Hyperparameters.hidden_neurons ==
+                        Param(hidden_neurons))
+                 .where(Hyperparameters.hidden_activation ==
+                        Param(hidden_activation))
+                 .where(Hyperparameters.output_activation ==
+                        Param(output_activation)))
+        return query
+
+    @classmethod
+    def find_similar_networkpar_by_settings(cls, settings_path):
         with open(settings_path) as file_:
             json_dict = json.load(file_)
 
-        query = (Network.select()
-                 .where(Network.target_names == Param([json_dict['train_dim']]))
+        query = cls.find_similar_networkpar_by_values(json_dict['train_dim'],
+                                                    json_dict['goodness'],
+                                                    json_dict['cost_l2_scale'],
+                                                    json_dict['cost_l1_scale'],
+                                                    json_dict['early_stop_measure'])
+        return query
+
+    @classmethod
+    def find_similar_networkpar_by_id(cls, network_id):
+        query = (Network
+                 .select(Network.target_names,
+                         Hyperparameters.goodness,
+                         Hyperparameters.cost_l2_scale,
+                         Hyperparameters.cost_l1_scale,
+                         Hyperparameters.early_stop_measure)
+                 .where(Network.id == network_id)
                  .join(Hyperparameters)
-                 .where(Hyperparameters.standardization ==
-                        json_dict['standardization'])
+        )
+
+        filter_id = (Network
+                 .select(Network.filter_id)
+                 .where(Network.id == network_id)
+                 ).tuples().get()[0]
+        return cls.find_similar_networkpar_by_values(*query.tuples().get(), filter_id=filter_id)
+
+    @classmethod
+    def find_similar_networkpar_by_values(cls, train_dim, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, filter_id=None):
+        query = (Network.select()
+                 .where(Network.target_names ==
+                        Param(train_dim))
+                 .join(Hyperparameters)
                  .where(Hyperparameters.goodness ==
-                        json_dict['goodness'])
+                        goodness)
                  .where(Hyperparameters.cost_l2_scale ==
-                        Passthrough(str(json_dict['cost_l2_scale'])))
+                        Passthrough(str(cost_l2_scale)))
                  .where(Hyperparameters.cost_l1_scale ==
-                        Passthrough(str(json_dict['cost_l1_scale'])))
-                 .where(Hyperparameters.optimizer ==
-                        Passthrough(str(json_dict['optimizer'])))
+                        Passthrough(str(cost_l1_scale)))
+                 .where(Hyperparameters.early_stop_measure ==
+                        early_stop_measure)
+                 )
+        if filter_id is not None:
+                 query = query.where(Network.filter_id ==
+                                     Param(filter_id))
+        else:
+            print('Warning! Not filtering on filter_id')
+        return query
+
+    #@classmethod
+    #def find_similar_networkpar_by_settings(cls, settings_path):
+    #    with open(settings_path) as file_:
+    #        json_dict = json.load(file_)
+
+    #    query = cls.find_similar_networkpar_by_values(json_dict['train_dim'],
+    #                                                json_dict['goodness'],
+    #                                                json_dict['cost_l2_scale'],
+    #                                                json_dict['cost_l1_scale'],
+    #                                                json_dict['early_stop_measure'])
+    #    return query
+
+    @classmethod
+    def find_similar_trainingpar_by_id(cls, network_id):
+        query = (Network
+                 .select(Network.target_names,
+                         Hyperparameters.minibatches,
+                         Hyperparameters.optimizer,
+                         Hyperparameters.standardization,
+                         Hyperparameters.early_stop_after)
+                 .where(Network.id == network_id)
+                 .join(Hyperparameters)
+        )
+
+        filter_id = (Network
+                 .select(Network.filter_id)
+                 .where(Network.id == network_id)
+                 ).tuples().get()[0]
+        return cls.find_similar_trainingpar_by_values(*query.tuples().get())
+
+    @classmethod
+    def find_similar_trainingpar_by_values(cls, train_dim, minibatches, optimizer, standardization, early_stop_after):
+        query = (Network.select()
+                 .where(Network.target_names == Param(train_dim))
+                 .join(Hyperparameters)
+                 .where(Hyperparameters.minibatches == minibatches)
+                 .where(Hyperparameters.optimizer == optimizer)
+                 .where(Hyperparameters.standardization == standardization)
+                 .where(Hyperparameters.early_stop_after == early_stop_after)
                  )
         return query
+
 
     @classmethod
     def from_folders(cls, pwd, **kwargs):
