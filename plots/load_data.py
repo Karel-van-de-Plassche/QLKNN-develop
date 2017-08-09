@@ -39,6 +39,8 @@ def load_data(id):
     df['prediction'] = store[network_name].iloc[:, 0]
     df = df.astype('float64')
     df['residuals'] = df['target'] - df['prediction']
+    df['maxgam'] = pd.DataFrame({'leq': data['gam_leq_GB'],
+                     'less': data['gam_less_GB']}).max(axis=1)
     return input, df, nn
 
 def load_nn(id):
