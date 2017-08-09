@@ -17,20 +17,56 @@ from run_model import QuaLiKizNDNN
 from train_NDNN import shuffle_panda
 
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn
 #    for varname, var in slice['input'].items():
 #        try:
 #            in_df = in_df.loc[np.isclose(in_df[varname], var, atol=1e-5, rtol=1e-3)]
 #        except KeyError:
 #            pass
-nn_indeces = [46, 58, 60] #nozero <60, zero <60, zero <100
-input, df, __ = load_data(nn_indeces[0])
-df = input.join(df['target'])
+nn_indeces = [37, 58, 60] #nozero <60, zero <60, zero <100
+nn_indeces = [62, 63] #nozero mabse <60, zero mabse <60
+nn_indeces = [58, 63]
+from collections import OrderedDict
+plot = 'goodness'
+if plot == 'c_L2':
+    nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
+    #                       (48, '$c_{L2} = 0.05$'),
+                           (37, '$c_{L2} = 0.1$'),
+    #                       (50, '$c_{L2} = 0.2$'),
+    #                       (51, '$c_{L2} = 0.35$'),
+                           (49, '$c_{L2} = 0.5$'),
+    #                       (52, '$c_{L2} = 1.0$'),
+                           (53, '$c_{L2} = 2.0$')])
+elif plot == 'topo':
+    nn_list = OrderedDict([(37, 'topo = [30, 30, 30]'),
+                           (34, 'topo = [60, 60]'),
+                           (38, 'topo = [80, 80]')])
+elif plot == 'filter':
+    nn_list = OrderedDict([(37, 'filter = 3'),
+                           (58, 'filter = 4'),
+                           (60, 'filter = 5')])
+elif plot == 'goodness':
+    nn_list = OrderedDict([(62, 'goodness = mabse'),
+                           (37, 'goodness = mse')])
+elif plot == 'early_stop':
+    nn_list = OrderedDict([(37, 'early_stop = loss'),
+                           #(11, '$early_stop = mse'),
+                           (18, 'early_stop = mse')])
+
+
+
+
+nns = OrderedDict()
+for nn_index, nn_label in nn_list.items():
+    nn = nns[nn_index] = load_nn(nn_index)
+    nn.label = nn_label
+
+input, data, __ = load_data(nn_index)
+df = input.join([data['target'], data['maxgam']])
 df = df[df['target']<60]
 df = df[df['target']>=0]
-nns = {}
-for nn_index in nn_indeces:
-    nns[nn_index] = load_nn(nn_index)
 
 #print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
 #print(np.sum(df['target'] == 0)/len(df), ' frac == 0')
@@ -50,12 +86,19 @@ for index, slice in df.iterrows():
     #slice = slice.stack().reset_index(varname)
     #slice = df.iloc[ii]
     target = slice['target']
+    maxgam = slice['maxgam']
     feature = slice['target'].index
     if np.all(target == 0):
         zero_slices += 1
     else:
         fig = plt.figure()
-        ax = fig.add_subplot(111)
+        gs = gridspec.GridSpec(2, 1, height_ratios=[10, 1])
+        ax1 = plt.subplot(gs[0])
+        #ax1.set_prop_cycle(cycler('color', ['#f1eef6','#d7b5d8','#df65b0','#dd1c77','#980043']))
+        # http://tristen.ca/hcl-picker/#/clh/5/273/2A0A75/D59FEB
+        #ax1.set_prop_cycle(cycler('color', ['#2A0A75','#6330B8','#9F63E2','#D59FEB']))
+        ax1.set_prop_cycle(cycler('color', plt.cm.plasma(np.linspace(0, 0.9, len(nns)))))
+        ax2 = plt.subplot(gs[1])
         x = np.linspace(feature.min(),
                         feature.max(),
                         200)
@@ -64,17 +107,27 @@ for index, slice in df.iterrows():
 
         # Plot target points
         color = target.copy()
-        color[target == 0] = 'r'
-        color[target != 0] = 'b'
-        ax.scatter(feature, target, c=color)
+        color[(target == 0) & (maxgam == 0)] = 'green'
+        color[(target != 0) & (maxgam == 0)] = 'red'
+        color[(target == 0) & (maxgam != 0)] = 'magenta'
+        color[(target != 0) & (maxgam != 0)] = 'blue'
+        ax1.scatter(feature, target, c=color)
+
+        table = ax2.table(cellText=[df.index.names, ['{:.2f}'.format(xx) for xx in index]])
+        table.auto_set_font_size(False)
+        table.set_fontsize(20)
+        ax2.axis('tight')
+        ax2.axis('off')
+        #fig.subplots_adjust(bottom=0.2, transform=ax1.transAxes)
+
 
         # Plot nn lines
         for nn_index, nn in nns.items():
             nn_pred = nn.get_output(**slice_dict)
-            l = ax.plot(x, nn_pred, label=nn_index)
+            l = ax1.plot(x, nn_pred, label=nn.label)
             try:
                 thresh = x[nn_pred.index[nn_pred.iloc[:,0] == 0][-1]]
-                ax.axvline(thresh, c=l[0].get_color(), linestyle='dotted')
+                ax1.axvline(thresh, c=l[0].get_color(), linestyle='dotted')
                 print('network ', nn_index, 'threshold ', thresh)
             except:
                 print('No threshold for network ', nn_index)
@@ -88,10 +141,10 @@ for index, slice in df.iterrows():
             thresh_pred = x * slope + intercept
             thresh_0 = x[thresh_pred < 0][-1]
 
-            ax.plot(x[(thresh_pred > ax.get_ylim()[0]) & (thresh_pred < ax.get_ylim()[1])],
-                    thresh_pred[(thresh_pred > ax.get_ylim()[0]) & (thresh_pred < ax.get_ylim()[1])],
+            ax1.plot(x[(thresh_pred > ax.get_ylim()[0]) & (thresh_pred < ax.get_ylim()[1])],
+                    thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax.get_ylim()[1])],
                     c='black')
-            ax.axvline(thresh_0, c='black', linestyle='dotted')
+            ax1.axvline(thresh_0, c='black', linestyle='dotted')
         except:
             print('No threshold')
         try:
@@ -99,10 +152,10 @@ for index, slice in df.iterrows():
             print(idx)
             idx2 = feature[feature > idx][0]
             print(idx2)
-            ax.axvline(np.mean([idx2, idx]), c='black', linestyle='dashed')
+            ax1.axvline(np.mean([idx2, idx]), c='black', linestyle='dashed')
         except:
             print('No threshold2')
-        ax.legend()
+        ax1.legend()
         plt.show()
     sliced += 1
     if sliced > 1000:
