@@ -82,6 +82,8 @@ df = shuffle_panda(df)
 sliced = 0
 starttime = time.time()
 zero_slices = 0
+plot=True
+debug=True
 for index, slice in df.iterrows():
     #slice = slice.stack().reset_index(varname)
     #slice = df.iloc[ii]
@@ -91,72 +93,83 @@ for index, slice in df.iterrows():
     if np.all(target == 0):
         zero_slices += 1
     else:
-        fig = plt.figure()
-        gs = gridspec.GridSpec(2, 1, height_ratios=[10, 1])
-        ax1 = plt.subplot(gs[0])
-        #ax1.set_prop_cycle(cycler('color', ['#f1eef6','#d7b5d8','#df65b0','#dd1c77','#980043']))
-        # http://tristen.ca/hcl-picker/#/clh/5/273/2A0A75/D59FEB
-        #ax1.set_prop_cycle(cycler('color', ['#2A0A75','#6330B8','#9F63E2','#D59FEB']))
-        ax1.set_prop_cycle(cycler('color', plt.cm.plasma(np.linspace(0, 0.9, len(nns)))))
-        ax2 = plt.subplot(gs[1])
         x = np.linspace(feature.min(),
                         feature.max(),
                         200)
-        slice_dict = {name: np.full_like(x, val) for name, val in zip(df.index.names, index)}
-        slice_dict[varname] = x
+        if plot:
+            fig = plt.figure()
+            gs = gridspec.GridSpec(2, 1, height_ratios=[10, 1])
+            ax1 = plt.subplot(gs[0])
+            #ax1.set_prop_cycle(cycler('color', ['#f1eef6','#d7b5d8','#df65b0','#dd1c77','#980043']))
+            # http://tristen.ca/hcl-picker/#/clh/5/273/2A0A75/D59FEB
+            #ax1.set_prop_cycle(cycler('color', ['#2A0A75','#6330B8','#9F63E2','#D59FEB']))
+            ax1.set_prop_cycle(cycler('color', plt.cm.plasma(np.linspace(0, 0.9, len(nns)))))
+            ax2 = plt.subplot(gs[1])
 
-        # Plot target points
-        color = target.copy()
-        color[(target == 0) & (maxgam == 0)] = 'green'
-        color[(target != 0) & (maxgam == 0)] = 'red'
-        color[(target == 0) & (maxgam != 0)] = 'magenta'
-        color[(target != 0) & (maxgam != 0)] = 'blue'
-        ax1.scatter(feature, target, c=color)
-
-        table = ax2.table(cellText=[df.index.names, ['{:.2f}'.format(xx) for xx in index]])
-        table.auto_set_font_size(False)
-        table.set_fontsize(20)
-        ax2.axis('tight')
-        ax2.axis('off')
-        #fig.subplots_adjust(bottom=0.2, transform=ax1.transAxes)
-
-
-        # Plot nn lines
-        for nn_index, nn in nns.items():
-            nn_pred = nn.get_output(**slice_dict)
-            l = ax1.plot(x, nn_pred, label=nn.label)
-            try:
-                thresh = x[nn_pred.index[nn_pred.iloc[:,0] == 0][-1]]
-                ax1.axvline(thresh, c=l[0].get_color(), linestyle='dotted')
-                print('network ', nn_index, 'threshold ', thresh)
-            except:
-                print('No threshold for network ', nn_index)
-            else:
-                thresh = None
-
-        # Plot regression
         try:
             idx = target.index[target == 0][-1] #index of last zero
             slope, intercept, r_value, p_value, std_err = stats.linregress(feature[(target.index > idx) & ~target.isnull()], target[(target.index > idx) & ~target.isnull()])
             thresh_pred = x * slope + intercept
             thresh_0 = x[thresh_pred < 0][-1]
 
-            ax1.plot(x[(thresh_pred > ax.get_ylim()[0]) & (thresh_pred < ax.get_ylim()[1])],
-                    thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax.get_ylim()[1])],
-                    c='black')
-            ax1.axvline(thresh_0, c='black', linestyle='dotted')
+            if plot:
+                ax1.plot(x[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
+                         thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
+                         c='black')
+                ax1.axvline(thresh_0, c='black', linestyle='dotted')
         except:
-            print('No threshold')
+            if debug:
+                print('No threshold')
         try:
             idx = target.index[target == 0][-1] #index of last zero
-            print(idx)
             idx2 = feature[feature > idx][0]
-            print(idx2)
-            ax1.axvline(np.mean([idx2, idx]), c='black', linestyle='dashed')
+            if plot:
+                ax1.axvline(np.mean([idx2, idx]), c='black', linestyle='dashed')
         except:
-            print('No threshold2')
-        ax1.legend()
-        plt.show()
+            if debug:
+                print('No threshold2')
+        slice_dict = {name: np.full_like(x, val) for name, val in zip(df.index.names, index)}
+        slice_dict[varname] = x
+
+        # Plot target points
+        if plot:
+            color = target.copy()
+            color[(target == 0) & (maxgam == 0)] = 'green'
+            color[(target != 0) & (maxgam == 0)] = 'red'
+            color[(target == 0) & (maxgam != 0)] = 'magenta'
+            color[(target != 0) & (maxgam != 0)] = 'blue'
+            ax1.scatter(feature, target, c=color)
+
+        if plot:
+            table = ax2.table(cellText=[df.index.names, ['{:.2f}'.format(xx) for xx in index]])
+            table.auto_set_font_size(False)
+            table.set_fontsize(20)
+            ax2.axis('tight')
+            ax2.axis('off')
+        #fig.subplots_adjust(bottom=0.2, transform=ax1.transAxes)
+
+
+        # Plot nn lines
+        for nn_index, nn in nns.items():
+            nn_pred = nn.get_output(**slice_dict)
+            if plot:
+                l = ax1.plot(x, nn_pred, label=nn.label)
+            try:
+                thresh = x[nn_pred.index[nn_pred.iloc[:,0] == 0][-1]]
+                if plot:
+                    ax1.axvline(thresh, c=l[0].get_color(), linestyle='dotted')
+                if debug:
+                    print('network ', nn_index, 'threshold ', thresh)
+            except:
+                if debug:
+                    print('No threshold for network ', nn_index)
+            else:
+                thresh = None
+
+        # Plot regression
+        if plot:
+            ax1.legend()
+            plt.show()
     sliced += 1
     if sliced > 1000:
         break
