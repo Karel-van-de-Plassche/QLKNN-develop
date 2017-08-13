@@ -149,15 +149,15 @@ def shuffle_panda(panda):
 
 def model_to_json(name, feature_names, target_names,
                   train_set, scale_factor, scale_bias, l2_scale, settings):
-    dict_ = {x.name: x.eval().tolist() for x in tf.trainable_variables()}
-    dict_['prescale_factor'] = scale_factor.to_dict()
-    dict_['prescale_bias'] = scale_bias.to_dict()
-    dict_['feature_min'] = dict(train_set._features.min())
-    dict_['feature_max'] = dict(train_set._features.max())
+    dict_ = {x.name: tf.to_double(x).eval().tolist() for x in tf.trainable_variables()}
+    dict_['prescale_factor'] = scale_factor.astype('float64').to_dict()
+    dict_['prescale_bias'] = scale_bias.astype('float64').to_dict()
+    dict_['feature_min'] = dict(train_set._features.astype('float64').min())
+    dict_['feature_max'] = dict(train_set._features.astype('float64').max())
     dict_['feature_names'] = feature_names
     dict_['target_names'] = target_names
-    dict_['target_min'] = dict(train_set._target.min())
-    dict_['target_max'] = dict(train_set._target.max())
+    dict_['target_min'] = dict(train_set._target.astype('float64').min())
+    dict_['target_max'] = dict(train_set._target.astype('float64').max())
     dict_['hidden_activation'] = settings['hidden_activation']
     dict_['output_activation'] = settings['output_activation']
 
@@ -168,13 +168,12 @@ def model_to_json(name, feature_names, target_names,
     nn_version = sp_result.stdout.decode('UTF-8').strip()
     metadata = {
         'nn_develop_version': nn_version,
-        'c_L2': l2_scale.eval()
+        'c_L2': float(l2_scale.eval())
     }
     dict_['_metadata'] = metadata
 
     with open(name, 'w') as file_:
-        json.dump(dict_, file_, sort_keys=True,
-                  indent=4, separators=(',', ': '))
+        json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
 
 
 def timediff(start, event):
@@ -281,6 +280,7 @@ def train(settings):
         timediff(start, 'Dataset loaded')
     timediff(start, 'Dataset filtered')
     panda = panda.astype('float64')
+    #panda = panda.astype('float32')
 
     # Use pre-existing splitted dataset, or split in train, validation and test
     train_dim = panda.columns[-1]
@@ -289,6 +289,7 @@ def train(settings):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
+        #datasets = convert_panda(panda, 0.06, 0.06, scan_dims, train_dim)
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
     timediff(start, 'Dataset split')
@@ -379,15 +380,18 @@ def train(settings):
     # Define loss functions
     with tf.name_scope('Loss'):
         with tf.name_scope('mse'):
-            mse = tf.to_double(tf.reduce_mean(tf.square(tf.subtract(y_ds, y))))
+            mse = (tf.reduce_mean(tf.square(tf.subtract(y_ds, y))))
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('mabse'):
-            mabse = tf.to_double(tf.reduce_mean(tf.abs(tf.subtract(y_ds, y))))
+            mabse = (tf.reduce_mean(tf.abs(tf.subtract(y_ds, y))))
             tf.summary.scalar('MABSE', mabse)
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(settings['cost_l2_scale'], dtype=x.dtype, trainable=False)
             #l2_norm = tf.reduce_sum(tf.square())
-            l2_norm = tf.to_double(tf.add_n([tf.nn.l2_loss(var)
+            #l2_norm = tf.to_double(tf.add_n([tf.nn.l2_loss(var)
+            #                        for var in tf.trainable_variables()
+            #                        if 'weights' in var.name]))
+            l2_norm = (tf.add_n([tf.nn.l2_loss(var)
                                     for var in tf.trainable_variables()
                                     if 'weights' in var.name]))
             #mse = tf.losses.mean_squared_error(y_, y)
@@ -398,7 +402,10 @@ def train(settings):
             tf.summary.scalar('l2_loss', l2_loss)
         with tf.name_scope('l1'):
             l1_scale = tf.Variable(settings['cost_l1_scale'], dtype=x.dtype, trainable=False)
-            l1_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.abs(var))
+            #l1_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.abs(var))
+            #                        for var in tf.trainable_variables()
+            #                        if 'weights' in var.name]))
+            l1_norm = (tf.add_n([tf.reduce_sum(tf.abs(var))
                                     for var in tf.trainable_variables()
                                     if 'weights' in var.name]))
             # TODO: Check normalization
@@ -605,7 +612,7 @@ def train(settings):
         best_epoch = epoch
     model_to_json('nn.json', scan_dims.values.tolist(), [train_dim],
                   datasets.train,
-                  scale_factor.astype('float64'),
+                  scale_factor,
                   scale_bias.astype('float64'),
                   l2_scale,
                   settings)
@@ -623,19 +630,19 @@ def train(settings):
     rms_test = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
     loss_test = np.round(loss.eval({x: xs, y_ds: ys}), 4)
     print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
-    xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    rms_train = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
-    loss_train = np.round(loss.eval({x: xs, y_ds: ys}), 4)
-    print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
+    #xs, ys = datasets.train.next_batch(-1, shuffle=False)
+    #rms_train = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
+    #loss_train = np.round(loss.eval({x: xs, y_ds: ys}), 4)
+    #print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
     metadata = {'epoch':           epoch,
                 'best_epoch':      best_epoch,
-                'rms_validation':  rms_val,
-                'rms_test':        rms_test,
-                'rms_train':       rms_train,
-                'loss_validation': loss_val,
-                'loss_test':       loss_test,
-                'loss_train':      loss_train
+                'rms_validation':  float(rms_val),
+                'rms_test':        float(rms_test),
+    #            'rms_train':      float(rms_train),
+                'loss_validation': float(loss_val),
+                'loss_test':       float(loss_test),
+    #            'loss_train':     float(loss_train)
                 }
 
     with open('nn.json') as nn_file:
@@ -644,8 +651,7 @@ def train(settings):
     data['_metadata'].update(metadata)
 
     with open('nn.json', 'w') as nn_file:
-        json.dump(data, nn_file, sort_keys=True,
-                  indent=4, separators=(',', ': '))
+        json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
 
     train_log.to_csv('train_log.csv')
     validation_log.to_csv('validation_log.csv')

@@ -349,7 +349,7 @@ class NetworkMetadata(BaseModel):
     nn_develop_version = TextField()
     epoch = IntegerField()
     best_epoch = IntegerField()
-    rms_test = FloatField()
+    rms_test = FloatField(null=True)
     rms_train = FloatField()
     rms_validation = FloatField()
     metadata = HStoreField()
