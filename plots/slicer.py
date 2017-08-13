@@ -3,6 +3,7 @@ from IPython import embed
 import numpy as np
 import scipy.stats as stats
 import pandas as pd
+from itertools import product
 import os
 import sys
 import time
@@ -29,7 +30,7 @@ nn_indeces = [37, 58, 60] #nozero <60, zero <60, zero <100
 nn_indeces = [62, 63] #nozero mabse <60, zero mabse <60
 nn_indeces = [58, 63]
 from collections import OrderedDict
-plot = 'goodness'
+plot = 'c_L2'
 if plot == 'c_L2':
     nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
     #                       (48, '$c_{L2} = 0.05$'),
@@ -82,8 +83,13 @@ df = shuffle_panda(df)
 sliced = 0
 starttime = time.time()
 zero_slices = 0
-plot=True
-debug=True
+plot=False
+debug=False
+thresh_nn = np.empty(len(nns))
+popbacks = np.empty(len(nns))
+thresh1_misses = np.empty(len(nns))
+thresh2_misses = np.empty(len(nns))
+totstats = []
 for index, slice in df.iterrows():
     #slice = slice.stack().reset_index(varname)
     #slice = df.iloc[ii]
@@ -98,34 +104,39 @@ for index, slice in df.iterrows():
                         200)
         if plot:
             fig = plt.figure()
-            gs = gridspec.GridSpec(2, 1, height_ratios=[10, 1])
-            ax1 = plt.subplot(gs[0])
+            gs = gridspec.GridSpec(2, 2, height_ratios=[10, 1], width_ratios=[5,1],
+                                   left=0.05, right=0.95, wspace=0.05, hspace=0.05)
+            ax1 = plt.subplot(gs[0,0])
             #ax1.set_prop_cycle(cycler('color', ['#f1eef6','#d7b5d8','#df65b0','#dd1c77','#980043']))
             # http://tristen.ca/hcl-picker/#/clh/5/273/2A0A75/D59FEB
             #ax1.set_prop_cycle(cycler('color', ['#2A0A75','#6330B8','#9F63E2','#D59FEB']))
             ax1.set_prop_cycle(cycler('color', plt.cm.plasma(np.linspace(0, 0.9, len(nns)))))
-            ax2 = plt.subplot(gs[1])
+            ax2 = plt.subplot(gs[1,0])
+            ax3 = plt.subplot(gs[0,1])
 
         try:
             idx = target.index[target == 0][-1] #index of last zero
             slope, intercept, r_value, p_value, std_err = stats.linregress(feature[(target.index > idx) & ~target.isnull()], target[(target.index > idx) & ~target.isnull()])
             thresh_pred = x * slope + intercept
-            thresh_0 = x[thresh_pred < 0][-1]
+            thresh1 = x[thresh_pred < 0][-1]
 
             if plot:
-                ax1.plot(x[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
-                         thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
-                         c='black')
-                ax1.axvline(thresh_0, c='black', linestyle='dotted')
-        except:
+                #ax1.plot(x[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
+                #         thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
+                #         c='black')
+                ax1.axvline(thresh1, c='black', linestyle='dotted')
+        except (ValueError, IndexError):
+            thresh1 = np.NaN
             if debug:
-                print('No threshold')
+                print('No threshold1')
         try:
             idx = target.index[target == 0][-1] #index of last zero
             idx2 = feature[feature > idx][0]
+            thresh2 = np.mean([idx2, idx])
             if plot:
-                ax1.axvline(np.mean([idx2, idx]), c='black', linestyle='dashed')
-        except:
+                ax1.axvline(thresh2, c='black', linestyle='dashed')
+        except IndexError:
+            thresh2 = np.NaN
             if debug:
                 print('No threshold2')
         slice_dict = {name: np.full_like(x, val) for name, val in zip(df.index.names, index)}
@@ -150,21 +161,45 @@ for index, slice in df.iterrows():
 
 
         # Plot nn lines
-        for nn_index, nn in nns.items():
-            nn_pred = nn.get_output(**slice_dict)
+        for ii, (nn_index, nn) in enumerate(nns.items()):
+            nn_pred = nn.get_output(**slice_dict).iloc[:,0]
             if plot:
                 l = ax1.plot(x, nn_pred, label=nn.label)
             try:
-                thresh = x[nn_pred.index[nn_pred.iloc[:,0] == 0][-1]]
+                thresh_i = nn_pred.index[nn_pred == 0][-1]
+            except IndexError:
+                thresh_nn[ii] = np.NaN
+                if debug:
+                    print('No threshold for network ', nn_index)
+            else:
+                thresh = thresh_nn[ii] = x[thresh_i]
                 if plot:
                     ax1.axvline(thresh, c=l[0].get_color(), linestyle='dotted')
                 if debug:
                     print('network ', nn_index, 'threshold ', thresh)
-            except:
-                if debug:
-                    print('No threshold for network ', nn_index)
-            else:
-                thresh = None
+                try:
+                    popback = popbacks[ii] = x[nn_pred[nn_pred.index[nn_pred[:thresh_i] != 0]].index[-1] + 1]
+                    if plot:
+                        ax1.axvline(popback, c=l[0].get_color(), linestyle='dashed')
+                except IndexError:
+                    popbacks[ii] = np.NaN
+
+        thresh2_misses = thresh2 - thresh_nn
+        thresh2_popback = thresh2 - popbacks
+
+        slice_stats = np.array([thresh2_misses, thresh2_popback]).T
+        if plot:
+            slice_strings = np.array(['{:.1f}'.format(xx) for xx in slice_stats.reshape(slice_stats.size)])
+            slice_strings = slice_strings.reshape(slice_stats.shape)
+            slice_strings = np.insert(slice_strings, 0, ['thre', 'pop'], axis=0)
+            table = ax3.table(cellText=slice_strings, loc='center')
+            table.auto_set_font_size(False)
+            table.set_fontsize(20)
+            ax3.axis('tight')
+            ax3.axis('off')
+        totstats.append(slice_stats.flatten())
+        if debug:
+            print(slice_stats.flatten())
 
         # Plot regression
         if plot:
@@ -173,6 +208,7 @@ for index, slice in df.iterrows():
     sliced += 1
     if sliced > 1000:
         break
+totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
 print(sliced)
 print(zero_slices)
 print('took ', time.time() - starttime, ' seconds')
