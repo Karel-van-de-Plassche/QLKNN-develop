@@ -21,6 +21,8 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from load_data import load_data, load_nn
 
+from query_to_networks import results_to_sorted
+
 def find_similar_regularization(network_id):
     query = Network.find_similar_topology_by_id(network_id)
     query &= Network.find_similar_trainingpar_by_id(network_id)
@@ -52,11 +54,17 @@ def find_similar_regularization(network_id):
              .where(Hyperparameters.early_stop_measure ==
                     early_stop_measure)
     )
-    similar = [(res.hyperparameters.get().cost_l2_scale, res.id) for res in query]
-    similar.sort()
-    labels = [(line[1], '$c_{L2} = ' + str(line[0]) + '$') for line in similar]
+    df = []
+    for res in query:
+        df.append((res.id, res.hyperparameters.get().cost_l2_scale, res.network_metadata.get().rms_test))
+
+    varname = 'c_L2'
+    df_trim = results_to_sorted('c_L2', df)
+    print(df_trim)
+    labels = [(line[0], '$c_{L2} = ' + str(line[1]) + '$') for line in df_trim[['id', 'c_L2']].values]
     print('nn_list = OrderedDict([', end='')
     print(*labels, sep=',\n', end='')
-    print('])', end='')
+    print('])')
+    embed()
 
 find_similar_regularization(37)

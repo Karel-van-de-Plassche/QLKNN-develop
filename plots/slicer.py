@@ -4,6 +4,7 @@ import numpy as np
 import scipy.stats as stats
 import pandas as pd
 from itertools import product
+import pickle
 import os
 import sys
 import time
@@ -30,8 +31,10 @@ nn_indeces = [37, 58, 60] #nozero <60, zero <60, zero <100
 nn_indeces = [62, 63] #nozero mabse <60, zero mabse <60
 nn_indeces = [58, 63]
 from collections import OrderedDict
-plot = 'c_L2'
-if plot == 'c_L2':
+style = 'early_stop'
+plot=True
+debug=False
+if style == 'c_L2':
     nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
     #                       (48, '$c_{L2} = 0.05$'),
                            (37, '$c_{L2} = 0.1$'),
@@ -40,24 +43,37 @@ if plot == 'c_L2':
                            (49, '$c_{L2} = 0.5$'),
     #                       (52, '$c_{L2} = 1.0$'),
                            (53, '$c_{L2} = 2.0$')])
-elif plot == 'topo':
-    nn_list = OrderedDict([(37, 'topo = [30, 30, 30]'),
-                           (34, 'topo = [60, 60]'),
-                           (38, 'topo = [80, 80]')])
-elif plot == 'filter':
+elif style == 'topo':
+    nn_list = OrderedDict([(65, '$topo = (10, 10)$'),
+                           (64, '$topo = (30, 30)$'),
+                           (73, '$topo = (30, 30, 30)$'),
+                           (83, '$topo = (45, 45)$'),
+                           (34, '$topo = (60, 60)$'),
+                           (38, '$topo = (80, 80)$'),
+                           (66, '$topo = (120, 120)$')])
+elif style == 'filter':
     nn_list = OrderedDict([(37, 'filter = 3'),
                            (58, 'filter = 4'),
                            (60, 'filter = 5')])
-elif plot == 'goodness':
+elif style == 'goodness':
     nn_list = OrderedDict([(62, 'goodness = mabse'),
                            (37, 'goodness = mse')])
-elif plot == 'early_stop':
+elif style == 'early_stop':
     nn_list = OrderedDict([(37, 'early_stop = loss'),
                            #(11, '$early_stop = mse'),
                            (18, 'early_stop = mse')])
-
-
-
+elif style == 'similar':
+    nn_list = OrderedDict([
+                           (37, '37'),
+                           (67, '67'),
+                           (68, '68'),
+                           (69, '69'),
+                           (70, '70'),
+                           (71, '71'),
+                           (72, '72'),
+                           (73, '73'),
+                           (74, '74'),
+                           ])
 
 nns = OrderedDict()
 for nn_index, nn_label in nn_list.items():
@@ -83,8 +99,6 @@ df = shuffle_panda(df)
 sliced = 0
 starttime = time.time()
 zero_slices = 0
-plot=False
-debug=False
 thresh_nn = np.empty(len(nns))
 popbacks = np.empty(len(nns))
 thresh1_misses = np.empty(len(nns))
@@ -114,21 +128,21 @@ for index, slice in df.iterrows():
             ax2 = plt.subplot(gs[1,0])
             ax3 = plt.subplot(gs[0,1])
 
-        try:
-            idx = target.index[target == 0][-1] #index of last zero
-            slope, intercept, r_value, p_value, std_err = stats.linregress(feature[(target.index > idx) & ~target.isnull()], target[(target.index > idx) & ~target.isnull()])
-            thresh_pred = x * slope + intercept
-            thresh1 = x[thresh_pred < 0][-1]
+        #try:
+        #    idx = target.index[target == 0][-1] #index of last zero
+        #    slope, intercept, r_value, p_value, std_err = stats.linregress(feature[(target.index > idx) & ~target.isnull()], target[(target.index > idx) & ~target.isnull()])
+        #    thresh_pred = x * slope + intercept
+        #    thresh1 = x[thresh_pred < 0][-1]
 
-            if plot:
-                #ax1.plot(x[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
-                #         thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
-                #         c='black')
-                ax1.axvline(thresh1, c='black', linestyle='dotted')
-        except (ValueError, IndexError):
-            thresh1 = np.NaN
-            if debug:
-                print('No threshold1')
+        #    if plot:
+        #        #ax1.plot(x[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
+        #        #         thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
+        #        #         c='black')
+        #        ax1.axvline(thresh1, c='black', linestyle='dotted')
+        #except (ValueError, IndexError):
+        #    thresh1 = np.NaN
+        #    if debug:
+        #        print('No threshold1')
         try:
             idx = target.index[target == 0][-1] #index of last zero
             idx2 = feature[feature > idx][0]
@@ -206,8 +220,9 @@ for index, slice in df.iterrows():
             ax1.legend()
             plt.show()
     sliced += 1
-    if sliced > 1000:
-        break
+    if sliced % 1000 == 0:
+        print(sliced, 'took ', time.time() - starttime, ' seconds')
+
 totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
 print(sliced)
 print(zero_slices)
@@ -216,4 +231,8 @@ print('took ', time.time() - starttime, ' seconds')
 #plt.scatter(slice[varname], target)
 
 #for el in product(*uni.values()):
+print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
 embed()
+totstats._metadata = {'zero_slices': zero_slices}
+with open('totstats_' + style + '.pkl', 'wb') as file_:
+    pickle.dump(totstats, file_)

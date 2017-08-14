@@ -44,12 +44,23 @@ def find_similar_topology(network_id):
              #.where(Hyperparameters.output_activation == output_activation)
              .join(Hyperparameters)
     )
-    similar = [(res.hyperparameters.get().hidden_neurons , res.id) for res in query]
-    similar.sort()
-    embed()
-    labels = [(line[1], '$topo = ' + str(line[0]) + '$') for line in similar]
+    df = []
+    for res in query:
+        df.append((res.id, res.hyperparameters.get().hidden_neurons, res.network_metadata.get().rms_test))
+    df = pd.DataFrame(df, columns=['id', 'topo', 'rms_test'])
+    df['topo'] = df['topo'].apply(tuple)
+    df.sort_values(['topo', 'rms_test'], inplace = True)
+    df_trim = pd.DataFrame(columns=['id', 'topo', 'rms_test'])
+    for index, row in df.iterrows():
+        df_best = df.iloc[df.loc[(df['topo'] == row['topo'])].index[0]]
+        df_best = df.loc[df.loc[(df['topo'] == row['topo'])].index[0]]
+        if ~(df_best['topo'] == df_trim['topo']).any():
+            df_trim = df_trim.append(df_best)
+
+    labels = [(line[0], '$topo = ' + str(line[1]) + '$') for line in df_trim[['id', 'topo']].values]
     print('nn_list = OrderedDict([', end='')
     print(*labels, sep=',\n', end='')
-    print('])', end='')
+    print('])')
+    embed()
 
 find_similar_topology(37)
