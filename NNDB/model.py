@@ -352,20 +352,36 @@ class NetworkMetadata(BaseModel):
     rms_test = FloatField(null=True)
     rms_train = FloatField()
     rms_validation = FloatField()
+    loss_test = FloatField(null=True)
+    loss_train = FloatField(null=True)
+    loss_validation = FloatField(null=True)
     metadata = HStoreField()
 
     @classmethod
     def from_dict(cls, json_dict, network):
         with db.atomic() as txn:
             stringified = {str(key): str(val) for key, val in json_dict.items()}
+            try:
+                rms_train = json_dict['rms_train']
+            except KeyError:
+                rms_train = None
+            try:
+                loss_train = json_dict['loss_train']
+                loss_validation = json_dict['loss_validation']
+                loss_test = json_dict['loss_test']
+            except KeyError:
+                loss_train = loss_validation = loss_test = None
             network_metadata = NetworkMetadata(
                 network=network,
                 nn_develop_version=json_dict['nn_develop_version'],
                 epoch=json_dict['epoch'],
                 best_epoch=json_dict['best_epoch'],
                 rms_test=json_dict['rms_test'],
-                rms_train=json_dict['rms_train'],
+                rms_train=rms_train,
                 rms_validation=json_dict['rms_validation'],
+                loss_test=loss_test,
+                loss_train=loss_train,
+                loss_validation=loss_validation,
                 metadata=stringified
             )
             network_metadata.save()
@@ -511,6 +527,32 @@ def create_views():
     ) C
     ON A.id = C.id_C
     """
+    """
+     DROP VIEW SUMMARY_LOSS;
+CREATE VIEW
+    SUMMARY_LOSS AS
+    SELECT A.id, target_names, hidden_neurons, standardization, cost_l2_scale, early_stop_after, best_rms_test,  best_rms_validation, l2_norm_validation, walltime, hostname FROM
+    (
+    SELECT network.id, network.target_names, hyperparameters.hidden_neurons, hyperparameters.standardization, hyperparameters.cost_l2_scale, hyperparameters.early_stop_after, networkmetadata.rms_test as best_rms_test, networkmetadata.rms_validation as best_rms_validation
+    FROM network
+    INNER JOIN hyperparameters
+    ON network.id = hyperparameters.network_id
+    INNER JOIN networkmetadata
+    ON network.id = networkmetadata.network_id
+    WHERE hyperparameters.early_stop_measure = 'loss'
+    ) A
+    INNER JOIN
+    (
+    SELECT network.id AS id_C, trainmetadata.l2_norm[networkmetadata.best_epoch + 1] as l2_norm_validation, trainmetadata.walltime[array_length(trainmetadata.walltime, 1)], trainmetadata.hostname
+    FROM network
+    INNER JOIN trainmetadata
+    ON network.id = trainmetadata.network_id
+    INNER JOIN networkmetadata
+    ON network.id = networkmetadata.network_id
+    WHERE trainmetadata.set = 'validation'
+    ) C
+    ON A.id = C.id_C
+"""
 
 
 
