@@ -304,6 +304,21 @@ class QuaLiKizNDNN():
         nn = QuaLiKizNDNN(dict_, **kwargs)
         return nn
 
+    @property
+    def l2_norm(self):
+        l2_norm = 0
+        for layer in self.layers:
+            l2_norm += np.sum(np.square(layer.weight))
+        l2_norm /= 2
+        return l2_norm
+
+    @property
+    def l1_norm(self):
+        l1_norm = 0
+        for layer in self.layers:
+            l1_norm += np.sum(np.abs(layer.weight))
+        return l1_norm
+
 if __name__ == '__main__':
     # Test the function
     root = os.path.dirname(os.path.realpath(__file__))
