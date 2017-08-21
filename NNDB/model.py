@@ -482,6 +482,15 @@ class RmspropOptimizer(BaseModel):
     decay = FloatField()
     momentum = FloatField()
 
+class Postprocessing(BaseModel):
+    network = ForeignKeyField(Network, related_name='postprocessing')
+    filtered_rms = FloatField()
+    l2_norm = FloatField()
+    filtered_loss = FloatField()
+    filtered_real_loss = FloatField()
+    filtered_real_loss_function = TextField()
+
+
 def create_tables():
     db.execute_sql('SET ROLE developer')
     db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript])
