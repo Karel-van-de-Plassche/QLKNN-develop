@@ -96,9 +96,12 @@ for query_res in query:
 
     real_loss_function = 'filtered_mse + 0.1 * l2_norm'
     real_loss = eval(real_loss_function)
+    filtered_rms = np.sqrt(filtered_mse)
+    rel_filtered_rms = np.sqrt(filtered_mse) / (se_nn.max() - se_nn.min())
 
     pp = Postprocessing(network=Network.get(Network.id == id),
-                        filtered_rms=np.sqrt(filtered_mse),
+                        filtered_rms=filtered_rms,
+                        rel_filtered_rms=rel_filtered_rms,
                         l2_norm=l2_norm,
                         filtered_loss=filtered_loss,
                         filtered_real_loss=real_loss,

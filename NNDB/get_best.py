@@ -13,9 +13,14 @@ sys.path.append(networks_path)
 from run_model import QuaLiKizNDNN
 
 
+target_to_fancy = {'efeETG_GB': 'Electron ETG Heat Flux',
+                   'efeITG_GB': 'Electron ITG Heat Flux',
+                   'efeTEM_GB': 'Electron TEM Heat Flux',
+                   'efiITG_GB': 'Ion ITG Heat Flux',
+                   'efiTEM_GB': 'Ion TEM Heat Flux'}
 feature_names = ['An','Ate','Ati','Ti_Te','qx','smag','x']
 query = (Network.select(Network.target_names).distinct().tuples())
-df = pd.DataFrame(columns=['target_names', 'id', 'l2_norm', 'rms'])
+df = pd.DataFrame(columns=['target_names', 'id', 'l2_norm', 'rms', 'rms_rel'])
 for ii, query_res in enumerate(query):
     target_names = query_res[0]
     if len(target_names) == 1:
@@ -23,7 +28,7 @@ for ii, query_res in enumerate(query):
     else:
         NotImplementedError('Multiple targets not implemented yet')
     print(target_name)
-    subquery = (Network.select(Network.id, Postprocessing.filtered_loss, Postprocessing.filtered_rms)
+    subquery = (Network.select(Network.id, Postprocessing.filtered_loss, Postprocessing.filtered_rms, 100*Postprocessing.rel_filtered_rms)
                 .where(Network.target_names == Param(target_names))
                 .where(Network.feature_names == Param(feature_names))
                 .join(Postprocessing)
@@ -32,4 +37,10 @@ for ii, query_res in enumerate(query):
                 .tuples())
     df.loc[ii] = list(chain([target_name], subquery.get()))
 df['id'] = df['id'].astype('int64')
+
+for row in df.iterrows():
+    df.set_value(row[0], 'target_names', target_to_fancy[row[1]['target_names']])
+df = df[['target_names', 'l2_norm', 'rms', 'rms_rel']]
+df.columns = ['Training Target', 'L_2 norm', 'RMS error [GB]', 'RMS error [%]']
+print(df.to_latex(index=False))
 embed()

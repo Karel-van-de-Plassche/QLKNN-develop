@@ -485,6 +485,7 @@ class RmspropOptimizer(BaseModel):
 class Postprocessing(BaseModel):
     network = ForeignKeyField(Network, related_name='postprocessing')
     filtered_rms = FloatField()
+    rel_filtered_rms = FloatField()
     l2_norm = FloatField()
     filtered_loss = FloatField()
     filtered_real_loss = FloatField()
