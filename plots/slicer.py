@@ -37,9 +37,14 @@ from collections import OrderedDict
 style = 'similar'
 plot=True
 plot_pop=False
+plot_nns=True
+plot_slice=False
 plot_poplines=False
 plot_threshlines=False
 plot_zerocolors=False
+plot_thresh1line=True
+calc_thresh1=True
+hide_qualikiz=False
 debug=False
 if style == 'c_L2':
     nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
@@ -97,6 +102,11 @@ for nn_index, nn_label in nn_list.items():
 input, data, __ = load_data(nn_index)
 input['x'] = input['x'] / 3
 #input, data = prettify_df(input, data)
+#input = input.astype('float64')
+# Filter
+#for name, val in zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['0.50', '2.75', '0.50', '10.00', '0.10', '0.19']):
+for name, val in zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.03']):
+    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 df = input.join([data['target'], data['maxgam']])
 df = df[df['target']<60]
 df = df[df['target']>=0]
@@ -135,12 +145,17 @@ for index, slice in df.iterrows():
                         200)
         if plot:
             fig = plt.figure()
-            if plot_pop:
+            if plot_pop and plot_slice:
                 gs = gridspec.GridSpec(2, 2, height_ratios=[10, 1], width_ratios=[5,1],
                                     left=0.05, right=0.95, wspace=0.05, hspace=0.05)
+                ax2 = plt.subplot(gs[1,0])
                 ax3 = plt.subplot(gs[0,1])
-            else:
+            if not plot_pop and plot_slice:
                 gs = gridspec.GridSpec(2, 1, height_ratios=[10, 2], width_ratios=[1],
+                                    left=0.05, right=0.95, wspace=0.05, hspace=0.05)
+                ax2 = plt.subplot(gs[1,0])
+            if not plot_pop and not plot_slice:
+                gs = gridspec.GridSpec(1, 1, height_ratios=[1], width_ratios=[1],
                                     left=0.05, right=0.95, wspace=0.05, hspace=0.05)
             ax1 = plt.subplot(gs[0,0])
             #ax1.set_prop_cycle(cycler('color', ['#f1eef6','#d7b5d8','#df65b0','#dd1c77','#980043']))
@@ -149,23 +164,17 @@ for index, slice in df.iterrows():
             ax1.set_prop_cycle(cycler('color', plt.cm.plasma(np.linspace(0, 0.9, len(nns)))))
             ax1.set_xlabel(nameconvert[varname])
             ax1.set_ylabel(nameconvert[nn.target_names[0]])
-            ax2 = plt.subplot(gs[1,0])
 
-        #try:
-        #    idx = target.index[target == 0][-1] #index of last zero
-        #    slope, intercept, r_value, p_value, std_err = stats.linregress(feature[(target.index > idx) & ~target.isnull()], target[(target.index > idx) & ~target.isnull()])
-        #    thresh_pred = x * slope + intercept
-        #    thresh1 = x[thresh_pred < 0][-1]
-
-        #    if plot:
-        #        #ax1.plot(x[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
-        #        #         thresh_pred[(thresh_pred > ax1.get_ylim()[0]) & (thresh_pred < ax1.get_ylim()[1])],
-        #        #         c='black')
-        #        ax1.axvline(thresh1, c='black', linestyle='dotted')
-        #except (ValueError, IndexError):
-        #    thresh1 = np.NaN
-        #    if debug:
-        #        print('No threshold1')
+        if calc_thresh1:
+            try:
+                idx = target.index[target == 0][-1] #index of last zero
+                slope, intercept, r_value, p_value, std_err = stats.linregress(feature[(target.index > idx) & ~target.isnull()], target[(target.index > idx) & ~target.isnull()])
+                thresh_pred = x * slope + intercept
+                thresh1 = x[thresh_pred < 0][-1]
+            except (ValueError, IndexError):
+                thresh1 = np.NaN
+                if debug:
+                    print('No threshold1')
         try:
             idx = target.index[target == 0][-1] #index of last zero
             idx2 = feature[feature > idx][0]
@@ -181,21 +190,23 @@ for index, slice in df.iterrows():
 
         # Plot target points
 
-        if plot:
-            table = ax2.table(cellText=[[nameconvert[name] for name in df.index.names], ['{:.2f}'.format(xx) for xx in index]],cellLoc='center')
-            embed()
+        if plot and plot_slice:
+            table = ax2.table(cellText=[[nameconvert[name] for name in df.index.names],
+                                        ['{:.2f}'.format(xx) for xx in index]],cellLoc='center')
             table.auto_set_font_size(False)
             table.scale(1, 1.5)
             #table.set_fontsize(20)
             ax2.axis('tight')
             ax2.axis('off')
         #fig.subplots_adjust(bottom=0.2, transform=ax1.transAxes)
+        print([[name for name in df.index.names],
+               ['{:.2f}'.format(xx) for xx in index]])
 
 
         # Plot nn lines
         for ii, (nn_index, nn) in enumerate(nns.items()):
             nn_pred = nn.get_output(**slice_dict).iloc[:,0]
-            if plot:
+            if plot and plot_nns:
                 l = ax1.plot(x, nn_pred, label=nn.label)
             try:
                 thresh_i = nn_pred.index[nn_pred == 0][-1]
@@ -218,6 +229,7 @@ for index, slice in df.iterrows():
 
         thresh2_misses = thresh2 - thresh_nn
         thresh2_popback = thresh2 - popbacks
+
 
         slice_stats = np.array([thresh2_misses, thresh2_popback]).T
         if plot and plot_pop:
@@ -242,13 +254,30 @@ for index, slice in df.iterrows():
                 color[(target != 0) & (maxgam != 0)] = 'blue'
             else:
                 color='blue'
-            ax1.scatter(feature, target, c=color, label='QuaLiKiz', marker='x', zorder=1000)
+            if hide_qualikiz:
+                color='white'
+                zorder=1
+                label=''
+            else:
+                zorder=1000
+                label = 'QuaLiKiz'
+            ax1.scatter(feature, target, c=color, label=label, marker='x', zorder=zorder)
 
         # Plot regression
+        if plot and plot_thresh1line and not np.isnan(thresh1):
+            #plot_min = ax1.get_ylim()[0]
+            plot_min = -0.1
+            x_plot = x[(thresh_pred > plot_min) & (thresh_pred < ax1.get_ylim()[1])]
+            y_plot = thresh_pred[(thresh_pred > plot_min) & (thresh_pred < ax1.get_ylim()[1])]
+            ax1.plot(x_plot, y_plot, c='gray', linestyle='dotted')
+            ax1.plot(x[x< thresh1], np.zeros_like(x[x< thresh1]), c='gray', linestyle='dotted')
+            #ax1.axvline(thresh1, c='black', linestyle='dotted')
+
         if plot:
             ax1.legend()
             plt.show()
             fig.savefig('slice.pdf', format='pdf', bbox_inches='tight')
+        embed()
     sliced += 1
     if sliced % 1000 == 0:
         print(sliced, 'took ', time.time() - starttime, ' seconds')
