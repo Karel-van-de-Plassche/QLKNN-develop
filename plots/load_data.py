@@ -51,3 +51,45 @@ def load_nn(id):
     json_dict = subquery[0]
     nn = QuaLiKizNDNN(json_dict)
     return nn
+
+nameconvert = {'Ate': '$R/L_{T_e}$',
+               'Ati': '$R/L_{T_i}$',
+               'An': '$R/L_n$',
+               #'Nustar': '$\\nu^*$',
+               'Nustar': '$log_{10}(\\nu^*)$',
+               'Ti_Te': '$T_i/T_e$',
+               'Zeffx': '$Z_{eff}$',
+               'qx': '$q$',
+               'smag': '$\hat{s}$',
+               'x': '$\\varepsilon\,(r/R)$',
+
+               'efe_GB': '$q_e\,[GB]$',
+               'efi_GB': '$q_i\,[GB]$',
+               'efiITG_GB': '$q_{ITG, i}\,[GB]$',
+               'efeETG_GB': '$q_{ETG, e}\,[GB]$',
+               'pfe_GB': '$\Gamma_e\,[GB]$',
+               'pfi_GB': '$\Gamma_i\,[GB]$',
+}
+def prettify_df(input, data):
+    try:
+        del input['nions']
+    except KeyError:
+        pass
+
+    for ii, col in enumerate(input):
+        if col == u'Nustar':
+            input[col] = input[col].apply(np.log10)
+            #se = input[col]
+            #se.name = nameconvert[se.name]
+            input['x'] = (input['x'] / 3)
+    input.rename(columns=nameconvert, inplace=True)
+    data.rename(columns=nameconvert, inplace=True)
+
+    #for ii, col in enumerate(data):
+    #    se = data[col]
+    #    try:
+    #        se.name = nameconvert[se.name]
+    #    except KeyError:
+    #        warn('Did not translate name for ' + se.name)
+    return input, data
+
