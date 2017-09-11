@@ -5,6 +5,7 @@ import os
 from collections import OrderedDict
 import pandas as pd
 from warnings import warn
+from numba import jit, float64
 
 def sigm_tf(x):
     return 1./(1 + np.exp(-1 * x))
@@ -255,6 +256,8 @@ class QuaLiKizNDNN():
         def __str__(self):
             return ('NNLayer shape ' + str(self.shape()))
 
+    # 7.09 ms ± 11.4 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
+    # 4.75 ms ± 44.7 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
     def get_output(self, clip_low=True, clip_high=True, low_bound=None, high_bound=None, **kwargs):
         """ Calculate the output given a specific input
 
@@ -263,21 +266,28 @@ class QuaLiKizNDNN():
         at least the feature_names) and as values 1xN same-length
         arrays.
         """
-        nn_input = pd.DataFrame()
+        # ~500 us
+        nn_input = {}
         # Read and scale the inputs
         for name in self.feature_names:
             try:
                 value = kwargs.pop(name)
-                nn_input[name] = self.prescale_factor[name] * value + self.prescale_bias[name]
+                nn_input[name] = value
             except KeyError as e:
                 raise Exception('NN needs \'' + name + '\' as input')
+        nn_input = pd.DataFrame(nn_input)
+        #1.42 ms ± 4.13 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
+        nn_input = self.prescale_factor[self.feature_names].values[np.newaxis, :] * nn_input + self.prescale_bias[self.feature_names].values
 
-        output = pd.DataFrame()
         # Apply all NN layers an re-scale the outputs
+        # 702 µs ± 5.66 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
+        output = {}
         for name in self.target_names:
-            nn_output = (np.squeeze(self.apply_layers(nn_input)) - self.prescale_bias[name]) / self.prescale_factor[name]
+            nn_output = (np.squeeze(self.apply_layers(nn_input.values)) - self.prescale_bias[name]) / self.prescale_factor[name]
             output[name] = nn_output
+        output = pd.DataFrame(output)
 
+        # 2.6 µs ± 32.5 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
         if clip_low:
             for name, column in output.items():
                 if low_bound is None:
@@ -322,11 +332,12 @@ class QuaLiKizNDNN():
 if __name__ == '__main__':
     # Test the function
     root = os.path.dirname(os.path.realpath(__file__))
-    nn1 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efe_GB.json'))
-    nn2 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efi_GB.json'))
-    nn3 = QuaLiKizDuoNN('nn_eftot_GB', nn1, nn2, lambda x, y: x + y)
-    nn = QuaLiKizMultiNN([nn1, nn2])
-    scann = 24
+    #nn1 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efe_GB.json'))
+    #nn2 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efi_GB.json'))
+    #nn3 = QuaLiKizDuoNN('nn_eftot_GB', nn1, nn2, lambda x, y: x + y)
+    #nn = QuaLiKizMultiNN([nn1, nn2])
+    nn = QuaLiKizNDNN.from_json('nn.json')
+    scann = 100
     input = pd.DataFrame()
     input['Ati'] = np.array(np.linspace(2,13, scann))
     input['Ti_Te']  = np.full_like(input['Ati'], 1.)
@@ -337,6 +348,6 @@ if __name__ == '__main__':
     input['smag']  = np.full_like(input['Ati'], 0.399902)
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
-    fluxes = nn.get_outputs(**input)
+    fluxes = nn.get_output(**input)
     print(fluxes)
     embed()
