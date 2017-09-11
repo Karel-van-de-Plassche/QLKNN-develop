@@ -181,14 +181,14 @@ class QuaLiKizNDNN():
             else:
                 parsed[name] = dict(value)
         # These variables do not depend on the amount of layers in the NN
-        setattr(self, '_feature_names', pd.Series(parsed.pop('feature_names')))
-        setattr(self, '_target_names', pd.Series(parsed.pop('target_names')))
-        setattr(self, '_target_prescale_factors', pd.Series(parsed['prescale_factor'])[self._target_names])
-        setattr(self, '_feature_prescale_factors', pd.Series(parsed.pop('prescale_factor'))[self._feature_names])
-        setattr(self, '_target_prescale_biases', pd.Series(parsed['prescale_bias'])[self._target_names])
-        setattr(self, '_feature_prescale_biases', pd.Series(parsed.pop('prescale_bias'))[self._feature_names])
-        for name in ['feature_min', 'feature_max', 'target_min', 'target_max']:
-            setattr(self, '_' + name, pd.Series(parsed.pop(name), name=name))
+        for set in ['feature', 'target']:
+            setattr(self, '_' + set + '_names', pd.Series(parsed.pop(set + '_names')))
+        for set in ['feature', 'target']:
+            for subset in ['min', 'max']:
+                setattr(self, '_'.join(['', set, subset]), pd.Series(parsed.pop('_'.join([set, subset])))[getattr(self, '_' + set + '_names')])
+        for subset in ['bias', 'factor']:
+            setattr(self, '_'.join(['_feature_prescale', subset]), pd.Series(parsed['prescale_' + subset])[self._feature_names])
+            setattr(self, '_'.join(['_target_prescale', subset]), pd.Series(parsed.pop('prescale_' + subset))[self._target_names])
         self.layers = []
         # Now find out the amount of layers in our NN, and save the weigths and biases
         activations = parsed['hidden_activation'] + [parsed['output_activation']]
@@ -246,21 +246,21 @@ class QuaLiKizNDNN():
         and activation a (sigmoid) function.
         """
         def __init__(self, weight, bias, activation):
-            #self.weight = weight
-            #self.bias = bias
-            #self.activation = activation
+            self._weight = weight
+            self._bias = bias
+            self._activation = activation
             #@jit(float64[:,:](float64[:,:]), nopython=True)
             #def _apply_layer(input):
             #    preactivation = np.dot(input, weight) + bias
             #    result = activation(preactivation)
             #    return result
-            self.apply = lambda input: activation(np.dot(input, weight) + bias)
+            #self.apply = lambda input: activation(np.dot(input, weight) + bias)
             #_create_apply(weight, bias, activation)
 
-        #def apply(self, input):
-        #    preactivation = np.dot(input, self.weight) + self.bias
-        #    result = self.activation(preactivation)
-        #    return result
+        def apply(self, input):
+            preactivation = np.dot(input, self._weight) + self._bias
+            result = self._activation(preactivation)
+            return result
 
         def shape(self):
             return self.weight.shape
@@ -268,11 +268,7 @@ class QuaLiKizNDNN():
         def __str__(self):
             return ('NNLayer shape ' + str(self.shape()))
 
-    # 7.09 ms ± 11.4 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
-    # 4.75 ms ± 44.7 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
-    #@jit(nopython=True, debug=True)
-
-    def get_output(self, input, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=True):
+    def get_output(self, input, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=True, output_pandas=True):
         """ Calculate the output given a specific input
 
         This function accepts inputs in the form of a dict with
@@ -280,49 +276,47 @@ class QuaLiKizNDNN():
         at least the feature_names) and as values 1xN same-length
         arrays.
         """
-        # ~500 us
-        # Read and scale the inputs
-        #for name in self.feature_names:
-        #    try:
-        #        value = input.pop(name)
-        #        nn_input[name] = value
-        #    except KeyError as e:
-        #        raise Exception('NN needs \'' + name + '\' as input')
+        #49.1 ns ± 1.53 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
         if safe:
             nn_input = input[self._feature_names]
+            if low_bound is not None:
+                low_bound = low_bound[self._feature_names].values
+            if high_bound is not None:
+                high_bound = high_bound[self._feature_names].values
         else:
             nn_input = input
 
+        if low_bound is None:
+            low_bound = self._target_min.values
+        if high_bound is None:
+            high_bound = self._target_max.values
+
         #nn_input = self._feature_prescale_factors.values[np.newaxis, :] * nn_input + self._feature_prescale_biases.values
-        # 10.6 µs ± 503 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
+        #14.3 µs ± 1.08 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
         nn_input = _prescale(nn_input.values,
-                  self._feature_prescale_factors.values,
-                  self._feature_prescale_biases.values)
+                             self._feature_prescale_factor.values,
+                             self._feature_prescale_bias.values)
 
         # Apply all NN layers an re-scale the outputs
-        # 702 µs ± 5.66 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
-        output = {}
-        for name in self._target_names:
-            nn_output = (np.squeeze(self.apply_layers(nn_input)) - self._target_prescale_biases[name]) / self._target_prescale_factors[name]
-            output[name] = nn_output
-        output = pd.DataFrame(output)
+        # 265 µs ± 3.05 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
+        output = (self.apply_layers(nn_input) - np.atleast_2d(self._target_prescale_bias)) / np.atleast_2d(self._target_prescale_factor)
+        #for name in self._target_names:
+        #    nn_output = (np.squeeze(self.apply_layers(nn_input)) - self._target_prescale_biases[name]) / self._target_prescale_factors[name]
+        #    output[name] = nn_output
 
-        # 2.6 µs ± 32.5 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
+        # 7.01 µs ± 232 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
         if clip_low:
-            for name, column in output.items():
-                if low_bound is None:
-                    low_bound = self._target_min[name]
-                output[output < low_bound] = low_bound
+            for ii, bound in enumerate(low_bound):
+                output[:, ii][output[:, ii] < bound] = bound
         if clip_high:
-            for name, column in output.items():
-                if high_bound is None:
-                    high_bound = self._target_max[name]
-                output[output > high_bound] = high_bound
+            for ii, bound in enumerate(high_bound):
+                output[:, ii][output[:, ii] > bound] = bound
 
-        #if any(kwargs):
-        #    for name in kwargs:
-        #        warn('input dict not fully parsed! Did not use ' + name)
+        # 118 µs ± 3.83 µs per loop (mean ± std. dev. of 7 runs, 10000 loops each)
+        if output_pandas:
+            output = pd.DataFrame(output, columns=self._target_names)
 
+        # 47.4 ns ± 1.79 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
         if self._target_names_mask is not None:
             output.columns = self._target_names_mask
         return output
