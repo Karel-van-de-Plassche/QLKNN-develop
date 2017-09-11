@@ -278,13 +278,19 @@ class QuaLiKizNDNN():
         """
         #49.1 ns ± 1.53 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
         if safe:
-            nn_input = input[self._feature_names]
+            if input.__class__ == pd.DataFrame:
+                nn_input = input[self._feature_names]
+            else:
+                raise Exception('Please pass a pandas.DataFrame for safe mode')
             if low_bound is not None:
                 low_bound = low_bound[self._feature_names].values
             if high_bound is not None:
                 high_bound = high_bound[self._feature_names].values
         else:
-            nn_input = input
+            if input.__class__ == pd.DataFrame:
+                nn_input = input.values
+            elif input.__class__ == np.ndarray:
+                nn_input = input
 
         if low_bound is None:
             low_bound = self._target_min.values
@@ -293,7 +299,7 @@ class QuaLiKizNDNN():
 
         #nn_input = self._feature_prescale_factors.values[np.newaxis, :] * nn_input + self._feature_prescale_biases.values
         #14.3 µs ± 1.08 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        nn_input = _prescale(nn_input.values,
+        nn_input = _prescale(nn_input,
                              self._feature_prescale_factor.values,
                              self._feature_prescale_bias.values)
 
@@ -401,6 +407,6 @@ if __name__ == '__main__':
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
     input = input[nn._feature_names]
-    fluxes = nn.get_output(input, safe=False)
+    fluxes = nn.get_output(input.values, safe=False)
     print(fluxes)
     embed()

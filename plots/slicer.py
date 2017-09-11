@@ -43,7 +43,7 @@ nn_indeces = [58, 63]
 from collections import OrderedDict
 style = 'best'
 mode = 'debug'
-#mode = 'quick'
+mode = 'quick'
 if mode == 'debug':
     plot=True
     plot_pop=True
@@ -151,9 +151,16 @@ df = df.unstack(varname)
 #df.sort_values('smag', inplace=True)
 
 sliced = 0
-starttime = time.time()
 totstats = []
-df = df.iloc[1040:2040,:]
+df = df.iloc[1040:20040,:]
+# Check if we can do unsafe
+unsafe = True
+for nn in nns.values():
+    varname_idx = nn._feature_names[nn._feature_names == varname].index[0]
+    varlist = list(df.index.names)
+    varlist.insert(varname_idx, varname)
+    if ~np.all(varlist == nn._feature_names):
+        unsafe = False
 
 def calculate_thresh1(x, feature, target, debug=False):
     try:
@@ -237,8 +244,14 @@ def process_row(row, ax1=None):
             ax1.axvline(thresh2, c='black', linestyle='dashed')
 
         # 13.7 µs ± 1.1 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        slice_dict = {name: np.full_like(x, val) for name, val in zip(df.index.names, index)}
-        slice_dict[varname] = x
+        if unsafe:
+            slice_list = [np.full_like(x, val) for val in index]
+            slice_list.insert(varname_idx, x)
+        else:
+            slice_dict = {name: np.full_like(x, val) for name, val in zip(df.index.names, index)}
+            slice_dict[varname] = x
+
+
 
         # Plot target points
 
@@ -255,7 +268,10 @@ def process_row(row, ax1=None):
 
         # Plot nn lines
         for ii, (nn_index, nn) in enumerate(nns.items()):
-            nn_pred = nn.get_output(pd.DataFrame(slice_dict)).values[:,0]
+            if unsafe:
+                nn_pred = nn.get_output(np.array(slice_list).T, safe=not unsafe, output_pandas=False)[:,0]
+            else:
+                nn_pred = nn.get_output(pd.DataFrame(slice_dict), safe=not unsafe, output_pandas=True).values[:,0]
             if plot and plot_nns:
                 l = ax1.plot(x, nn_pred, label=nn.label)
             try:
@@ -337,9 +353,12 @@ def process_row(row, ax1=None):
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
 
-pool = Pool(processes=1)
+pool = Pool(processes=4)
+starttime = time.time()
 res = pool.map_async(process_row, df.iterrows())
 res = res.get()
+#for row in df.iterrows():
+#    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
 embed()
 #for index, slice in df.iterrows():
@@ -355,6 +374,7 @@ print('took ', time.time() - starttime, ' seconds')
 
 #for el in product(*uni.values()):
 print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
+embed()
 totstats._metadata = {'zero_slices': zero_slices}
 with open('totstats_' + style + '.pkl', 'wb') as file_:
     pickle.dump(totstats, file_)
