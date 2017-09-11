@@ -1,5 +1,5 @@
 from IPython import embed
-from multiprocessing import Pool
+from multiprocessing import Pool, cpu_count
 #import mega_nn
 import numpy as np
 import scipy.stats as stats
@@ -147,7 +147,7 @@ df.set_index([col for col in input], inplace=True)
 df = df.astype('float64')
 df = df.sort_index(level=varname)
 df = df.unstack(varname)
-#df = shuffle_panda(df)
+df = shuffle_panda(df)
 #df.sort_values('smag', inplace=True)
 
 sliced = 0
@@ -187,6 +187,12 @@ def calculate_thresh2(feature, target, debug=False):
 
     return thresh2
 #5.4 ms ± 115 µs per loop (mean ± std. dev. of 7 runs, 100 loops each) total
+def process_chunk(chunck):
+
+    res = []
+    for ii, row in enumerate(chunck.iterrows()):
+        res.append(process_row(row))
+    return res
 def process_row(row, ax1=None):
     index, slice = row
     target = slice['target']
@@ -353,18 +359,21 @@ def process_row(row, ax1=None):
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
 
-pool = Pool(processes=4)
+num_processes = cpu_count()
+chunk_size = int(df.shape[0]/num_processes)
+chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
+pool = Pool(processes=num_processes)
+
 starttime = time.time()
-res = pool.map_async(process_row, df.iterrows())
-res = res.get()
+#res = pool.map_async(process_row, df.iterrows(), chunksize=100)
+#res = res.get()
+#for row in df.iterrows():
+#    process_row(row)
+result = pool.map(process_chunk, chunks)
 #for row in df.iterrows():
 #    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
 embed()
-#for index, slice in df.iterrows():
-#    process_slice(slice)
-#    #slice = slice.stack().reset_index(varname)
-#    #slice = df.iloc[ii]
 
 totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
 print(sliced)
