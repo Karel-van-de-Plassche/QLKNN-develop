@@ -280,7 +280,7 @@ def train(settings):
         timediff(start, 'Dataset loaded')
     timediff(start, 'Dataset filtered')
     panda = panda.astype('float64')
-    #panda = panda.astype('float32')
+    panda = panda.astype('float32')
 
     # Use pre-existing splitted dataset, or split in train, validation and test
     train_dim = panda.columns[-1]
@@ -289,7 +289,7 @@ def train(settings):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
         datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
-        #datasets = convert_panda(panda, 0.06, 0.06, scan_dims, train_dim)
+        datasets = convert_panda(panda, 0.06, 0.06, scan_dims, train_dim)
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
     timediff(start, 'Dataset split')

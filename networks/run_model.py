@@ -5,7 +5,7 @@ import os
 from collections import OrderedDict
 import pandas as pd
 from warnings import warn
-from numba import jit, float64
+from numba import jit,float64
 
 def sigm_tf(x):
     return 1./(1 + np.exp(-1 * x))
@@ -181,9 +181,14 @@ class QuaLiKizNDNN():
             else:
                 parsed[name] = dict(value)
         # These variables do not depend on the amount of layers in the NN
-        for name in ['prescale_bias', 'prescale_factor', 'feature_min',
-                     'feature_max', 'feature_names', 'target_names', 'target_min', 'target_max']:
-            setattr(self, name, pd.Series(parsed.pop(name), name=name))
+        setattr(self, '_feature_names', pd.Series(parsed.pop('feature_names')))
+        setattr(self, '_target_names', pd.Series(parsed.pop('target_names')))
+        setattr(self, '_target_prescale_factors', pd.Series(parsed['prescale_factor'])[self._target_names])
+        setattr(self, '_feature_prescale_factors', pd.Series(parsed.pop('prescale_factor'))[self._feature_names])
+        setattr(self, '_target_prescale_biases', pd.Series(parsed['prescale_bias'])[self._target_names])
+        setattr(self, '_feature_prescale_biases', pd.Series(parsed.pop('prescale_bias'))[self._feature_names])
+        for name in ['feature_min', 'feature_max', 'target_min', 'target_max']:
+            setattr(self, '_' + name, pd.Series(parsed.pop(name), name=name))
         self.layers = []
         # Now find out the amount of layers in our NN, and save the weigths and biases
         activations = parsed['hidden_activation'] + [parsed['output_activation']]
@@ -196,9 +201,9 @@ class QuaLiKizNDNN():
                 if activation == 'tanh':
                     act = np.tanh
                 elif activation == 'relu':
-                    act = lambda x: x * (x > 0)
+                    act = _act_relu
                 elif activation == 'none':
-                    act = lambda x: x
+                    act = _act_none
                 self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, act))
             except KeyError:
                 # This name does not exist in the JSON,
@@ -241,14 +246,21 @@ class QuaLiKizNDNN():
         and activation a (sigmoid) function.
         """
         def __init__(self, weight, bias, activation):
-            self.weight = weight
-            self.bias = bias
-            self.activation = activation
+            #self.weight = weight
+            #self.bias = bias
+            #self.activation = activation
+            #@jit(float64[:,:](float64[:,:]), nopython=True)
+            #def _apply_layer(input):
+            #    preactivation = np.dot(input, weight) + bias
+            #    result = activation(preactivation)
+            #    return result
+            self.apply = lambda input: activation(np.dot(input, weight) + bias)
+            #_create_apply(weight, bias, activation)
 
-        def apply(self, input):
-            preactivation = np.dot(input, self.weight) + self.bias
-            result = self.activation(preactivation)
-            return result
+        #def apply(self, input):
+        #    preactivation = np.dot(input, self.weight) + self.bias
+        #    result = self.activation(preactivation)
+        #    return result
 
         def shape(self):
             return self.weight.shape
@@ -258,7 +270,9 @@ class QuaLiKizNDNN():
 
     # 7.09 ms ± 11.4 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
     # 4.75 ms ± 44.7 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
-    def get_output(self, clip_low=True, clip_high=True, low_bound=None, high_bound=None, **kwargs):
+    #@jit(nopython=True, debug=True)
+
+    def get_output(self, input, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=True):
         """ Calculate the output given a specific input
 
         This function accepts inputs in the form of a dict with
@@ -267,23 +281,29 @@ class QuaLiKizNDNN():
         arrays.
         """
         # ~500 us
-        nn_input = {}
         # Read and scale the inputs
-        for name in self.feature_names:
-            try:
-                value = kwargs.pop(name)
-                nn_input[name] = value
-            except KeyError as e:
-                raise Exception('NN needs \'' + name + '\' as input')
-        nn_input = pd.DataFrame(nn_input)
-        #1.42 ms ± 4.13 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
-        nn_input = self.prescale_factor[self.feature_names].values[np.newaxis, :] * nn_input + self.prescale_bias[self.feature_names].values
+        #for name in self.feature_names:
+        #    try:
+        #        value = input.pop(name)
+        #        nn_input[name] = value
+        #    except KeyError as e:
+        #        raise Exception('NN needs \'' + name + '\' as input')
+        if safe:
+            nn_input = input[self._feature_names]
+        else:
+            nn_input = input
+
+        #nn_input = self._feature_prescale_factors.values[np.newaxis, :] * nn_input + self._feature_prescale_biases.values
+        # 10.6 µs ± 503 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
+        nn_input = _prescale(nn_input.values,
+                  self._feature_prescale_factors.values,
+                  self._feature_prescale_biases.values)
 
         # Apply all NN layers an re-scale the outputs
         # 702 µs ± 5.66 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
         output = {}
-        for name in self.target_names:
-            nn_output = (np.squeeze(self.apply_layers(nn_input.values)) - self.prescale_bias[name]) / self.prescale_factor[name]
+        for name in self._target_names:
+            nn_output = (np.squeeze(self.apply_layers(nn_input)) - self._target_prescale_biases[name]) / self._target_prescale_factors[name]
             output[name] = nn_output
         output = pd.DataFrame(output)
 
@@ -291,17 +311,17 @@ class QuaLiKizNDNN():
         if clip_low:
             for name, column in output.items():
                 if low_bound is None:
-                    low_bound = self.target_min[name]
+                    low_bound = self._target_min[name]
                 output[output < low_bound] = low_bound
         if clip_high:
             for name, column in output.items():
                 if high_bound is None:
-                    high_bound = self.target_max[name]
+                    high_bound = self._target_max[name]
                 output[output > high_bound] = high_bound
 
-        if any(kwargs):
-            for name in kwargs:
-                warn('input dict not fully parsed! Did not use ' + name)
+        #if any(kwargs):
+        #    for name in kwargs:
+        #        warn('input dict not fully parsed! Did not use ' + name)
 
         if self._target_names_mask is not None:
             output.columns = self._target_names_mask
@@ -329,6 +349,44 @@ class QuaLiKizNDNN():
             l1_norm += np.sum(np.abs(layer.weight))
         return l1_norm
 
+#@jit(float64[:,:](float64[:,:], float64[:], float64[:]), nopython=True)
+def _prescale(nn_input, factors, biases):
+    return np.atleast_2d(factors) * nn_input + biases
+#    #return factors[np.newaxis, :] * nn_input + biases
+#
+#@jit(float64[:,:](float64[:,:]), nopython=True)
+def _act_none(x):
+    return x
+#
+#@jit(float64[:,:](float64[:,:]), nopython=True)
+def _act_relu(x):
+    return x * (x > 0)
+#
+##@jit(float64[:,:](float64[:,:], float64[:,:,:]), nopython=True)
+##def _apply_layers(self, input, layers):
+##    for layer in layers:
+##        input = layer.apply(input)
+##    return input
+#
+#def _create_apply(weight, bias, activation):
+#    #self.weight = weight
+#    #self.bias = bias
+#    #self.activation = activation
+#    #if activation is None:
+#    #    @jit(float64[:,:](float64[:,:]), nopython=True)
+#    #    def _apply_layer(input):
+#    #        preactivation = np.dot(input, weight) + bias
+#    #        result = preactivation
+#    #        return result
+#    #else:
+#    @jit(float64[:,:](float64[:,:]), nopython=True)
+#    def _apply_layer(input):
+#        preactivation = np.dot(input, weight) + bias
+#        result = activation(preactivation)
+#        return result
+#
+#    return _apply_layer
+
 if __name__ == '__main__':
     # Test the function
     root = os.path.dirname(os.path.realpath(__file__))
@@ -348,6 +406,7 @@ if __name__ == '__main__':
     input['smag']  = np.full_like(input['Ati'], 0.399902)
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
-    fluxes = nn.get_output(**input)
+    input = input[nn._feature_names]
+    fluxes = nn.get_output(input, safe=False)
     print(fluxes)
     embed()

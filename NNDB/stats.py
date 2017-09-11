@@ -4,14 +4,18 @@ import numpy as np
 import pandas as pd
 from model import Network, NetworkJSON, TrainMetadata, Hyperparameters
 from peewee import Param, JOIN_LEFT_OUTER
+from warnings import warn
 import os
 import sys
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
 sys.path.append(networks_path)
 from run_model import QuaLiKizNDNN
+
 import matplotlib as mpl
+mpl.use('pdf')
 import matplotlib.pyplot as plt
-from warnings import warn
+plt.style.use('../plots/thesis.mplstyle')
+
 
 #query = (Network.select(Network.id).where(Network.id == 16))
 #nn = query.get().to_QuaLiKizNDNN()
@@ -77,12 +81,17 @@ def draw_convergence(network_id, only_last_epochs=False):
     ax2.set_xlabel("time (HH:MM:SS)")
 
 
-    hostname = (TrainMetadata.select(TrainMetadata.hostname)
-             .where(TrainMetadata.network == network_id)
+    optimizer = (Hyperparameters.select(Hyperparameters.optimizer)
+             .where(Hyperparameters.network == network_id)
              .tuples()
     ).get()[0]
-    ax2.text(0.01,0.98, hostname, fontsize=15, transform=fig.transFigure)
-    ax2.text(0.01,0.96, 'network ' + str(network_id), fontsize=15, transform=fig.transFigure)
+    #hostname = (TrainMetadata.select(TrainMetadata.hostname)
+    #         .where(TrainMetadata.network == network_id)
+    #         .tuples()
+    #).get()[0]
+    #ax2.text(0.01,0.98, hostname, fontsize=15, transform=fig.transFigure)
+    #ax2.text(0.01,0.96, 'network ' + str(network_id), fontsize=15, transform=fig.transFigure)
+    fig.savefig(optimizer + '.pdf', format='pdf', bbox_inches='tight')
     return fig
 
 def find_similar_convergence(network_id):

@@ -38,6 +38,7 @@ for ii, query_res in enumerate(query):
     df.loc[ii] = list(chain([target_name], subquery.get()))
 df['id'] = df['id'].astype('int64')
 
+print(df)
 for row in df.iterrows():
     df.set_value(row[0], 'target_names', target_to_fancy[row[1]['target_names']])
 df = df[['target_names', 'l2_norm', 'rms', 'rms_rel']]

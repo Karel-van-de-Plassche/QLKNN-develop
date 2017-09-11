@@ -70,6 +70,25 @@ nameconvert = {'Ate': '$R/L_{T_e}$',
                'pfe_GB': '$\Gamma_e\,[GB]$',
                'pfi_GB': '$\Gamma_i\,[GB]$',
 }
+
+nameconvert = {'Ate': 'Normalized electron temperature gradient $R/L_{T_e}$',
+               'Ati': 'Normalized ion temperature gradient $R/L_{T_i}$',
+               'An': '$R/L_n$',
+               #'Nustar': '$\\nu^*$',
+               'Nustar': '$log_{10}(\\nu^*)$',
+               'Ti_Te': 'Relative temperature $T_i/T_e$',
+               'Zeffx': '$Z_{eff}$',
+               'qx': '$q$',
+               'smag': 'Magnetic shear $\hat{s}$',
+               'x': '$\\varepsilon\,(r/R)$',
+
+               'efe_GB': '$q_e\,[GB]$',
+               'efi_GB': '$q_i\,[GB]$',
+               'efiITG_GB': '$q_{ITG, i}\,[GB]$',
+               'efeETG_GB': 'Normalized heat flux $q$',
+               'pfe_GB': '$\Gamma_e\,[GB]$',
+               'pfi_GB': '$\Gamma_i\,[GB]$',
+}
 def prettify_df(input, data):
     try:
         del input['nions']
