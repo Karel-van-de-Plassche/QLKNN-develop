@@ -43,7 +43,7 @@ nn_indeces = [58, 63]
 from collections import OrderedDict
 style = 'best'
 mode = 'debug'
-mode = 'quick'
+#mode = 'quick'
 if mode == 'debug':
     plot=True
     plot_pop=True
@@ -56,6 +56,7 @@ if mode == 'debug':
     calc_thresh1=False
     hide_qualikiz=False
     debug=False
+    parallel=False
 if mode == 'quick':
     plot=False
     plot_pop=False
@@ -68,6 +69,8 @@ if mode == 'quick':
     calc_thresh1=False
     hide_qualikiz=False
     debug=False
+    parallel=True
+
 if style == 'c_L2':
     nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
     #                       (48, '$c_{L2} = 0.05$'),
@@ -314,7 +317,6 @@ def process_row(row, ax1=None):
             slice_strings = np.insert(slice_strings, 0, ['thre', 'pop'], axis=0)
             table = ax3.table(cellText=slice_strings, loc='center')
             table.auto_set_font_size(False)
-            table.set_fontsize(20)
             ax3.axis('tight')
             ax3.axis('off')
         if debug:
@@ -354,22 +356,25 @@ def process_row(row, ax1=None):
             ax1.set_ylim(bottom=min(ax1.get_ylim()[0], 0))
             plt.show()
             fig.savefig('slice.pdf', format='pdf', bbox_inches='tight')
+            embed()
         return (0, slice_stats.flatten())
     #sliced += 1
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
 
-num_processes = cpu_count()
-chunk_size = int(df.shape[0]/num_processes)
-chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
-pool = Pool(processes=num_processes)
+if parallel:
+    num_processes = cpu_count()
+    chunk_size = int(df.shape[0]/num_processes)
+    chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
+    pool = Pool(processes=num_processes)
 
 starttime = time.time()
-#res = pool.map_async(process_row, df.iterrows(), chunksize=100)
-#res = res.get()
-#for row in df.iterrows():
-#    process_row(row)
-result = pool.map(process_chunk, chunks)
+
+if not parallel:
+    for row in df.iterrows():
+        process_row(row)
+else:
+    result = pool.map(process_chunk, chunks)
 #for row in df.iterrows():
 #    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
