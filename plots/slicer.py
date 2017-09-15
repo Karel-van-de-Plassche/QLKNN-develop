@@ -4,7 +4,7 @@ from multiprocessing import Pool, cpu_count
 import numpy as np
 import scipy.stats as stats
 import pandas as pd
-from itertools import product
+from itertools import product, chain
 import pickle
 import os
 import sys
@@ -41,9 +41,9 @@ nn_indeces = [37, 58, 60] #nozero <60, zero <60, zero <100
 nn_indeces = [62, 63] #nozero mabse <60, zero mabse <60
 nn_indeces = [58, 63]
 from collections import OrderedDict
-style = 'best'
+style = 'c_L2'
 mode = 'debug'
-#mode = 'quick'
+mode = 'quick'
 if mode == 'debug':
     plot=True
     plot_pop=True
@@ -155,7 +155,7 @@ df = shuffle_panda(df)
 
 sliced = 0
 totstats = []
-df = df.iloc[1040:20040,:]
+#df = df.iloc[1040:20040,:]
 # Check if we can do unsafe
 unsafe = True
 for nn in nns.values():
@@ -371,14 +371,21 @@ if parallel:
 starttime = time.time()
 
 if not parallel:
+    totstats = []
     for row in df.iterrows():
-        process_row(row)
+        totstats.append(process_row(row))
 else:
-    result = pool.map(process_chunk, chunks)
+    results = pool.map(process_chunk, chunks)
 #for row in df.iterrows():
 #    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
-embed()
+
+zero_slices = 0
+for result in chain(*results):
+    if result[0] == 1:
+        zero_slices += 1
+    else:
+        totstats.append(result[1])
 
 totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
 print(sliced)
