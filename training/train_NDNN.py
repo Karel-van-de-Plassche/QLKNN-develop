@@ -509,8 +509,6 @@ def train(settings):
 
     steps_per_epoch = settings['minibatches'] + 1
     max_epoch = settings.get('max_epoch', sys.maxsize)
-    max_epoch = 5
-    settings['early_stop_measure'] = 'none'
     try:
         for ii in range(steps_per_epoch * max_epoch):
             # Write figures, summaries and check early stopping each epoch
