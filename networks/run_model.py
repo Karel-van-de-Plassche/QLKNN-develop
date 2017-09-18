@@ -6,6 +6,13 @@ from collections import OrderedDict
 import pandas as pd
 from warnings import warn
 from numba import jit,float64
+try:
+    import qlknn
+except:
+    print("Cannot load custom module, do something!");
+    default_layer_mode = 'classic'
+else:
+    default_layer_mode = 'intel'
 
 def sigm_tf(x):
     return 1./(1 + np.exp(-1 * x))
@@ -164,7 +171,7 @@ class QuaLiKizDuoNN():
         return self._nn1.feature_min.combine(self._nn2.feature_min, max)
 
 class QuaLiKizNDNN():
-    def __init__(self, nn_dict, target_names_mask=None):
+    def __init__(self, nn_dict, target_names_mask=None, layer_mode=default_layer_mode):
         """ General ND fully-connected multilayer perceptron neural network
 
         Initialize this class using a nn_dict. This dict is usually read
@@ -198,13 +205,16 @@ class QuaLiKizNDNN():
                 weight = parsed.pop(name + '/weights/Variable:0')
                 bias = parsed.pop(name + '/biases/Variable:0')
                 activation = activations.pop(0)
-                if activation == 'tanh':
-                    act = np.tanh
-                elif activation == 'relu':
-                    act = _act_relu
-                elif activation == 'none':
-                    act = _act_none
-                self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, act))
+                if layer_mode == 'classic':
+                    if activation == 'tanh':
+                        act = np.tanh
+                    elif activation == 'relu':
+                        act = _act_relu
+                    elif activation == 'none':
+                        act = _act_none
+                    self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, act))
+                elif layer_mode  == 'intel':
+                    self.layers.append(qlknn.Layer(weight, bias, activation))
             except KeyError:
                 # This name does not exist in the JSON,
                 # so our previously read layer was the output layer
@@ -226,13 +236,23 @@ class QuaLiKizNDNN():
         if any(parsed):
             warn('nn_dict not fully parsed! ' + str(parsed))
 
-    def apply_layers(self, input):
+    def apply_layers(self, input, output=None):
         """ Apply all NN layers to the given input
 
         The given input has to be array-like, but can be of size 1
         """
+        input = np.ascontiguousarray(input)
+        # 3x30 network:
+        #14.1 µs ± 913 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
+        #20.9 µs ± 2.43 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
+        #19.1 µs ± 240 ns per loop (mean ± std. dev. of 7 runs, 10000 loops each)
+        #2.67 µs ± 29.7 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
+
+
         for layer in self.layers:
-            input = layer.apply(input)
+            output = np.empty([input.shape[0], layer._weights.shape[1]])
+            output = layer.apply(input, output)
+            input = output
         return input
 
 
@@ -246,8 +266,8 @@ class QuaLiKizNDNN():
         and activation a (sigmoid) function.
         """
         def __init__(self, weight, bias, activation):
-            self._weight = weight
-            self._bias = bias
+            self._weights = weight
+            self._biases = bias
             self._activation = activation
             #@jit(float64[:,:](float64[:,:]), nopython=True)
             #def _apply_layer(input):
@@ -257,8 +277,8 @@ class QuaLiKizNDNN():
             #self.apply = lambda input: activation(np.dot(input, weight) + bias)
             #_create_apply(weight, bias, activation)
 
-        def apply(self, input):
-            preactivation = np.dot(input, self._weight) + self._bias
+        def apply(self, input, output=None):
+            preactivation = np.dot(input, self._weights) + self._biases
             result = self._activation(preactivation)
             return result
 
@@ -304,7 +324,8 @@ class QuaLiKizNDNN():
                              self._feature_prescale_bias.values)
 
         # Apply all NN layers an re-scale the outputs
-        # 265 µs ± 3.05 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
+        # 104 µs ± 19.7 µs per loop (mean ± std. dev. of 7 runs, 10000 loops each)
+        # 70.9 µs ± 384 ns per loop (mean ± std. dev. of 7 runs, 10000 loops each) (only apply layers)
         output = (self.apply_layers(nn_input) - np.atleast_2d(self._target_prescale_bias)) / np.atleast_2d(self._target_prescale_factor)
         #for name in self._target_names:
         #    nn_output = (np.squeeze(self.apply_layers(nn_input)) - self._target_prescale_biases[name]) / self._target_prescale_factors[name]
@@ -394,7 +415,8 @@ if __name__ == '__main__':
     #nn2 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efi_GB.json'))
     #nn3 = QuaLiKizDuoNN('nn_eftot_GB', nn1, nn2, lambda x, y: x + y)
     #nn = QuaLiKizMultiNN([nn1, nn2])
-    nn = QuaLiKizNDNN.from_json('nn.json')
+    nn = QuaLiKizNDNN.from_json('nn.json', layer_mode='intel')
+
     scann = 100
     input = pd.DataFrame()
     input['Ati'] = np.array(np.linspace(2,13, scann))
@@ -407,6 +429,15 @@ if __name__ == '__main__':
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
     input = input[nn._feature_names]
+
     fluxes = nn.get_output(input.values, safe=False)
-    print(fluxes)
+
+    nn2 = QuaLiKizNDNN.from_json('nn.json', layer_mode='classic')
+    fluxes2 = nn2.get_output(input.values, safe=False)
+
+    #print(fluxes)
+
+    #import qlknn;
+    layer0 = nn.layers[0]
+    out = np.full((input.shape[0], layer0._weights.shape[1]), 123.);
     embed()

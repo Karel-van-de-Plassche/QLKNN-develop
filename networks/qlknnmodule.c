@@ -20,21 +20,31 @@
 #include "numpy/arrayobject.h"
 #include "numpy/ufuncobject.h"
 #include "mkl.h"
+#include "omp.h"
 #include "mkl_vml_functions.h"
 
 static PyObject *ErrorObject;
 
+enum act {
+    TANH,
+    RELU,
+    NONE,
+    ERR
+};
+
 typedef struct {
     PyObject_HEAD
     PyObject            *x_attr;        /* Attributes dictionary */
-    PyArrayObject       *weights;
-    PyArrayObject       *biases;
-    PyObject *activation;
+    PyArrayObject       *_weights;
+    PyArrayObject       *_biases;
+    enum act _activation;
 } LayerObject;
+
 
 static PyTypeObject Layer_Type;
 
 #define LayerObject_Check(v)      (Py_TYPE(v) == &Layer_Type)
+#define PyArray_ISOWNDATA(m) PyArray_CHKFLAGS(m, NPY_ARRAY_OWNDATA)
 
 //static LayerObject *
 //newLayerObject(PyObject *arg)
@@ -44,9 +54,9 @@ static PyTypeObject Layer_Type;
 //    if (self == NULL)
 //        return NULL;
 //    self->x_attr = NULL;
-//    self->weights = NULL;
-//    self->biases = NULL;
-//    self->activation = NULL;
+//    self->_weights = NULL;
+//    self->_biases = NULL;
+//    self->_activation = NULL;
 //    return self;
 //}
 
@@ -59,9 +69,9 @@ Layer_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (self == NULL)
         return NULL;
     self->x_attr = NULL;
-    self->weights = NULL;
-    self->biases = NULL;
-    self->activation = NULL;
+    self->_weights = NULL;
+    self->_biases = NULL;
+    self->_activation = ERR;
     return (PyObject *)self;
 }
 
@@ -69,45 +79,54 @@ Layer_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static int
 Layer_init(LayerObject *self, PyObject *args, PyObject *kwds)
 {
-    //int *weights=NULL, *biases=NULL, *activation=NULL, *tmp;
-    //PyArrayObject *weights, *arr1;
+    //int *_weights=NULL, *_biases=NULL, *_activation=NULL, *tmp;
+    //PyArrayObject *_weights, *arr1;
     //PyObject arg1;
-    //if (! PyArg_ParseTuple(args, "Oll;", &arg1, &self->biases, &self->activation))
+    //if (! PyArg_ParseTuple(args, "Oll;", &arg1, &self->_biases, &self->_activation))
     //    return -1;
 
     //arr1 = (PyArrayObject*)PyArray_FROM_OTF(arg1, NPY_DOUBLE, NPY_IN_ARRAY);
     //if (arr1 == NULL)
     //    a
     //    return -1;
-    PyObject *activation=NULL, *tmp;
-    PyArrayObject *weights=NULL, *biases=NULL, *tmpArray;
+    PyObject *tmp;
+    PyArrayObject *_weights=NULL, *_biases=NULL, *tmpArray;
+    const char *_activation;
 
-    if (!PyArg_ParseTuple(args, "O!O!O", &PyArray_Type, &weights, &PyArray_Type, &biases,
-        &activation)) return -1;
+    if (!PyArg_ParseTuple(args, "O!O!s", &PyArray_Type, &_weights, &PyArray_Type, &_biases,
+        &_activation)) return -1;
 
     //arr1 = (PyArrayObject*)PyArray_FROM_OTF(arg1, NPY_DOUBLE, NPY_IN_ARRAY);
     //if (arr1 == NULL) return -1;
 
-    tmpArray = self->weights;
-    Py_INCREF(weights);
-    self->weights = weights;
+    tmpArray = self->_weights;
+    Py_INCREF(_weights);
+    self->_weights = _weights;
     Py_XDECREF(tmpArray);
-    //self->weights = weights;
+    //self->_weights = _weights;
 
-    tmpArray = self->biases;
-    Py_INCREF(biases);
-    self->biases = biases;
+    tmpArray = self->_biases;
+    Py_INCREF(_biases);
+    self->_biases = _biases;
     Py_XDECREF(tmpArray);
 
-    //tmp = self->biases;
-    //Py_INCREF(biases);
-    //self->biases = biases;
+    //tmp = self->_biases;
+    //Py_INCREF(_biases);
+    //self->_biases = _biases;
     //Py_XDECREF(tmp);
 
-    tmp = self->activation;
-    Py_INCREF(activation);
-    self->activation = activation;
-    Py_XDECREF(tmp);
+    if (!strcmp(_activation, "tanh"))
+        self->_activation = TANH;
+    else if (!strcmp(_activation, "relu"))
+        self->_activation = RELU;
+    else if (!strcmp(_activation, "none"))
+        self->_activation = NONE;
+    else
+        return -1;
+    //tmp = self->_activation;
+    //Py_INCREF(_activation);
+    //self->_activation = _activation;
+    //Py_XDECREF(tmp);
 
     return 0;
 }
@@ -118,9 +137,9 @@ static void
 Layer_dealloc(LayerObject *self)
 {
     Py_XDECREF(self->x_attr);
-    Py_XDECREF(self->weights);
-    Py_XDECREF(self->biases);
-    Py_XDECREF(self->activation);
+    Py_XDECREF(self->_weights);
+    Py_XDECREF(self->_biases);
+    //Py_XDECREF(self->_activation);
     //PyObject_Del(self);
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
@@ -141,6 +160,15 @@ double *pyvector_to_Carrayptrs(PyArrayObject *arrayin)  {
     return (double *) arrayin->data;  /* pointer to arrayin data as double */
 }
 
+int array_is_safe(PyArrayObject *arrayin) {
+    if (!(PyArray_ISOWNDATA(arrayin) && PyArray_ISCARRAY(arrayin)))
+    {
+        printf("ERROR: Array is unsafe! Is it contagious C-ordered?\n");
+        return 0;
+    }
+    return 1;
+}
+
 static PyArrayObject *
 Layer_apply(LayerObject *self, PyObject *args)
 {
@@ -150,39 +178,31 @@ Layer_apply(LayerObject *self, PyObject *args)
     double alpha, beta;
 
     if (!PyArg_ParseTuple(args, "O!O!", &PyArray_Type, &input, &PyArray_Type, &out)) return NULL;
-//tmp = (int)self->biases + (int)self->weights + (int)self->activation;
-    //PyArrayObject *weights = self->weights;
-    //PyArrayObject *biases = self->biases;
-    //double *  a_data_ptr =  (double *) self->weights->data;
-    //double *  b_data_ptr =  (double *) self->weights->data;
-    //double *  c_data_ptr =  (double *) self->weights->data;
-    //double *  a_data_ptr = PyArray_DATA(self->weights);
-    //m = self->weights->dimensions[0];
-    //k = self->weights->dimensions[1];
-    //n = self->weights->dimensions[1];
-    //long *shape_input, *shape_out, *shape_weight, *shape_bias;
-    //shape_input = PyArray_SHAPE(input);
+
+    if (!array_is_safe(input)) return NULL;
+    if (!array_is_safe(out)) return NULL;
+    mkl_set_num_threads(1);
+    omp_set_num_threads(1);
+
     m = input->dimensions[0];
     k = input->dimensions[1];
-    n = self->weights->dimensions[1];
-    if (k != self->weights->dimensions[0]) {
+    n = self->_weights->dimensions[1];
+    if (k != self->_weights->dimensions[0]) {
          printf( "\n ERROR! A and B not compatible \n\n");
          return NULL;
     }
-    alpha = 1.0; beta = 0.0;
+    alpha = 1.0; beta = 1.0;
 
     A = pyvector_to_Carrayptrs(input);
-    B = pyvector_to_Carrayptrs(self->weights);
+    B = pyvector_to_Carrayptrs(self->_weights);
     C = pyvector_to_Carrayptrs(out);
 
     MKL_INT incx, incy;
     incx = 1;
     incy = 1;
-
-
     for (i = 0; i < m; i++)
     {
-        cblas_dcopy(n, PyArray_DATA(self->biases), incx, C + i*n, incy);
+        cblas_dcopy(n, PyArray_DATA(self->_biases), incx, C + i*n, incy);
     }
 
     if (A == NULL || B == NULL || C == NULL) {
@@ -193,11 +213,20 @@ Layer_apply(LayerObject *self, PyObject *args)
       return NULL;
     }
 
+
     cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                 m, n, k, alpha, A, k, B, n, beta, C, n);
     //mode = VML_HA;
     //vmlSetMode(VML_LA);
-    vdTanh(m*n, C, C);
+    switch(self->_activation) {
+        case TANH:
+            vdTanh(m*n, C, C);
+            break;
+        case NONE:
+            break;
+        default:
+            return NULL;
+    }
     Py_INCREF(out);
     return out;
 }
@@ -242,11 +271,11 @@ Layer_setattr(LayerObject *self, const char *name, PyObject *v)
         return PyDict_SetItemString(self->x_attr, name, v);
 }
 static PyMemberDef Layer_members[] = {
-    {"weights", T_OBJECT_EX, offsetof(LayerObject, weights), 0,
+    {"_weights", T_OBJECT_EX, offsetof(LayerObject, _weights), 0,
      "first name"},
-    {"biases", T_OBJECT_EX, offsetof(LayerObject, biases), 0,
+    {"_biases", T_OBJECT_EX, offsetof(LayerObject, _biases), 0,
      "last name"},
-    {"activation", T_OBJECT_EX, offsetof(LayerObject, activation), 0,
+    {"_activation", T_OBJECT_EX, offsetof(LayerObject, _activation), 0,
      "noddy number"},
     {NULL}  /* Sentinel */
 };
