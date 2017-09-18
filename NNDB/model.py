@@ -66,8 +66,10 @@ class Filter(BaseModel):
 class Network(BaseModel):
     filter = ForeignKeyField(Filter, related_name='filter', null=True)
     train_script = ForeignKeyField(TrainScript, related_name='train_script')
-    prescale_bias = HStoreField()
-    prescale_factor = HStoreField()
+    feature_prescale_bias = HStoreField()
+    feature_prescale_factor = HStoreField()
+    target_prescale_bias = HStoreField()
+    target_prescale_factor = HStoreField()
     feature_names = ArrayField(TextField)
     feature_min = HStoreField()
     feature_max = HStoreField()
@@ -234,10 +236,11 @@ class Network(BaseModel):
             with open(json_path) as file_:
                 json_dict = json.load(file_)
                 dict_ = {}
-                for name in ['prescale_bias', 'prescale_factor',
+                for name in ['feature_prescale_bias', 'feature_prescale_factor',
+                             'target_prescale_bias', 'target_prescale_factor',
                              'feature_names', 'feature_min', 'feature_max',
                              'target_names', 'target_min', 'target_max']:
-                    attr = getattr(nn, name)
+                    attr = getattr(nn, '_' + name)
                     if 'names' in name:
                         dict_[name] = list(attr)
                     else:
@@ -302,8 +305,8 @@ class Network(BaseModel):
             activations = settings['hidden_activation'] + [settings['output_activation']]
             for ii, layer in enumerate(nn.layers):
                 nwlayer = NetworkLayer(network = network,
-                                       weights = layer.weight.tolist(),
-                                       biases = layer.bias.tolist(),
+                                       weights = np.float32(layer._weights).tolist(),
+                                       biases = np.float32(layer._biases).tolist(),
                                        activation = activations[ii])
                 nwlayer.save()
 
