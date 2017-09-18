@@ -57,17 +57,17 @@ def draw_convergence(network_id, only_last_epochs=False):
     #ax1.set_ylim([-0.1, 20])
 
     def steps_to_walltime(steps):
-        tottime = df['walltime'].iloc[-1, 1]
+        tottime = df['walltime'].iloc[:,-1].dropna().iloc[-1]
         times_seconds = steps * tottime / df.index[-1]
         return([seconds_to_human(x) for x in times_seconds])
 
     def seconds_to_human(c):
-        days =    int(c // 86400)
-        hours =   int(c // 3600 % 24)
+        #days =    int(c // 86400)
+        hours =   int(c // 3600)
         minutes = int(c // 60 % 60)
         seconds = int(c % 60)
-        if days > 0:
-            warn('Careful! Run took more than one day!')
+        #if days > 0:
+        #    warn('Careful! Run took more than one day!')
         if c < 0:
             formatted = ''
         else:
@@ -185,7 +185,7 @@ def draw_mispred():
     plt.legend()
 
 
-orig_id = 46
+orig_id =46
 draw_convergence(orig_id)
 new_id = find_similar_convergence(orig_id)
 draw_convergence(new_id)
