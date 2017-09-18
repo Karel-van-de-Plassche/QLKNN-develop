@@ -275,8 +275,11 @@ def train(settings):
             del input['nions']  # Delete leftover artifact from dataset split
         except KeyError:
             pass
-        input['logNustar'] = np.log10(input['Nustar'])
-        del input['Nustar']
+        try:
+            input['logNustar'] = np.log10(input['Nustar'])
+            del input['Nustar']
+        except KeyError:
+            print('No Nustar in dataset')
         input = input.loc[panda.index]
         panda = pd.concat([input, panda], axis=1)
         timediff(start, 'Dataset loaded')
@@ -498,42 +501,47 @@ def train(settings):
     checkpoint_dir = 'checkpoints'
     tf.gfile.MkDir(checkpoint_dir)
 
-    step_per_report = 1
+    step_per_report = settings.get('steps_per_report', np.inf)
+    epochs_per_report = settings.get('epochs_per_report', np.inf)
+    save_checkpoint_networks = settings.get('save_checkpoint_networks', False)
+    save_best_networks = settings.get('save_best_networks', True)
     train_start = time.time()
+
+    steps_per_epoch = settings['minibatches'] + 1
+    max_epoch = settings.get('max_epoch', sys.maxsize)
+    max_epoch = 5
+    settings['early_stop_measure'] = 'none'
     try:
-        for ii in range(sys.maxsize):
+        for ii in range(steps_per_epoch * max_epoch):
             # Write figures, summaries and check early stopping each epoch
             if datasets.train.epochs_completed > epoch:
                 epoch = datasets.train.epochs_completed
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 feed_dict = {x: xs, y_ds: ys}
-                run_options = tf.RunOptions(
-                    trace_level=tf.RunOptions.FULL_TRACE)
-                run_metadata = tf.RunMetadata()
+                if not ii % epochs_per_report:
+                    run_options = tf.RunOptions(
+                        trace_level=tf.RunOptions.FULL_TRACE)
+                    run_metadata = tf.RunMetadata()
+                else:
+                    run_options = None
+                    run_metadata = None
                 summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
                                                feed_dict=feed_dict,
                                                options=run_options,
                                                run_metadata=run_metadata)
-                tl = timeline.Timeline(run_metadata.step_stats)
-                ctf = tl.generate_chrome_trace_format()
-                with open('timeline.json', 'w') as f:
-                    f.write(ctf)
+
 
                 validation_writer.add_summary(summary, ii)
-                validation_writer.add_run_metadata(run_metadata, 'step%d' % ii)
+                if not ii % epochs_per_report:
+                    tl = timeline.Timeline(run_metadata.step_stats)
+                    ctf = tl.generate_chrome_trace_format()
+                    with open('timeline.json', 'w') as f:
+                        f.write(ctf)
+
+                    validation_writer.add_run_metadata(run_metadata, 'step%d' % ii)
 
                 save_path = saver.save(sess, os.path.join(checkpoint_dir,
                 'model.ckpt'), global_step=ii)
-
-                # Write checkpoint of NN
-                nn_checkpoint_file = os.path.join(checkpoint_dir,
-                                                  'nn_checkpoint_' + str(epoch) + '.json')
-                model_to_json(nn_checkpoint_file, scan_dims.values.tolist(),
-                              [train_dim],
-                              datasets.train, scale_factor.astype('float64'),
-                              scale_bias.astype('float64'),
-                              l2_scale,
-                              settings)
 
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
                 print()
@@ -545,16 +553,36 @@ def train(settings):
                     early_measure = meanse
                 elif settings['early_stop_measure'] == 'loss':
                     early_measure = lo
+                elif settings['early_stop_measure'] == 'none':
+                    early_measure = np.nan
 
                 # Early stopping, check if measure is better
                 if early_measure < best_early_measure:
                     best_early_measure = early_measure
-                    copyfile(nn_checkpoint_file, 'nn_best.json')
+                    if save_best_networks:
+                        nn_best_file = os.path.join(checkpoint_dir,
+                                                      'nn_checkpoint_' + str(epoch) + '.json')
+                        model_to_json(nn_best_file, scan_dims.values.tolist(),
+                                      [train_dim],
+                                      datasets.train, scale_factor.astype('float64'),
+                                      scale_bias.astype('float64'),
+                                      l2_scale,
+                                      settings)
                     not_improved = 0
                 else:
                     not_improved += 1
                 # If not improved in 'early_stop' epoch, stop
                 if not_improved >= settings['early_stop_after']:
+                    if save_checkpoint_networks:
+                        nn_checkpoint_file = os.path.join(checkpoint_dir,
+                                                      'nn_checkpoint_' + str(epoch) + '.json')
+                        model_to_json(nn_checkpoint_file, scan_dims.values.tolist(),
+                                      [train_dim],
+                                      datasets.train, scale_factor.astype('float64'),
+                                      scale_bias.astype('float64'),
+                                      l2_scale,
+                                      settings)
+
                     print('Not improved for %s epochs, stopping..'
                           % (not_improved))
                     break
