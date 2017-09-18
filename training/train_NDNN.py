@@ -275,6 +275,8 @@ def train(settings):
             del input['nions']  # Delete leftover artifact from dataset split
         except KeyError:
             pass
+        input['logNustar'] = np.log10(input['Nustar'])
+        del input['Nustar']
         input = input.loc[panda.index]
         panda = pd.concat([input, panda], axis=1)
         timediff(start, 'Dataset loaded')
