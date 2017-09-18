@@ -5,7 +5,6 @@ import os
 from collections import OrderedDict
 import pandas as pd
 from warnings import warn
-from numba import jit,float64
 try:
     import qlknn
 except:
