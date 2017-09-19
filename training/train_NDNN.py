@@ -116,11 +116,14 @@ class Datasets():
             setattr(self, name, getattr(self, name).astype(dtype))
         return self
 
-def convert_panda(panda, frac_validation, frac_test, features_names,
-                  target_name):
-    total_size = panda.shape[0]
+def convert_panda(features_df, targets_df, frac_validation, frac_test, shuffle=True):
+    panda = pd.concat([features_df, targets_df], axis=1)
+    feature_names = features_df.columns
+    target_names = targets_df.columns
+    total_size = features_df.shape[0]
     # Dataset might be ordered. Shuffle to be sure
-    panda = shuffle_panda(panda)
+    if shuffle:
+        panda = shuffle_panda(panda)
     validation_size = int(frac_validation * total_size)
     test_size = int(frac_test * total_size)
     train_size = total_size - validation_size - test_size
@@ -129,8 +132,8 @@ def convert_panda(panda, frac_validation, frac_test, features_names,
     for slice_ in [panda.iloc[:train_size],
                    panda.iloc[train_size:train_size + validation_size],
                    panda.iloc[train_size + validation_size:]]:
-        datasets.append(Dataset(slice_[features_names],
-                                slice_[target_name].to_frame()))
+        datasets.append(Dataset(slice_[feature_names],
+                                slice_[target_names]))
 
     return Datasets(train=datasets[0],
                     validation=datasets[1],
@@ -263,34 +266,35 @@ def train(settings):
     start = time.time()
     # Get train dimension from path name
     #train_dim = os.path.basename(os.getcwd())
-    train_dim = settings['train_dim']
+    train_dims = settings['train_dims']
     # Use pre-existing filtered dataset, or extract from big dataset
     store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
-    panda = store.select(train_dim)
-    input = store.select('input')
+    target_df = store.get(train_dims[0]).to_frame()
+    for target_name in train_dims[1:]:
+        target_df = pd.concat([target_df, store.get(target_name)], axis=1)
+    input_df = store.select('input')
     try:
-        del input['nions']  # Delete leftover artifact from dataset split
+        del input_df['nions']  # Delete leftover artifact from dataset split
     except KeyError:
         pass
     try:
-        input['logNustar'] = np.log10(input['Nustar'])
-        del input['Nustar']
+        input_df['logNustar'] = np.log10(input_df['Nustar'])
+        del input_df['Nustar']
     except KeyError:
         print('No Nustar in dataset')
-    input = input.loc[panda.index]
-    panda = pd.concat([input, panda], axis=1)
-    timediff(start, 'Dataset loaded')
-    timediff(start, 'Dataset filtered')
-    panda = panda.astype(settings['dtype'])
+    input_df = input_df.loc[target_df.index]
 
     # Use pre-existing splitted dataset, or split in train, validation and test
-    train_dim = panda.columns[-1]
-    scan_dims = panda.columns[:-1]
+    input_df = input_df.astype(settings['dtype'])
+    target_df = target_df.astype(settings['dtype'])
+
+    train_dims = target_df.columns
+    scan_dims = input_df.columns
     restore_split_backup = False
     if restore_split_backup and os.path.exists('splitted.h5'):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
-        datasets = convert_panda(panda, settings['validation_fraction'], settings['test_fraction'], scan_dims, train_dim)
+        datasets = convert_panda(input_df, target_df, settings['validation_fraction'], settings['test_fraction'])
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
     timediff(start, 'Dataset split')
@@ -328,18 +332,18 @@ def train(settings):
     with tf.name_scope('input'):
         x = tf.placeholder(datasets.train._target.dtypes.iloc[0],
                            [None, len(scan_dims)], name='x-input')
-        y_ds = tf.placeholder(x.dtype, [None, 1], name='y-input')
+        y_ds = tf.placeholder(x.dtype, [None, len(train_dims)], name='y-input')
 
     # Scale all input
     with tf.name_scope('normalize'):
         if settings['standardization'].startswith('minmax'):
             min = float(settings['standardization'].split('_')[-2])
             max = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normab(panda, min, max)
+            scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
         if settings['standardization'].startswith('normsm'):
             s_t = float(settings['standardization'].split('_')[-2])
             m_t = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normsm(panda, s_t, m_t)
+            scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
@@ -374,8 +378,8 @@ def train(settings):
         act = None
     y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug)
     with tf.name_scope('denormalize'):
-        out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
-        out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
+        out_factor = tf.constant(scale_factor[train_dims].values, dtype=x.dtype)
+        out_bias = tf.constant(scale_bias[train_dims].values, dtype=x.dtype)
         y = (y_scaled - out_bias) / out_factor
 
     timediff(start, 'NN defined')
@@ -570,7 +574,7 @@ def train(settings):
                         nn_best_file = os.path.join(checkpoint_dir,
                                                       'nn_checkpoint_' + str(epoch) + '.json')
                         model_to_json(nn_best_file, scan_dims.values.tolist(),
-                                      [train_dim],
+                                      train_dims.values.tolist(),
                                       datasets.train, scale_factor.astype('float64'),
                                       scale_bias.astype('float64'),
                                       l2_scale,
@@ -584,7 +588,7 @@ def train(settings):
                         nn_checkpoint_file = os.path.join(checkpoint_dir,
                                                       'nn_checkpoint_' + str(epoch) + '.json')
                         model_to_json(nn_checkpoint_file, scan_dims.values.tolist(),
-                                      [train_dim],
+                                      train_dims.values.tolist(),
                                       datasets.train, scale_factor.astype('float64'),
                                       scale_bias.astype('float64'),
                                       l2_scale,
@@ -647,7 +651,7 @@ def train(settings):
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
-    model_to_json('nn.json', scan_dims.values.tolist(), [train_dim],
+    model_to_json('nn.json', scan_dims.values.tolist(), train_dims.values.tolist(),
                   datasets.train,
                   scale_factor,
                   scale_bias.astype('float64'),

@@ -1,5 +1,6 @@
 {
-    "train_dim": "",
+    "train_dims": [
+    ],
     "hidden_neurons": [
         30,
         30,
