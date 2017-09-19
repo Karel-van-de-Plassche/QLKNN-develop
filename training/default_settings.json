@@ -10,10 +10,10 @@
         "tanh",
         "tanh"
     ],
+    "drop_chance": 0.0,
     "output_activation": "none",
     "standardization": "normsm_1_0",
     "goodness": "mse",
-    "drop_chance": 0.0,
     "cost_l2_scale": 0.1,
     "cost_l1_scale": 0.0,
     "early_stop_after": 5,
@@ -30,5 +30,12 @@
     "adam_beta2": 0.999,
     "adadelta_rho": 0.95,
     "rmsprop_decay": 0.9,
-    "rmsprop_momentum": 0.0
+    "rmsprop_momentum": 0.0,
+
+    "max_epoch": null,
+
+    "steps_per_report": null,
+    "epochs_per_report": null,
+    "save_checkpoint_networks": null,
+    "save_best_networks": null
 }

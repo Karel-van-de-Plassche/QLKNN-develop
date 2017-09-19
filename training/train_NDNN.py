@@ -503,14 +503,14 @@ def train(settings):
     checkpoint_dir = 'checkpoints'
     tf.gfile.MkDir(checkpoint_dir)
 
-    step_per_report = settings.get('steps_per_report', np.inf)
-    epochs_per_report = settings.get('epochs_per_report', np.inf)
-    save_checkpoint_networks = settings.get('save_checkpoint_networks', False)
-    save_best_networks = settings.get('save_best_networks', True)
+    steps_per_report = settings.get('steps_per_report') or np.inf
+    epochs_per_report = settings.get('epochs_per_report') or np.inf
+    save_checkpoint_networks = settings.get('save_checkpoint_networks') or False
+    save_best_networks = settings.get('save_best_networks') or True
     train_start = time.time()
 
     steps_per_epoch = settings['minibatches'] + 1
-    max_epoch = settings.get('max_epoch', sys.maxsize)
+    max_epoch = settings.get('max_epoch') or sys.maxsize
     try:
         for ii in range(steps_per_epoch * max_epoch):
             # Write figures, summaries and check early stopping each epoch
@@ -587,7 +587,7 @@ def train(settings):
                           % (not_improved))
                     break
             else: # If NOT epoch done
-                if not ii % step_per_report:
+                if not ii % steps_per_report:
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
@@ -617,7 +617,7 @@ def train(settings):
                                                       )
                 train_writer.add_summary(summary, ii)
 
-                if not ii % step_per_report:
+                if not ii % steps_per_report:
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
