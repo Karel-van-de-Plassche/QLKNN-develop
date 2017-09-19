@@ -478,7 +478,8 @@ def train(settings):
     validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
 
     # This is dependent on dataset size
-    batch_size = int(np.floor(datasets.train.num_examples/settings['minibatches']))
+    minibatches = settings['minibatches']
+    batch_size = int(np.floor(datasets.train.num_examples/minibatches))
 
     timediff(start, 'Starting loss calculation')
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
@@ -505,8 +506,16 @@ def train(settings):
     save_best_networks = settings.get('save_best_networks') or True
     train_start = time.time()
 
-    steps_per_epoch = settings['minibatches'] + 1
+    steps_per_epoch = minibatches + 1
     max_epoch = settings.get('max_epoch') or sys.maxsize
+
+    train_log_file = open('train_log.csv', 'a', 1)
+    train_log_file.truncate(0)
+    train_log.to_csv(train_log_file)
+    validation_log_file = open('validation_log.csv', 'a', 1)
+    validation_log_file.truncate(0)
+    validation_log.to_csv(validation_log_file)
+
     try:
         for ii in range(steps_per_epoch * max_epoch):
             # Write figures, summaries and check early stopping each epoch
@@ -540,6 +549,8 @@ def train(settings):
                 'model.ckpt'), global_step=ii)
 
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+                validation_log.loc[ii:].to_csv(validation_log_file, header=False)
+                train_log.loc[ii - minibatches:].to_csv(train_log_file, header=False)
                 print()
                 print_last_row(validation_log, header=True)
                 timediff(start, 'completed')
@@ -682,8 +693,8 @@ def train(settings):
     with open('nn.json', 'w') as nn_file:
         json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
 
-    train_log.to_csv('train_log.csv')
-    validation_log.to_csv('validation_log.csv')
+    train_log_file.close()
+    validation_log_file.close()
 
 
 def main(_):
