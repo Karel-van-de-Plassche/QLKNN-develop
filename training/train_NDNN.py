@@ -265,36 +265,32 @@ def train(settings):
     #train_dim = os.path.basename(os.getcwd())
     train_dim = settings['train_dim']
     # Use pre-existing filtered dataset, or extract from big dataset
-    if os.path.exists('filtered.h5'):
-        panda = pd.read_hdf('filtered.h5')
-    else:
-        store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
-        panda = store.select(train_dim)
-        input = store.select('input')
-        try:
-            del input['nions']  # Delete leftover artifact from dataset split
-        except KeyError:
-            pass
-        try:
-            input['logNustar'] = np.log10(input['Nustar'])
-            del input['Nustar']
-        except KeyError:
-            print('No Nustar in dataset')
-        input = input.loc[panda.index]
-        panda = pd.concat([input, panda], axis=1)
-        timediff(start, 'Dataset loaded')
+    store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
+    panda = store.select(train_dim)
+    input = store.select('input')
+    try:
+        del input['nions']  # Delete leftover artifact from dataset split
+    except KeyError:
+        pass
+    try:
+        input['logNustar'] = np.log10(input['Nustar'])
+        del input['Nustar']
+    except KeyError:
+        print('No Nustar in dataset')
+    input = input.loc[panda.index]
+    panda = pd.concat([input, panda], axis=1)
+    timediff(start, 'Dataset loaded')
     timediff(start, 'Dataset filtered')
-    panda = panda.astype('float64')
-    panda = panda.astype('float32')
+    panda = panda.astype(settings['dtype'])
 
     # Use pre-existing splitted dataset, or split in train, validation and test
     train_dim = panda.columns[-1]
     scan_dims = panda.columns[:-1]
-    if os.path.exists('splitted.h5'):
+    restore_split_backup = False
+    if restore_split_backup and os.path.exists('splitted.h5'):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
-        datasets = convert_panda(panda, 0.1, 0.1, scan_dims, train_dim)
-        datasets = convert_panda(panda, 0.06, 0.06, scan_dims, train_dim)
+        datasets = convert_panda(panda, settings['validation_fraction'], settings['test_fraction'], scan_dims, train_dim)
         datasets.to_hdf('splitted.h5')
     # Convert back to float64 for tensorflow compatibility
     timediff(start, 'Dataset split')
@@ -353,7 +349,7 @@ def train(settings):
     # Define neural network
     layers = [x_scaled]
     debug = False
-    drop_prob = tf.constant(settings['drop_chance'])
+    drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
     is_train = tf.placeholder(tf.bool)
     for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
         if activation == 'tanh':
