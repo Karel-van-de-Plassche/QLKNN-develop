@@ -260,6 +260,7 @@ class Network(BaseModel):
                                                output_activation=settings['output_activation'],
                                                standardization=settings['standardization'],
                                                goodness=settings['goodness'],
+                                               drop_chance=settings['drop_chance'],
                                                optimizer=settings['optimizer'],
                                                cost_l2_scale=settings['cost_l2_scale'],
                                                cost_l1_scale=settings['cost_l1_scale'],
@@ -455,6 +456,7 @@ class Hyperparameters(BaseModel):
     output_activation = TextField()
     standardization = TextField()
     goodness = TextField()
+    drop_chance = FloatField()
     optimizer = TextField()
     cost_l2_scale = FloatField()
     cost_l1_scale = FloatField()

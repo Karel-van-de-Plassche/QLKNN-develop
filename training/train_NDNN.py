@@ -352,6 +352,9 @@ def train(settings):
 
     # Define neural network
     layers = [x_scaled]
+    debug = False
+    drop_prob = tf.constant(settings['drop_chance'])
+    is_train = tf.placeholder(tf.bool)
     for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
         if activation == 'tanh':
             act = tf.tanh
@@ -359,12 +362,11 @@ def train(settings):
             act = tf.nn.relu
         elif activation == 'none':
             act = None
-        layers.append(nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act))
-
-    #with tf.name_scope('dropout'):
-    #    keep_prob = tf.placeholder(tf.float32)
-    #    tf.summary.scalar('dropout_keep_probability', keep_prob)
-    #    dropped = tf.nn.dropout(hidden1, keep_prob)
+        layer = nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act, debug=debug)
+        dropout = tf.layers.dropout(layer, drop_prob, training=is_train)
+        if debug:
+            tf.summary.histogram('post_dropout_layer_' + str(ii), dropout)
+        layers.append(dropout)
 
     # All output scaled between -1 and 1, denomalize it
     activation = settings['output_activation']
@@ -374,7 +376,7 @@ def train(settings):
         act = tf.nn.relu
     elif activation == 'none':
         act = None
-    y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype, act=act)
+    y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug)
     with tf.name_scope('denormalize'):
         out_factor = tf.constant(scale_factor[train_dim], dtype=x.dtype)
         out_bias = tf.constant(scale_bias[train_dim], dtype=x.dtype)
@@ -484,7 +486,7 @@ def train(settings):
 
     timediff(start, 'Starting loss calculation')
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
-    feed_dict = {x: xs, y_ds: ys}
+    feed_dict = {x: xs, y_ds: ys, is_train: False}
     summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
                                                               feed_dict=feed_dict)
     timediff(start, 'Algorithm started')
@@ -515,7 +517,7 @@ def train(settings):
             if datasets.train.epochs_completed > epoch:
                 epoch = datasets.train.epochs_completed
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
-                feed_dict = {x: xs, y_ds: ys}
+                feed_dict = {x: xs, y_ds: ys, is_train: False}
                 if not ii % epochs_per_report:
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
@@ -570,7 +572,7 @@ def train(settings):
                 else:
                     not_improved += 1
                 # If not improved in 'early_stop' epoch, stop
-                if not_improved >= settings['early_stop_after']:
+                if settings['early_stop_measure'] != 'none' and not_improved >= settings['early_stop_after']:
                     if save_checkpoint_networks:
                         nn_checkpoint_file = os.path.join(checkpoint_dir,
                                                       'nn_checkpoint_' + str(epoch) + '.json')
@@ -593,7 +595,7 @@ def train(settings):
                     run_options = None
                     run_metadata = None
                 xs, ys = datasets.train.next_batch(batch_size)
-                feed_dict = {x: xs, y_ds: ys}
+                feed_dict = {x: xs, y_ds: ys, is_train: True}
                 if optimizer:
                     #optimizer.minimize(sess, feed_dict=feed_dict)
                     optimizer.minimize(sess,
@@ -647,20 +649,23 @@ def train(settings):
 
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
-    ests = y.eval({x: xs, y_ds: ys})
+    feed_dict = {x: xs, y_ds: ys, is_train: False}
+    ests = y.eval(feed_dict)
     line_x = np.linspace(float(ys.min()), float(ys.max()))
-    rms_val = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
-    loss_val = np.round(loss.eval({x: xs, y_ds: ys}), 4)
+    rms_val = np.round(np.sqrt(mse.eval(feed_dict)), 4)
+    loss_val = np.round(loss.eval(feed_dict), 4)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
-    rms_test = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
-    loss_test = np.round(loss.eval({x: xs, y_ds: ys}), 4)
+    feed_dict = {x: xs, y_ds: ys, is_train: False}
+    rms_test = np.round(np.sqrt(mse.eval(feed_dict)), 4)
+    loss_test = np.round(loss.eval(feed_dict), 4)
     print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
     #xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    #rms_train = np.round(np.sqrt(mse.eval({x: xs, y_ds: ys})), 4)
-    #loss_train = np.round(loss.eval({x: xs, y_ds: ys}), 4)
+    #feed_dict = {x: xs, y_ds: ys, is_train: False}
+    #rms_train = np.round(np.sqrt(mse.eval(feed_dict)), 4)
+    #loss_train = np.round(loss.eval(feed_dict), 4)
     #print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
     metadata = {'epoch':           epoch,

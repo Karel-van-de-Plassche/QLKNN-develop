@@ -13,6 +13,7 @@
     "output_activation": "none",
     "standardization": "normsm_1_0",
     "goodness": "mse",
+    "drop_chance": 0.0,
     "cost_l2_scale": 0.1,
     "cost_l1_scale": 0.0,
     "early_stop_after": 5,
