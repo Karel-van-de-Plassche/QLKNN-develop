@@ -658,7 +658,6 @@ def train(settings):
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
     ests = y.eval(feed_dict)
-    line_x = np.linspace(float(ys.min()), float(ys.max()))
     rms_val = np.round(np.sqrt(mse.eval(feed_dict)), 4)
     loss_val = np.round(loss.eval(feed_dict), 4)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
