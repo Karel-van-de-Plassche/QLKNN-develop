@@ -651,6 +651,12 @@ def train(settings):
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
+
+    train_log_file.close()
+    del train_log
+    validation_log_file.close()
+    del validation_log
+
     model_to_json('nn.json', scan_dims.values.tolist(), train_dims.values.tolist(),
                   datasets.train,
                   scale_factor,
@@ -695,9 +701,6 @@ def train(settings):
 
     with open('nn.json', 'w') as nn_file:
         json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
-
-    train_log_file.close()
-    validation_log_file.close()
 
 
 def main(_):
