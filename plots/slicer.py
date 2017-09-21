@@ -41,9 +41,9 @@ nn_indeces = [37, 58, 60] #nozero <60, zero <60, zero <100
 nn_indeces = [62, 63] #nozero mabse <60, zero mabse <60
 nn_indeces = [58, 63]
 from collections import OrderedDict
-style = 'c_L2'
+style = 'duo'
 mode = 'debug'
-mode = 'quick'
+#mode = 'quick'
 if mode == 'debug':
     plot=True
     plot_pop=True
@@ -114,7 +114,15 @@ elif style == 'similar':
                            (74, '74'),
                            ])
 elif style == 'best':
-    nn_list = OrderedDict([(46, '')])
+    nn_list = OrderedDict([(46, '')]) #efeETG
+    nn_list = OrderedDict([(88, '')]) #efiITG
+
+elif style == 'duo':
+    nn_list = OrderedDict([
+        (205, 'es_20'),
+        (204, 'es_5'),
+        (203, 'es_wrong')
+        ])
 
 #nn_list = OrderedDict([(88, 'efiITG_GB')])
 
@@ -126,20 +134,27 @@ for nn_index, nn_label in nn_list.items():
     else:
         nn.label = ''
 
-input, data, __ = load_data(nn_index)
+store = pd.HDFStore('../7D_nions0_flat.h5')
+input = store['megarun1/input']
+data = store['megarun1/flattened']
 #input, data = prettify_df(input, data)
 #input = input.astype('float64')
 # Filter
-varname = 'Ate'
+varname = 'Ati'
 #itor = zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.09']); varname = 'Ate'
 #for name, val in itor:
 #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
 #input['x'] = input['x'] / 3
-df = input.join([data['target'], data['maxgam']])
-df = df[df['target']<60]
-df = df[df['target']>=0]
-
+target_names = list(nns.items())[0][1]._target_names
+df = (pd.DataFrame({'leq': data['gam_leq_GB'],
+                    'less': data['gam_less_GB']})
+      .max(axis=1)
+      .to_frame('maxgam')
+      )
+df = input.join([data[target_names], df['maxgam']])
+df = df[(df[target_names] < 140).all(axis=1)]
+df = df[(df[target_names] >= 0).all(axis=1)]
 #print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
 #print(np.sum(df['target'] == 0)/len(df), ' frac == 0')
 #print(np.sum(df['target'] > 0)/len(df), ' frac > 0')
@@ -178,10 +193,11 @@ def calculate_thresh1(x, feature, target, debug=False):
     return thresh1
 
 def calculate_thresh2(feature, target, debug=False):
+    if len(target.shape) > 1:
+        raise NotImplementedError('2D threshold not implemented yet')
     try:
-        idx = np.where(target == 0)[0][-1]
-        #idx = target.index[target == 0][-1] #index of last zero
-        #idx2 = feature[feature > idx][0]
+        idx = np.where(target == 0)[0][-1] #Only works for 1D
+        #idx = np.arange(target.shape[0]),target.shape[1] - 1 - (target[:,::-1]==0).argmax(1) #Works for 2D
         thresh2 = np.mean(feature[idx:idx+2])
     except IndexError:
         thresh2 = np.NaN
@@ -196,26 +212,29 @@ def process_chunk(chunck):
     for ii, row in enumerate(chunck.iterrows()):
         res.append(process_row(row))
     return res
+
 def process_row(row, ax1=None):
-    index, slice = row
-    target = slice['target']
+    index, slice_ = row
+    feature = slice_.index.levels[1]
+    #target = slice.loc[target_names]
+    target = slice_.values[:len(feature) * len(target_names)].reshape(len(target_names), len(feature))
     if np.all(target == 0):
         return (1,)
     else:
         # 156 µs ± 10.4 µs per loop (mean ± std. dev. of 7 runs, 10000 loops each) (no zerocolors)
-        thresh_nn = np.empty(len(nns))
-        popbacks = np.empty(len(nns))
-        thresh1_misses = np.empty(len(nns))
-        thresh2_misses = np.empty(len(nns))
+        thresh_nn = np.empty(len(target_names) * len(nns))
+        thresh_nn_i = np.empty_like(thresh_nn, dtype='int64')
+        popbacks = np.empty_like(thresh_nn)
+        thresh1_misses = np.empty_like(thresh_nn)
+        thresh2_misses = np.empty_like(thresh_nn)
         if plot_zerocolors:
-            maxgam = slice['maxgam']
-        feature = slice['target'].index
+            maxgam = slice_['maxgam']
 
         # Create slice, assume sorted
         # 14.8 µs ± 1.27 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
         x = np.linspace(feature.values[0],
                         feature.values[-1],
-                        100)
+                        200)
         #if plot:
         if not ax1 and plot:
             fig = plt.figure()
@@ -247,7 +266,7 @@ def process_row(row, ax1=None):
             print('whyyy?')
 
         # 12.5 µs ± 970 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        thresh2 = calculate_thresh2(feature.values, target.values, debug=debug)
+        thresh2 = calculate_thresh2(feature.values, target[0,:], debug=debug)
 
         if plot and plot_threshlines:
             ax1.axvline(thresh2, c='black', linestyle='dashed')
@@ -276,40 +295,75 @@ def process_row(row, ax1=None):
 
 
         # Plot nn lines
+        nn_preds = np.ndarray([x.shape[0], 0])
         for ii, (nn_index, nn) in enumerate(nns.items()):
             if unsafe:
-                nn_pred = nn.get_output(np.array(slice_list).T, safe=not unsafe, output_pandas=False)[:,0]
+                nn_pred = nn.get_output(np.array(slice_list).T, safe=not unsafe, output_pandas=False)
+                nn_preds = np.concatenate([nn_preds, nn_pred], axis=1)
             else:
                 nn_pred = nn.get_output(pd.DataFrame(slice_dict), safe=not unsafe, output_pandas=True).values[:,0]
-            if plot and plot_nns:
-                l = ax1.plot(x, nn_pred, label=nn.label)
-            try:
-                thresh_i = np.where(nn_pred == 0)[0][-1]
-            except IndexError:
-                thresh_nn[ii] = np.NaN
-                if debug:
-                    print('No threshold for network ', nn_index)
+
+        if plot and plot_nns:
+            lines = []
+            if style == 'duo':
+                labels = np.repeat([nn.label for nn in nns.values()], 2)
+                for ii in range(0, nn_preds.shape[1], 2):
+                    lines.append(ax1.plot(x, nn_preds[:, ii], label=labels[ii])[0])
+                    lines.append(ax1.plot(x, nn_preds[:, ii+1], label=labels[ii+1], c=lines[-1].get_color(), linestyle='dashed')[0])
             else:
-                thresh = thresh_nn[ii] = x[thresh_i]
-                if plot and plot_threshlines:
-                    ax1.axvline(thresh, c=l[0].get_color(), linestyle='dotted')
-                if debug:
-                    print('network ', nn_index, 'threshold ', thresh)
-                #popback = popbacks[ii] = x[nn_pred[nn_pred.index[nn_pred[:thresh_i] != 0]].index[-1] + 1]
-                popback_i = np.flatnonzero(nn_pred[:thresh_i])
-                if popback_i.size != 0:
-                    popback = popbacks[ii] = x[popback_i[-1]]
-                    if plot and plot_poplines:
-                        ax1.axvline(popback, c=l[0].get_color(), linestyle='dashed')
+                for ii, row in enumerate(nn_preds.T):
+                    lines.append(ax1.plot(x, row, label=nn.label)[0])
+
+        matrix_style = False
+        if matrix_style:
+            thresh_i = (np.arange(nn_preds.shape[1]),nn_preds.shape[0] - 1 - (nn_preds[::-1,:]==0).argmax(0))[1]
+            thresh = x[thresh_i]
+            thresh[thresh == x[-1]] = np.nan
+        else:
+            for ii, row in enumerate(nn_preds.T):
+                try:
+                    if row[-1] == 0:
+                        thresh_nn[ii] = np.nan
+                    else:
+                        thresh_i = thresh_nn_i[ii] = np.where(row == 0)[0][-1]
+                        thresh_nn[ii] = x[thresh_i]
+                except IndexError:
+                    thresh_nn[ii] = np.nan
+
+        if plot and plot_threshlines:
+            for ii, row in enumerate(thresh_nn):
+                ax1.axvline(row, c=lines[ii].get_color(), linestyle='dotted')
+            if debug:
+                print('network ', nn_index, 'threshold ', thresh)
+
+
+        if matrix_style:
+            masked = np.ma.masked_where(x[:, np.newaxis] > thresh, nn_preds)
+            #popback_i = (masked.shape[0] - 1 - (masked[::1,:]!=0)).argmax(0)
+            popback_i = masked.shape[0] - 1 - (masked.shape[0] - 1 - (masked[::-1,:]!=0)).argmin(0)
+            popback = x[popback_i]
+            popback[popback == x[-1]] = np.nan
+        else:
+            for ii, row in enumerate(nn_preds.T):
+                if not np.isnan(thresh_nn[ii]):
+                    try:
+                        popback_i = np.flatnonzero(row[:thresh_nn_i[ii]])
+                        popbacks[ii] = x[popback_i[-1]]
+                    except (IndexError):
+                        popbacks[ii] = np.nan
                 else:
-                    popbacks[ii] = np.NaN
-                #embed()
+                    popbacks[ii] = np.nan
+        if plot and plot_threshlines:
+            for ii, row in enumerate(popbacks):
+                ax1.axvline(row, c=lines[ii].get_color(), linestyle='dashdot')
+
+            if debug:
+                print('network ', nn_index, 'threshold ', thresh)
 
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        thresh2_misses = thresh2 - thresh_nn
-        thresh2_popback = thresh2 - popbacks
+        thresh2_misses = thresh_nn - thresh2
+        thresh2_popback = popbacks - thresh2
         slice_stats = np.array([thresh2_misses, thresh2_popback]).T
-
 
         if plot and plot_pop:
             slice_strings = np.array(['{:.1f}'.format(xx) for xx in slice_stats.reshape(slice_stats.size)])
@@ -339,7 +393,10 @@ def process_row(row, ax1=None):
                 zorder=1000
                 label = 'Turbulence model'
                 label=''
-            ax1.scatter(feature, target, c=color, label=label, marker='x', zorder=zorder)
+            markers = ['x', '+']
+            for column, marker in zip(target, markers):
+                ax1.scatter(feature,
+                            column, c=color, label=label, marker=marker, zorder=zorder)
 
         # Plot regression
         if plot and plot_thresh1line and not np.isnan(thresh1):
@@ -371,9 +428,7 @@ if parallel:
 starttime = time.time()
 
 if not parallel:
-    totstats = []
-    for row in df.iterrows():
-        totstats.append(process_row(row))
+    totstats = process_chunk(df)
 else:
     results = pool.map(process_chunk, chunks)
 #for row in df.iterrows():
@@ -387,7 +442,9 @@ for result in chain(*results):
     else:
         totstats.append(result[1])
 
-totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
+#totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
+totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, ['thresh', 'pop']))))
+
 print(sliced)
 print('took ', time.time() - starttime, ' seconds')
 #slice = df.sample(1)
