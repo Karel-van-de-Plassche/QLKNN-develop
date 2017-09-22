@@ -553,12 +553,16 @@ def train(settings):
                 'model.ckpt'), global_step=ii)
 
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
-                validation_log.loc[ii:].to_csv(validation_log_file, header=False)
-                train_log.loc[ii - minibatches:].to_csv(train_log_file, header=False)
+
                 print()
                 print_last_row(validation_log, header=True)
                 timediff(start, 'completed')
                 print()
+
+                validation_log.loc[ii:].to_csv(validation_log_file, header=False)
+                validation_log = validation_log[0:0]
+                train_log.loc[ii - minibatches:].to_csv(train_log_file, header=False)
+                train_log = train_log[0:0]
 
                 if settings['early_stop_measure'] == 'mse':
                     early_measure = meanse
