@@ -29,237 +29,20 @@ import json
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from run_model import QuaLiKizNDNN
+from datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
+from nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm
 
 FLAGS = None
-
-
-class Dataset():
-    def __init__(self, features, target):
-        self._epochs_completed = 0
-        self._index_in_epoch = 0
-        self._features = features
-        self._target = target
-        assert self._features.shape[0] == self._target.shape[0]
-        self._num_examples = features.shape[0]
-
-    @property
-    def epochs_completed(self):
-        return self._epochs_completed
-
-    @property
-    def num_examples(self):
-        return self._num_examples
-
-    def next_batch(self, batch_size, shuffle=True):
-        start = self._index_in_epoch
-        if batch_size == -1:
-            batch_size = self._num_examples
-        self._index_in_epoch += batch_size
-        if self._index_in_epoch > self._num_examples:
-            # Finished epoch
-            self._epochs_completed += 1
-            # Shuffle the data
-            # TODO: Use panda_shuffle function
-            if shuffle:
-                perm = np.arange(self._num_examples)
-                np.random.shuffle(perm)
-                self._features = self._features.iloc[perm]
-                self._target = self._target.iloc[perm]
-            # Start next epoch
-            start = 0
-            self._index_in_epoch = batch_size
-            assert batch_size <= self._num_examples, \
-                'Batch size asked bigger than number of samples'
-        end = self._index_in_epoch
-        batch = (self._features.iloc[start:end], self._target.iloc[start:end])
-        return batch
-
-    def to_hdf(self, file, key):
-        with pd.HDFStore(file) as store:
-            store.put(key + '/features', self._features)
-            store.put(key + '/target', self._target)
-
-    @classmethod
-    def read_hdf(cls, file, key):
-        with pd.HDFStore(file) as store:
-            dataset = Dataset(store.get(key + '/features'),
-                              store.get(key + '/target'))
-        return dataset
-
-    def astype(self, dtype):
-        self._features = self._features.astype(dtype)
-        self._target = self._target.astype(dtype)
-        return self
-
-
-class Datasets():
-    _fields = ['train', 'validation', 'test']
-
-    def __init__(self, **kwargs):
-        for name in self._fields:
-            setattr(self, name, kwargs.pop(name))
-        assert ~bool(kwargs)
-
-    def to_hdf(self, file):
-        for name in self._fields:
-            getattr(self, name).to_hdf(file, name)
-
-    @classmethod
-    def read_hdf(cls, file):
-        datasets = {}
-        for name in cls._fields:
-            datasets[name] = Dataset.read_hdf(file, name)
-        return Datasets(**datasets)
-
-    def astype(self, dtype):
-        for name in self._fields:
-            setattr(self, name, getattr(self, name).astype(dtype))
-        return self
-
-def convert_panda(features_df, targets_df, frac_validation, frac_test, shuffle=True):
-    panda = pd.concat([features_df, targets_df], axis=1)
-    feature_names = features_df.columns
-    target_names = targets_df.columns
-    total_size = features_df.shape[0]
-    # Dataset might be ordered. Shuffle to be sure
-    if shuffle:
-        panda = shuffle_panda(panda)
-    validation_size = int(frac_validation * total_size)
-    test_size = int(frac_test * total_size)
-    train_size = total_size - validation_size - test_size
-
-    datasets = []
-    for slice_ in [panda.iloc[:train_size],
-                   panda.iloc[train_size:train_size + validation_size],
-                   panda.iloc[train_size + validation_size:]]:
-        datasets.append(Dataset(slice_[feature_names],
-                                slice_[target_names]))
-
-    return Datasets(train=datasets[0],
-                    validation=datasets[1],
-                    test=datasets[2])
-
-def split_panda(panda, frac=0.1):
-    panda1 = panda.sample(frac=frac)
-    panda2_i = panda.index ^ panda1.index
-    panda2 = panda.loc[panda2_i]
-    return (panda1, panda2)
-
-
-def shuffle_panda(panda):
-    return panda.iloc[np.random.permutation(np.arange(len(panda)))]
-
-
-def model_to_json(name, feature_names, target_names,
-                  train_set, scale_factor, scale_bias, l2_scale, settings):
-    dict_ = {x.name: tf.to_double(x).eval().tolist() for x in tf.trainable_variables()}
-    dict_['prescale_factor'] = scale_factor.astype('float64').to_dict()
-    dict_['prescale_bias'] = scale_bias.astype('float64').to_dict()
-    dict_['feature_min'] = dict(train_set._features.astype('float64').min())
-    dict_['feature_max'] = dict(train_set._features.astype('float64').max())
-    dict_['feature_names'] = feature_names
-    dict_['target_names'] = target_names
-    dict_['target_min'] = dict(train_set._target.astype('float64').min())
-    dict_['target_max'] = dict(train_set._target.astype('float64').max())
-    dict_['hidden_activation'] = settings['hidden_activation']
-    dict_['output_activation'] = settings['output_activation']
-
-    sp_result = subprocess.run('git rev-parse HEAD',
-                               stdout=subprocess.PIPE,
-                               shell=True,
-                               check=True)
-    nn_version = sp_result.stdout.decode('UTF-8').strip()
-    metadata = {
-        'nn_develop_version': nn_version,
-        'c_L2': float(l2_scale.eval())
-    }
-    dict_['_metadata'] = metadata
-
-    with open(name, 'w') as file_:
-        json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
-
 
 def timediff(start, event):
     print('{:35} {:5.0f}s'.format(event + ' after', time.time() - start))
 
-
-def weight_variable(shape, **kwargs):
-    """Create a weight variable with appropriate initialization."""
-    #initial = tf.truncated_normal(shape, stddev=0.1)
-    initial = tf.random_normal(shape, **kwargs)
-    return tf.Variable(initial)
-
-
-def bias_variable(shape, **kwargs):
-    """Create a bias variable with appropriate initialization."""
-    #initial = tf.constant(0.1, shape=shape)
-    initial = tf.random_normal(shape, **kwargs)
-    return tf.Variable(initial)
-
-
-def variable_summaries(var):
-    """Attach a lot of summaries to a Tensor (for TensorBoard visualization).
-    """
-    with tf.name_scope('summaries'):
-        mean = tf.reduce_mean(var)
-        tf.summary.scalar('mean', mean)
-        with tf.name_scope('stddev'):
-            stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-        tf.summary.scalar('stddev', stddev)
-        tf.summary.scalar('max', tf.reduce_max(var))
-        tf.summary.scalar('min', tf.reduce_min(var))
-        tf.summary.histogram('histogram', var)
-
-
-def nn_layer(input_tensor, output_dim, layer_name, act=tf.nn.relu,
-             dtype=tf.float32, debug=False):
-    """Reusable code for making a simple neural net layer.
-    It does a matrix multiply, bias add, and then uses relu to nonlinearize.
-    It also sets up name scoping so that the resultant graph is easy to read,
-    and adds a number of summary ops.
-    """
-    # Adding a name scope ensures logical grouping of the layers in the graph.
-    input_dim = input_tensor.get_shape().as_list()[1]
-    with tf.name_scope(layer_name):
-        # This Variable will hold the state of the weights for the layer
-        with tf.name_scope('weights'):
-            weights = weight_variable([input_dim, output_dim], dtype=dtype)
-            if debug:
-                variable_summaries(weights)
-        with tf.name_scope('biases'):
-            biases = bias_variable([output_dim], dtype=dtype)
-            if debug:
-                variable_summaries(biases)
-        with tf.name_scope('Wx_plus_b'):
-            preactivate = tf.matmul(input_tensor, weights) + biases
-            if debug:
-                tf.summary.histogram('pre_activations', preactivate)
-        if act is not None:
-            activations = act(preactivate, name='activation')
-        else:
-            activations = preactivate
-        if debug:
-            tf.summary.histogram('activations', activations)
-        return activations
-
-
-def normab(panda, a, b):
-    factor = (b - a) / (panda.max() - panda.min())
-    bias = (b - a) * panda.min() / (panda.max() - panda.min()) + a
-    return factor, bias
-
-def normsm(panda, s_t, m_t):
-    m_s = np.mean(panda)
-    s_s = np.std(panda)
-    factor = s_t / s_s
-    bias = -m_s * s_t / s_s + m_t
-    return factor, bias
-
 def print_last_row(df, header=False):
     print(df.iloc[[-1]].to_string(header=header,
-                                  float_format=lambda self: u'{:.2f}'.format(self),
+                                  float_format=lambda x: u'{:.2f}'.format(x),
                                   col_space=12,
                                   justify='left'))
+
 
 def train(settings):
     # Import data
@@ -661,7 +444,9 @@ def train(settings):
     validation_log_file.close()
     del validation_log
 
-    model_to_json('nn.json', scan_dims.values.tolist(), train_dims.values.tolist(),
+    model_to_json('nn.json',
+                  scan_dims.values.tolist(),
+                  train_dims.values.tolist(),
                   datasets.train,
                   scale_factor,
                   scale_bias.astype('float64'),
