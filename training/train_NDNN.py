@@ -43,7 +43,6 @@ def print_last_row(df, header=False):
                                   col_space=12,
                                   justify='left'))
 
-
 def train(settings):
     # Import data
     start = time.time()
@@ -282,7 +281,6 @@ def train(settings):
                                                               feed_dict=feed_dict)
     train_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
     validation_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
-    print_last_row(train_log, header=True)
 
     # Save checkpoints of training to restore for early-stopping
     saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
@@ -298,10 +296,11 @@ def train(settings):
     max_epoch = settings.get('max_epoch') or sys.maxsize
 
     # Set debugging parameters
-    steps_per_report = settings.get('steps_per_report') or np.inf
-    epochs_per_report = settings.get('epochs_per_report') or np.inf
-    save_checkpoint_networks = settings.get('save_checkpoint_networks') or False
-    save_best_networks = settings.get('save_best_networks') or True
+    setting = lambda x, default: default if x is None else x
+    steps_per_report = setting(settings.get('steps_per_report'), np.inf)
+    epochs_per_report = setting(settings.get('epochs_per_report'),np.inf)
+    save_checkpoint_networks = setting(settings.get('save_checkpoint_networks'), False)
+    save_best_networks = setting(settings.get('save_best_networks'), True)
 
     # Set up log files
     train_log_file = open('train_log.csv', 'a', 1)
@@ -317,6 +316,7 @@ def train(settings):
         for ii in range(steps_per_epoch * max_epoch):
             # Write figures, summaries and check early stopping each epoch
             if datasets.train.epochs_completed > epoch:
+                step_start = time.time()
                 epoch = datasets.train.epochs_completed
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 feed_dict = {x: xs, y_ds: ys, is_train: False}
@@ -352,11 +352,6 @@ def train(settings):
 
                 # Update CSV logs
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
-
-                print()
-                print_last_row(validation_log, header=True)
-                timediff(start, 'completed')
-                print()
 
                 validation_log.loc[ii:].to_csv(validation_log_file, header=False)
                 validation_log = validation_log[0:0]
@@ -442,7 +437,6 @@ def train(settings):
                         f.write(ctf)
                 # Add to CSV log buffer
                 train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
-                print_last_row(train_log)
 
             # Stop if loss is nan or inf
             if np.isnan(lo) or np.isinf(lo):
@@ -477,6 +471,9 @@ def train(settings):
                   scale_bias.astype('float64'),
                   l2_scale,
                   settings)
+
+    print("Best epoch was {:d} with measure '{:s}' of {:f} ".format(best_epoch, settings['early_stop_measure'], best_early_measure))
+    print("Training time was {:.0f} seconds".format(time.time() - train_start))
 
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
