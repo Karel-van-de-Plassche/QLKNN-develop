@@ -31,16 +31,24 @@ def model_to_json(name, feature_names, target_names,
     with open(name, 'w') as file_:
         json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
 
-def weight_variable(shape, **kwargs):
+def weight_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
     """Create a weight variable with appropriate initialization."""
     #initial = tf.truncated_normal(shape, stddev=0.1)
-    initial = tf.random_normal(shape, **kwargs)
+    if isinstance(init, np.ndarray):
+        initial = tf.constant(init, dtype=dtype)
+    else:
+        if init == 'norm_1_0':
+            initial = tf.random_normal(shape, **kwargs)
     return tf.Variable(initial)
 
-def bias_variable(shape, **kwargs):
+def bias_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
     """Create a bias variable with appropriate initialization."""
     #initial = tf.constant(0.1, shape=shape)
-    initial = tf.random_normal(shape, **kwargs)
+    if isinstance(init, np.ndarray):
+        initial = tf.constant(init, dtype=dtype)
+    else:
+        if init == 'norm_1_0':
+            initial = tf.random_normal(shape, **kwargs)
     return tf.Variable(initial)
 
 def variable_summaries(var):
@@ -57,7 +65,7 @@ def variable_summaries(var):
         tf.summary.histogram('histogram', var)
 
 def nn_layer(input_tensor, output_dim, layer_name, act=tf.nn.relu,
-             dtype=tf.float32, debug=False):
+             dtype=tf.float32, debug=False, weight_init='norm_1_0', bias_init='norm_1_0'):
     """Reusable code for making a simple neural net layer.
     It does a matrix multiply, bias add, and then uses relu to nonlinearize.
     It also sets up name scoping so that the resultant graph is easy to read,
@@ -68,11 +76,11 @@ def nn_layer(input_tensor, output_dim, layer_name, act=tf.nn.relu,
     with tf.name_scope(layer_name):
         # This Variable will hold the state of the weights for the layer
         with tf.name_scope('weights'):
-            weights = weight_variable([input_dim, output_dim], dtype=dtype)
+            weights = weight_variable([input_dim, output_dim], init=weight_init, dtype=dtype)
             if debug:
                 variable_summaries(weights)
         with tf.name_scope('biases'):
-            biases = bias_variable([output_dim], dtype=dtype)
+            biases = bias_variable([output_dim], dtype=dtype, init=bias_init)
             if debug:
                 variable_summaries(biases)
         with tf.name_scope('Wx_plus_b'):

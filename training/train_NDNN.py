@@ -43,7 +43,7 @@ def print_last_row(df, header=False):
                                   col_space=12,
                                   justify='left'))
 
-def train(settings):
+def train(settings, warm_start_nn=None):
     # Import data
     start = time.time()
     train_dims = settings['train_dims']
@@ -124,14 +124,22 @@ def train(settings):
 
     # Standardize input
     with tf.name_scope('standardize'):
-        if settings['standardization'].startswith('minmax'):
-            min = float(settings['standardization'].split('_')[-2])
-            max = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
-        if settings['standardization'].startswith('normsm'):
-            s_t = float(settings['standardization'].split('_')[-2])
-            m_t = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
+        if warm_start_nn is None:
+            if settings['standardization'].startswith('minmax'):
+                min = float(settings['standardization'].split('_')[-2])
+                max = float(settings['standardization'].split('_')[-1])
+                scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
+
+            if settings['standardization'].startswith('normsm'):
+                s_t = float(settings['standardization'].split('_')[-2])
+                m_t = float(settings['standardization'].split('_')[-1])
+                scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
+        else:
+            scale_factor = pd.concat([warm_start_nn._feature_prescale_factor,
+                                      warm_start_nn._target_prescale_factor])
+            scale_bias = pd.concat([warm_start_nn._feature_prescale_bias,
+                                      warm_start_nn._target_prescale_bias])
+
         in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
         in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
 
@@ -144,13 +152,25 @@ def train(settings):
     drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
     is_train = tf.placeholder(tf.bool)
     for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
+        if warm_start_nn is None:
+            weight_init = bias_init = 'norm_1_0'
+        else:
+            if (warm_start_nn.layers[ii - 1]._activation == activation and
+                warm_start_nn.layers[ii - 1]._weights.shape[1] == neurons):
+                weight_init = warm_start_nn.layers[ii - 1]._weights
+                bias_init = warm_start_nn.layers[ii - 1]._biases
+                activation = warm_start_nn.layers[ii - 1]._activation
+            else:
+                raise Exception('Settings file layer shape does not match warm_start_nn')
+
         if activation == 'tanh':
             act = tf.tanh
         elif activation == 'relu':
             act = tf.nn.relu
         elif activation == 'none':
             act = None
-        layer = nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act, debug=debug)
+
+        layer = nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
         dropout = tf.layers.dropout(layer, drop_prob, training=is_train)
         if debug:
             tf.summary.histogram('post_dropout_layer_' + str(ii), dropout)
@@ -158,6 +178,13 @@ def train(settings):
 
     # Last layer (output layer) usually has no activation
     activation = settings['output_activation']
+    if warm_start_nn is None:
+        weight_init = bias_init = 'norm_1_0'
+    else:
+        weight_init = warm_start_nn.layers[-1]._weights
+        bias_init = warm_start_nn.layers[-1]._biases
+        activation = warm_start_nn.layers[-1]._activation
+
     if activation == 'tanh':
         act = tf.tanh
     elif activation == 'relu':
@@ -165,7 +192,7 @@ def train(settings):
     elif activation == 'none':
         act = None
     # Scale output back to original values
-    y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug)
+    y_scaled = nn_layer(layers[-1], len(train_dims), 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
     with tf.name_scope('destandardize'):
         out_factor = tf.constant(scale_factor[train_dims].values, dtype=x.dtype)
         out_bias = tf.constant(scale_bias[train_dims].values, dtype=x.dtype)
@@ -516,9 +543,11 @@ def train(settings):
 
 
 def main(_):
+    nn=None
+    #nn = QuaLiKizNDNN.from_json('nn.json')
     with open('./settings.json') as file_:
         settings = json.load(file_)
-    train(settings)
+    train(settings, warm_start_nn=nn)
 
 
 if __name__ == '__main__':
