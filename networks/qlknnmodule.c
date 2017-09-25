@@ -91,7 +91,7 @@ Layer_init(LayerObject *self, PyObject *args, PyObject *kwds)
     //    return -1;
     PyObject *tmp;
     PyArrayObject *_weights=NULL, *_biases=NULL, *tmpArray;
-    const char *_activation;
+    char *_activation;
 
     if (!PyArg_ParseTuple(args, "O!O!s", &PyArray_Type, &_weights, &PyArray_Type, &_biases,
         &_activation)) return -1;
@@ -225,6 +225,7 @@ Layer_apply(LayerObject *self, PyObject *args)
         case NONE:
             break;
         default:
+            PyErr_SetString(PyExc_AttributeError, "_activation has an unknown value");
             return NULL;
     }
     Py_INCREF(out);
@@ -239,45 +240,102 @@ static PyMethodDef Layer_methods[] = {
     {NULL,              NULL}           /* sentinel */
 };
 
+//static PyObject *
+//Layer_getattro(LayerObject *self, PyObject *name)
+//{
+//    if (self->x_attr != NULL) {
+//        PyObject *v = PyDict_GetItem(self->x_attr, name);
+//        if (v != NULL) {
+//            Py_INCREF(v);
+//            return v;
+//        }
+//    }
+//    return PyObject_GenericGetAttr((PyObject *)self, name);
+//}
+
+//static int
+//Layer_setattr(LayerObject *self, const char *name, PyObject *v)
+//{
+//    if (self->x_attr == NULL) {
+//        self->x_attr = PyDict_New();
+//        if (self->x_attr == NULL)
+//            return -1;
+//    }
+//    if (v == NULL) {
+//        int rv = PyDict_DelItemString(self->x_attr, name);
+//        if (rv < 0)
+//            PyErr_SetString(PyExc_AttributeError,
+//                "delete non-existing Xxo attribute");
+//        return rv;
+//    }
+//    else
+//        return PyDict_SetItemString(self->x_attr, name, v);
+//}
+static PyMemberDef Layer_members[] = {
+    {"_weights", T_OBJECT_EX, offsetof(LayerObject, _weights), 0,
+     "weights"},
+    {"_biases", T_OBJECT_EX, offsetof(LayerObject, _biases), 0,
+     "biases"},
+    {NULL}  /* Sentinel */
+};
+
 static PyObject *
-Layer_getattro(LayerObject *self, PyObject *name)
+Layer_get_activation(LayerObject *self, void *closure)
 {
-    if (self->x_attr != NULL) {
-        PyObject *v = PyDict_GetItem(self->x_attr, name);
-        if (v != NULL) {
-            Py_INCREF(v);
-            return v;
-        }
+    PyObject *output;
+    switch(self->_activation) {
+        case TANH:
+            output = PyUnicode_FromString("tanh");
+            break;
+        case RELU:
+            output = PyUnicode_FromString("relu");
+            break;
+        case NONE:
+            output = PyUnicode_FromString("none");
+            break;
+        default:
+            PyErr_SetString(PyExc_AttributeError, "_activation has an unknown value");
+            output = NULL;
     }
-    return PyObject_GenericGetAttr((PyObject *)self, name);
+
+    return output;
 }
 
 static int
-Layer_setattr(LayerObject *self, const char *name, PyObject *v)
+Layer_set_activation(LayerObject *self, PyObject *value, void *closure)
 {
-    if (self->x_attr == NULL) {
-        self->x_attr = PyDict_New();
-        if (self->x_attr == NULL)
-            return -1;
+    if (value == NULL) {
+        PyErr_SetString(PyExc_TypeError, "Cannot delete the _activation attribute");
+        return -1;
     }
-    if (v == NULL) {
-        int rv = PyDict_DelItemString(self->x_attr, name);
-        if (rv < 0)
-            PyErr_SetString(PyExc_AttributeError,
-                "delete non-existing Xxo attribute");
-        return rv;
+
+    if (! PyUnicode_Check(value)) {
+        PyErr_SetString(PyExc_TypeError,
+                        "_activation attribute value must be a string");
+        return -1;
     }
+
+    if (!PyUnicode_CompareWithASCIIString(value, "tanh"))
+        self->_activation = TANH;
+    else if (!PyUnicode_CompareWithASCIIString(value, "relu"))
+        self->_activation = RELU;
+    else if (!PyUnicode_CompareWithASCIIString(value, "none"))
+        self->_activation = NONE;
     else
-        return PyDict_SetItemString(self->x_attr, name, v);
+    {
+        PyErr_SetString(PyExc_ValueError, "Unkown activation function, cannot set");
+        return -1;
+    }
+
+    return 0;
 }
-static PyMemberDef Layer_members[] = {
-    {"_weights", T_OBJECT_EX, offsetof(LayerObject, _weights), 0,
-     "first name"},
-    {"_biases", T_OBJECT_EX, offsetof(LayerObject, _biases), 0,
-     "last name"},
-    {"_activation", T_OBJECT_EX, offsetof(LayerObject, _activation), 0,
-     "noddy number"},
-    {NULL}  /* Sentinel */
+
+static PyGetSetDef Layer_getseters[] = {
+    {"_activation",
+        (getter)Layer_get_activation,
+        (setter)Layer_set_activation,
+        "activation function", NULL},
+    {NULL}
 };
 
 static PyTypeObject Layer_Type = {
@@ -290,8 +348,9 @@ static PyTypeObject Layer_Type = {
     /* methods */
     (destructor)Layer_dealloc,    /*tp_dealloc*/
     0,                          /*tp_print*/
-    (getattrfunc)0,             /*tp_getattr*/
-    (setattrfunc)Layer_setattr,   /*tp_setattr*/
+    0,             /*tp_getattr*/
+    //(setattrfunc)Layer_setattr,   /*tp_setattr*/
+    0,
     0,                          /*tp_reserved*/
     0,                          /*tp_repr*/
     0,                          /*tp_as_number*/
@@ -300,7 +359,7 @@ static PyTypeObject Layer_Type = {
     0,                          /*tp_hash*/
     0,                          /*tp_call*/
     0,                          /*tp_str*/
-    (getattrofunc)Layer_getattro, /*tp_getattro*/
+    0,                          /*tp_getattro*/
     0,                          /*tp_setattro*/
     0,                          /*tp_as_buffer*/
     Py_TPFLAGS_DEFAULT,         /*tp_flags*/
@@ -313,7 +372,7 @@ static PyTypeObject Layer_Type = {
     0,                          /*tp_iternext*/
     Layer_methods,                /*tp_methods*/
     Layer_members,                          /*tp_members*/
-    0,                          /*tp_getset*/
+    Layer_getseters,                          /*tp_getset*/
     0,                          /*tp_base*/
     0,                          /*tp_dict*/
     0,                          /*tp_descr_get*/

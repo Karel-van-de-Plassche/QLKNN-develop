@@ -24,3 +24,6 @@ setup (name = 'PackageName',
        version = '1.0',
        description = 'This is a demo package',
        ext_modules = [module1, module2])
+
+# Compile with sudo python setup.py config --compiler=intelem build_clib --compiler=intelem build_ext --compiler=intelem install
+
