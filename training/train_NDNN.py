@@ -47,39 +47,45 @@ def print_last_row(df, header=False):
 def train(settings):
     # Import data
     start = time.time()
-    # Get train dimension from path name
-    #train_dim = os.path.basename(os.getcwd())
     train_dims = settings['train_dims']
-    # Use pre-existing filtered dataset, or extract from big dataset
+    # Open HDF store. This is usually a soft link to our filtered dataset
     store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
+
+    # Get the targets (train_dims) and features (input)
     target_df = store.get(train_dims[0]).to_frame()
     for target_name in train_dims[1:]:
         target_df = pd.concat([target_df, store.get(target_name)], axis=1)
     input_df = store.select('input')
+
     try:
         del input_df['nions']  # Delete leftover artifact from dataset split
     except KeyError:
         pass
+
+    # Nustar relates to the targets with a log
     try:
         input_df['logNustar'] = np.log10(input_df['Nustar'])
         del input_df['Nustar']
     except KeyError:
         print('No Nustar in dataset')
+
+    # Use only samples in the feature set that are in the target set
     input_df = input_df.loc[target_df.index]
 
-    # Use pre-existing splitted dataset, or split in train, validation and test
+    # Convert to dtype in settings file. Usually float32 or float64
     input_df = input_df.astype(settings['dtype'])
     target_df = target_df.astype(settings['dtype'])
 
     train_dims = target_df.columns
     scan_dims = input_df.columns
+    # Keep option to restore splitted dataset from file for debugging
     restore_split_backup = False
     if restore_split_backup and os.path.exists('splitted.h5'):
         datasets = Datasets.read_hdf('splitted.h5')
     else:
         datasets = convert_panda(input_df, target_df, settings['validation_fraction'], settings['test_fraction'])
         datasets.to_hdf('splitted.h5')
-    # Convert back to float64 for tensorflow compatibility
+
     timediff(start, 'Dataset split')
 
     """
@@ -117,8 +123,8 @@ def train(settings):
                            [None, len(scan_dims)], name='x-input')
         y_ds = tf.placeholder(x.dtype, [None, len(train_dims)], name='y-input')
 
-    # Scale all input
-    with tf.name_scope('normalize'):
+    # Standardize input
+    with tf.name_scope('standardize'):
         if settings['standardization'].startswith('minmax'):
             min = float(settings['standardization'].split('_')[-2])
             max = float(settings['standardization'].split('_')[-1])
@@ -133,7 +139,7 @@ def train(settings):
         x_scaled = in_factor * x + in_bias
     timediff(start, 'Scaling defined')
 
-    # Define neural network
+    # Define fully connected feed-forward NN. Potentially with dropout.
     layers = [x_scaled]
     debug = False
     drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
@@ -151,7 +157,7 @@ def train(settings):
             tf.summary.histogram('post_dropout_layer_' + str(ii), dropout)
         layers.append(dropout)
 
-    # All output scaled between -1 and 1, denomalize it
+    # Last layer (output layer) usually has no activation
     activation = settings['output_activation']
     if activation == 'tanh':
         act = tf.tanh
@@ -159,8 +165,9 @@ def train(settings):
         act = tf.nn.relu
     elif activation == 'none':
         act = None
+    # Scale output back to original values
     y_scaled = nn_layer(layers[-1], 1, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug)
-    with tf.name_scope('denormalize'):
+    with tf.name_scope('destandardize'):
         out_factor = tf.constant(scale_factor[train_dims].values, dtype=x.dtype)
         out_bias = tf.constant(scale_bias[train_dims].values, dtype=x.dtype)
         y = (y_scaled - out_bias) / out_factor
@@ -203,7 +210,7 @@ def train(settings):
             tf.summary.scalar('l1_norm', l1_norm)
             tf.summary.scalar('l1_scale', l1_scale)
             tf.summary.scalar('l1_loss', l1_loss)
-        #loss = mse
+
         if settings['goodness'] == 'mse':
             loss = mse
         elif settings['goodness'] == 'mabse':
@@ -216,7 +223,7 @@ def train(settings):
 
     optimizer = None
     train_step = None
-    # Define fitting algorithm. Kept old algorithms commented out.
+    # Define optimizer algorithm.
     with tf.name_scope('train'):
         lr = settings['learning_rate']
         if settings['optimizer'] == 'adam':
@@ -246,10 +253,10 @@ def train(settings):
                                                              'maxls': settings['lbfgs_maxls']})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
-    # Merge all the summaries and write them out to /tmp/mnist_logs
+    # Merge all the summaries
     merged = tf.summary.merge_all()
 
-    # Initialze writers and variables
+    # Initialze writers, variables and logdir
     log_dir = 'train_NDNN/logs'
     if tf.gfile.Exists(log_dir):
         tf.gfile.DeleteRecursively(log_dir)
@@ -264,7 +271,7 @@ def train(settings):
     train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
     validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
 
-    # This is dependent on dataset size
+    # Split dataset in minibatches
     minibatches = settings['minibatches']
     batch_size = int(np.floor(datasets.train.num_examples/minibatches))
 
@@ -273,29 +280,30 @@ def train(settings):
     feed_dict = {x: xs, y_ds: ys, is_train: False}
     summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
                                                               feed_dict=feed_dict)
-    timediff(start, 'Algorithm started')
     train_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
     validation_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
     print_last_row(train_log, header=True)
+
+    # Save checkpoints of training to restore for early-stopping
+    saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
+    checkpoint_dir = 'checkpoints'
+    tf.gfile.MkDir(checkpoint_dir)
 
     # Define variables for early stopping
     not_improved = 0
     best_early_measure = np.inf
     early_measure = np.inf
 
-    saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
-    checkpoint_dir = 'checkpoints'
-    tf.gfile.MkDir(checkpoint_dir)
+    steps_per_epoch = minibatches + 1
+    max_epoch = settings.get('max_epoch') or sys.maxsize
 
+    # Set debugging parameters
     steps_per_report = settings.get('steps_per_report') or np.inf
     epochs_per_report = settings.get('epochs_per_report') or np.inf
     save_checkpoint_networks = settings.get('save_checkpoint_networks') or False
     save_best_networks = settings.get('save_best_networks') or True
-    train_start = time.time()
 
-    steps_per_epoch = minibatches + 1
-    max_epoch = settings.get('max_epoch') or sys.maxsize
-
+    # Set up log files
     train_log_file = open('train_log.csv', 'a', 1)
     train_log_file.truncate(0)
     train_log.to_csv(train_log_file)
@@ -303,6 +311,8 @@ def train(settings):
     validation_log_file.truncate(0)
     validation_log.to_csv(validation_log_file)
 
+    timediff(start, 'Training started')
+    train_start = time.time()
     try:
         for ii in range(steps_per_epoch * max_epoch):
             # Write figures, summaries and check early stopping each epoch
@@ -310,6 +320,7 @@ def train(settings):
                 epoch = datasets.train.epochs_completed
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 feed_dict = {x: xs, y_ds: ys, is_train: False}
+                # Run with full trace every epochs_per_report Gives full runtime information
                 if not ii % epochs_per_report:
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
@@ -317,6 +328,8 @@ def train(settings):
                 else:
                     run_options = None
                     run_metadata = None
+
+                # Calculate all variables with the validation set
                 summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
                                                feed_dict=feed_dict,
                                                options=run_options,
@@ -324,6 +337,7 @@ def train(settings):
 
 
                 validation_writer.add_summary(summary, ii)
+                # More debugging every epochs_per_report
                 if not ii % epochs_per_report:
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
@@ -332,9 +346,11 @@ def train(settings):
 
                     validation_writer.add_run_metadata(run_metadata, 'step%d' % ii)
 
+                # Save checkpoint
                 save_path = saver.save(sess, os.path.join(checkpoint_dir,
                 'model.ckpt'), global_step=ii)
 
+                # Update CSV logs
                 validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
 
                 print()
@@ -347,6 +363,7 @@ def train(settings):
                 train_log.loc[ii - minibatches:].to_csv(train_log_file, header=False)
                 train_log = train_log[0:0]
 
+                # Determine early-stopping criterion
                 if settings['early_stop_measure'] == 'mse':
                     early_measure = meanse
                 elif settings['early_stop_measure'] == 'loss':
@@ -367,7 +384,7 @@ def train(settings):
                                       l2_scale,
                                       settings)
                     not_improved = 0
-                else:
+                else: # If early measure is not better
                     not_improved += 1
                 # If not improved in 'early_stop' epoch, stop
                 if settings['early_stop_measure'] != 'none' and not_improved >= settings['early_stop_after']:
@@ -385,6 +402,7 @@ def train(settings):
                           % (not_improved))
                     break
             else: # If NOT epoch done
+                # Extra debugging every steps_per_report
                 if not ii % steps_per_report:
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
@@ -394,6 +412,7 @@ def train(settings):
                     run_metadata = None
                 xs, ys = datasets.train.next_batch(batch_size)
                 feed_dict = {x: xs, y_ds: ys, is_train: True}
+                # If we have a scipy-style optimizer
                 if optimizer:
                     #optimizer.minimize(sess, feed_dict=feed_dict)
                     optimizer.minimize(sess,
@@ -407,7 +426,7 @@ def train(settings):
                     l1norm = l1_norm.eval(feed_dict=feed_dict)
                     l2norm = l2_norm.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
-                else:
+                else: # If we have a TensorFlow-style optimizer
                     summary, lo, meanse, meanabse, l1norm, l2norm, _  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, train_step],
                                                       feed_dict=feed_dict,
                                                       options=run_options,
@@ -415,23 +434,29 @@ def train(settings):
                                                       )
                 train_writer.add_summary(summary, ii)
 
+                # Extra debugging every steps_per_report
                 if not ii % steps_per_report:
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
+                # Add to CSV log buffer
                 train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
                 print_last_row(train_log)
+
+            # Stop if loss is nan or inf
             if np.isnan(lo) or np.isinf(lo):
                 print('Loss is {}! Stopping..'.format(lo))
                 break
 
+    # Stop on Ctrl-C
     except KeyboardInterrupt:
         print('KeyboardInterrupt Stopping..')
 
     train_writer.close()
     validation_writer.close()
 
+    # Restore checkpoint with best epoch
     try:
         best_epoch = epoch - not_improved
         saver.restore(sess, saver.last_checkpoints[best_epoch - epoch])
@@ -483,6 +508,7 @@ def train(settings):
     #            'loss_train':     float(loss_train)
                 }
 
+    # Add metadata dict to nn.json
     with open('nn.json') as nn_file:
         data = json.load(nn_file)
 
