@@ -18,6 +18,7 @@ sys.path.append(training_path)
 from model import Network, NetworkJSON
 from run_model import QuaLiKizNDNN
 from train_NDNN import shuffle_panda
+from functools import partial
 
 import matplotlib as mpl
 mpl.use('pdf')
@@ -32,9 +33,9 @@ else:
 
 from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
-#    for varname, var in slice['input'].items():
+#    for slicedim, var in slice['input'].items():
 #        try:
-#            in_df = in_df.loc[np.isclose(in_df[varname], var, atol=1e-5, rtol=1e-3)]
+#            in_df = in_df.loc[np.isclose(in_df[slicedim], var, atol=1e-5, rtol=1e-3)]
 #        except KeyError:
 #            pass
 nn_indeces = [37, 58, 60] #nozero <60, zero <60, zero <100
@@ -43,7 +44,7 @@ nn_indeces = [58, 63]
 from collections import OrderedDict
 style = 'duo'
 mode = 'debug'
-#mode = 'quick'
+mode = 'quick'
 if mode == 'debug':
     plot=True
     plot_pop=True
@@ -126,13 +127,54 @@ elif style == 'duo':
 
 #nn_list = OrderedDict([(88, 'efiITG_GB')])
 
-nns = OrderedDict()
-for nn_index, nn_label in nn_list.items():
-    nn = nns[nn_index] = load_nn(nn_index)
-    if style != 'similar':
-        nn.label = nn_label
-    else:
-        nn.label = ''
+slicedim = 'Ati'
+def prep_nns(nn_list, style, slicedim):
+    nns = OrderedDict()
+    for nn_index, nn_label in nn_list.items():
+        nn = nns[nn_index] = load_nn(nn_index)
+        if style != 'similar':
+            nn.label = nn_label
+        else:
+            nn.label = ''
+    return nns
+
+
+def prep_df(input, data, nns):
+    target_names = list(nns.items())[0][1]._target_names
+    df = (pd.DataFrame({'leq': data['gam_leq_GB'],
+                        'less': data['gam_less_GB']})
+          .max(axis=1)
+          .to_frame('maxgam')
+          )
+    df = input.join([data[target_names], df['maxgam']])
+    df = df[(df[target_names] < 140).all(axis=1)]
+    df = df[(df[target_names] >= 0).all(axis=1)]
+    #print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
+    #print(np.sum(df['target'] == 0)/len(df), ' frac == 0')
+    #print(np.sum(df['target'] > 0)/len(df), ' frac > 0')
+    #uni = {col: input[col].unique() for col in input}
+    #uni_len = {key: len(value) for key, value in uni.items()}
+    #input['index'] = input.index
+    df.set_index([col for col in input], inplace=True)
+    df = df.astype('float64')
+    df = df.sort_index(level=slicedim)
+    df = df.unstack(slicedim)
+    df = shuffle_panda(df)
+    #df.sort_values('smag', inplace=True)
+
+    df = df.iloc[1040:2040,:]
+    return df, target_names
+
+def is_unsafe(df, nns):
+    unsafe = True
+    for nn in nns.values():
+        slicedim_idx = nn._feature_names[nn._feature_names == slicedim].index[0]
+        varlist = list(df.index.names)
+        varlist.insert(slicedim_idx, slicedim)
+        if ~np.all(varlist == nn._feature_names):
+            unsafe = False
+    print('dataset loaded!')
+    return unsafe
 
 store = pd.HDFStore('../7D_nions0_flat.h5')
 input = store['megarun1/input']
@@ -140,45 +182,13 @@ data = store['megarun1/flattened']
 #input, data = prettify_df(input, data)
 #input = input.astype('float64')
 # Filter
-varname = 'Ati'
-#itor = zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.09']); varname = 'Ate'
-#for name, val in itor:
-#    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
+#itor = zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.09']); slicedim = 'Ate'
+    #for name, val in itor:
+    #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
+nns = prep_nns(nn_list, style, slicedim)
+df, target_names = prep_df(input, data, nns)
+unsafe = is_unsafe(df, nns)
 
-#input['x'] = input['x'] / 3
-target_names = list(nns.items())[0][1]._target_names
-df = (pd.DataFrame({'leq': data['gam_leq_GB'],
-                    'less': data['gam_less_GB']})
-      .max(axis=1)
-      .to_frame('maxgam')
-      )
-df = input.join([data[target_names], df['maxgam']])
-df = df[(df[target_names] < 140).all(axis=1)]
-df = df[(df[target_names] >= 0).all(axis=1)]
-#print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
-#print(np.sum(df['target'] == 0)/len(df), ' frac == 0')
-#print(np.sum(df['target'] > 0)/len(df), ' frac > 0')
-#uni = {col: input[col].unique() for col in input}
-#uni_len = {key: len(value) for key, value in uni.items()}
-#input['index'] = input.index
-df.set_index([col for col in input], inplace=True)
-df = df.astype('float64')
-df = df.sort_index(level=varname)
-df = df.unstack(varname)
-df = shuffle_panda(df)
-#df.sort_values('smag', inplace=True)
-
-sliced = 0
-totstats = []
-#df = df.iloc[1040:20040,:]
-# Check if we can do unsafe
-unsafe = True
-for nn in nns.values():
-    varname_idx = nn._feature_names[nn._feature_names == varname].index[0]
-    varlist = list(df.index.names)
-    varlist.insert(varname_idx, varname)
-    if ~np.all(varlist == nn._feature_names):
-        unsafe = False
 
 def calculate_thresh1(x, feature, target, debug=False):
     try:
@@ -206,14 +216,14 @@ def calculate_thresh2(feature, target, debug=False):
 
     return thresh2
 #5.4 ms ± 115 µs per loop (mean ± std. dev. of 7 runs, 100 loops each) total
-def process_chunk(chunck):
+def process_chunk(nns, target_names, chunck):
 
     res = []
     for ii, row in enumerate(chunck.iterrows()):
-        res.append(process_row(row))
+        res.append(process_row(row, nns, target_names))
     return res
 
-def process_row(row, ax1=None):
+def process_row(row, nns, target_names, ax1=None, unsafe=True):
     index, slice_ = row
     feature = slice_.index.levels[1]
     #target = slice.loc[target_names]
@@ -259,7 +269,7 @@ def process_row(row, ax1=None):
             else:
                 color_range = np.linspace(0, 0.9, len(nns))
             ax1.set_prop_cycle(cycler('color', plt.cm.plasma(color_range)))
-            ax1.set_xlabel(nameconvert[varname])
+            ax1.set_xlabel(nameconvert[slicedim])
             ax1.set_ylabel(nameconvert[list(nns.items())[0][1]._target_names[0]])
         if calc_thresh1:
             thresh1 = calculate_thresh1(x, feature, target, debug=debug)
@@ -274,10 +284,11 @@ def process_row(row, ax1=None):
         # 13.7 µs ± 1.1 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
         if unsafe:
             slice_list = [np.full_like(x, val) for val in index]
-            slice_list.insert(varname_idx, x)
+            slicedim_idx = np.nonzero(list(nns.values())[0]._feature_names.values == slicedim)[0][0]
+            slice_list.insert(slicedim_idx, x)
         else:
             slice_dict = {name: np.full_like(x, val) for name, val in zip(df.index.names, index)}
-            slice_dict[varname] = x
+            slice_dict[slicedim] = x
 
 
 
@@ -428,9 +439,10 @@ if parallel:
 starttime = time.time()
 
 if not parallel:
-    totstats = process_chunk(df)
+    totstats = process_chunk(nns, target_names, df)
 else:
-    results = pool.map(process_chunk, chunks)
+    totstats = []
+    results = pool.map(partial(process_chunk, nns, target_names), chunks)
 #for row in df.iterrows():
 #    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
@@ -445,10 +457,10 @@ for result in chain(*results):
 #totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
 totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, ['thresh', 'pop']))))
 
-print(sliced)
+print(len(df))
 print('took ', time.time() - starttime, ' seconds')
 #slice = df.sample(1)
-#plt.scatter(slice[varname], target)
+#plt.scatter(slice[slicedim], target)
 
 #for el in product(*uni.values()):
 print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
