@@ -121,18 +121,17 @@ def populate_nn_list(style):
 
     return nn_list
 
-def prep_nns(nn_list, style, slicedim):
+def prep_nns(nn_list, slicedim, labels=True):
     nns = OrderedDict()
     for nn_index, nn_label in nn_list.items():
         nn = nns[nn_index] = load_nn(nn_index)
-        if style != 'similar':
+        if labels:
             nn.label = nn_label
         else:
             nn.label = ''
     return nns
 
-
-def prep_df(input, data, nns):
+def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
     target_names = list(nns.items())[0][1]._target_names
     df = (pd.DataFrame({'leq': data['gam_leq_GB'],
                         'less': data['gam_less_GB']})
@@ -140,8 +139,8 @@ def prep_df(input, data, nns):
           .to_frame('maxgam')
           )
     df = input.join([data[target_names], df['maxgam']])
-    df = df[(df[target_names] < 140).all(axis=1)]
-    df = df[(df[target_names] >= 0).all(axis=1)]
+    df = df[(df[target_names] < filter_less).all(axis=1)]
+    df = df[(df[target_names] >= filter_geq).all(axis=1)]
     #print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
     #print(np.sum(df['target'] == 0)/len(df), ' frac == 0')
     #print(np.sum(df['target'] > 0)/len(df), ' frac > 0')
@@ -152,7 +151,8 @@ def prep_df(input, data, nns):
     df = df.astype('float64')
     df = df.sort_index(level=slicedim)
     df = df.unstack(slicedim)
-    df = shuffle_panda(df)
+    if shuffle:
+        df = shuffle_panda(df)
     #df.sort_values('smag', inplace=True)
     #input, data = prettify_df(input, data)
     #input = input.astype('float64')
@@ -161,7 +161,7 @@ def prep_df(input, data, nns):
         #for name, val in itor:
         #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
-    df = df.iloc[1040:20040,:]
+    #df = df.iloc[1040:20040,:]
     return df, target_names
 
 def is_unsafe(df, nns):
@@ -426,8 +426,14 @@ store = pd.HDFStore('../7D_nions0_flat.h5')
 input = store['megarun1/input']
 data = store['megarun1/flattened']
 nn_list = populate_nn_list(style)
-nns = prep_nns(nn_list, style, slicedim)
-df, target_names = prep_df(input, data, nns)
+if style != 'similar':
+    labels=True
+else:
+    labels=False
+nns = prep_nns(nn_list, slicedim, labels=labels)
+filter_less = 140
+filter_geq = 0
+df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
 unsafe = is_unsafe(df, nns)
 
 settings = mode_to_settings(mode)
@@ -464,6 +470,7 @@ qlk_columns = list(product(['QLK'], target_names, stats))
 qlk_data = np.full([len(totstats), len(qlk_columns)], np.nan)
 qlk_data[:, ::] = np.tile(qlk_thresh, np.array([len(qlk_columns),1])).T
 qlk_data = pd.DataFrame(qlk_data, columns=pd.MultiIndex.from_tuples(qlk_columns))
+
 totstats = totstats.join(qlk_data)
 
 #slice = df.sample(1)
