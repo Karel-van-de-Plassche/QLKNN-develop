@@ -38,87 +38,91 @@ from collections import OrderedDict
 style = 'duo'
 mode = 'debug'
 mode = 'quick'
-if mode == 'debug':
-    plot=True
-    plot_pop=True
-    plot_nns=True
-    plot_slice=True
-    plot_poplines=True
-    plot_threshlines=True
-    plot_zerocolors=False
-    plot_thresh1line=False
-    calc_thresh1=False
-    hide_qualikiz=False
-    debug=False
-    parallel=False
-if mode == 'quick':
-    plot=False
-    plot_pop=False
-    plot_nns=False
-    plot_slice=False
-    plot_poplines=False
-    plot_threshlines=False
-    plot_zerocolors=False
-    plot_thresh1line=False
-    calc_thresh1=False
-    hide_qualikiz=False
-    debug=False
-    parallel=True
+def mode_to_settings(mode):
+    settings = {}
+    if mode == 'debug':
+        settings['plot']             = True
+        settings['plot_pop']         = True
+        settings['plot_nns']         = True
+        settings['plot_slice']       = True
+        settings['plot_poplines']    = True
+        settings['plot_threshlines'] = True
+        settings['plot_zerocolors']  = False
+        settings['plot_thresh1line'] = False
+        settings['calc_thresh1']     = False
+        settings['hide_qualikiz']    = False
+        settings['debug']            = False
+        settings['parallel']         = False
+    if mode == 'quick':
+        settings['plot']             = False
+        settings['plot_pop']         = False
+        settings['plot_nns']         = False
+        settings['plot_slice']       = False
+        settings['plot_poplines']    = False
+        settings['plot_threshlines'] = False
+        settings['plot_zerocolors']  = False
+        settings['plot_thresh1line'] = False
+        settings['calc_thresh1']     = False
+        settings['hide_qualikiz']    = False
+        settings['debug']            = False
+        settings['parallel']         = True
+    return settings
 
-if style == 'c_L2':
-    nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
-    #                       (48, '$c_{L2} = 0.05$'),
-                           (37, '$c_{L2} = 0.1$'),
-    #                       (50, '$c_{L2} = 0.2$'),
-    #                       (51, '$c_{L2} = 0.35$'),
-                           (49, '$c_{L2} = 0.5$'),
-    #                       (52, '$c_{L2} = 1.0$'),
-                           (53, '$c_{L2} = 2.0$')])
-elif style == 'topo':
-    nn_list = OrderedDict([(65, 'neurons = $(10, 10)$'),
-                           (64, 'neurons = $(30, 30)$'),
-                           (73, 'neurons = $(30, 30, 30)$'),
-                           (83, 'neurons = $(45, 45)$'),
-                           (34, 'neurons = $(60, 60)$'),
-                           (38, 'neurons = $(80, 80)$'),
-                           (66, 'neurons = $(120, 120)$')])
-elif style == 'filter':
-    #nn_list = OrderedDict([(37, 'filter = 3'),
-    #                       (58, 'filter = 4'),
-    #                       (60, 'filter = 5')])
-    nn_list = OrderedDict([(37, '$max(\chi_{ETG,e}) = 60$'),
-                           (60, '$max(\chi_{ETG,e}) = 100$')])
-elif style == 'goodness':
-    nn_list = OrderedDict([(62, 'goodness = mabse'),
-                           (37, 'goodness = mse')])
-elif style == 'early_stop':
-    nn_list = OrderedDict([(37, 'stop measure = loss'),
-                           #(11, '$early_stop = mse'),
-                           (18, 'stop measure = MSE')])
-elif style == 'similar':
-    nn_list = OrderedDict([
-                           (37, '37'),
-                           (67, '67'),
-                           (68, '68'),
-                           (69, '69'),
-                           (70, '70'),
-                           (71, '71'),
-                           (72, '72'),
-                           (73, '73'),
-                           (74, '74'),
-                           ])
-elif style == 'best':
-    nn_list = OrderedDict([(46, '')]) #efeETG
-    nn_list = OrderedDict([(88, '')]) #efiITG
+def populate_nn_list(style):
+    if style == 'c_L2':
+        nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
+        #                       (48, '$c_{L2} = 0.05$'),
+                               (37, '$c_{L2} = 0.1$'),
+        #                       (50, '$c_{L2} = 0.2$'),
+        #                       (51, '$c_{L2} = 0.35$'),
+                               (49, '$c_{L2} = 0.5$'),
+        #                       (52, '$c_{L2} = 1.0$'),
+                               (53, '$c_{L2} = 2.0$')])
+    elif style == 'topo':
+        nn_list = OrderedDict([(65, 'neurons = $(10, 10)$'),
+                               (64, 'neurons = $(30, 30)$'),
+                               (73, 'neurons = $(30, 30, 30)$'),
+                               (83, 'neurons = $(45, 45)$'),
+                               (34, 'neurons = $(60, 60)$'),
+                               (38, 'neurons = $(80, 80)$'),
+                               (66, 'neurons = $(120, 120)$')])
+    elif style == 'filter':
+        #nn_list = OrderedDict([(37, 'filter = 3'),
+        #                       (58, 'filter = 4'),
+        #                       (60, 'filter = 5')])
+        nn_list = OrderedDict([(37, '$max(\chi_{ETG,e}) = 60$'),
+                               (60, '$max(\chi_{ETG,e}) = 100$')])
+    elif style == 'goodness':
+        nn_list = OrderedDict([(62, 'goodness = mabse'),
+                               (37, 'goodness = mse')])
+    elif style == 'early_stop':
+        nn_list = OrderedDict([(37, 'stop measure = loss'),
+                               #(11, '$early_stop = mse'),
+                               (18, 'stop measure = MSE')])
+    elif style == 'similar':
+        nn_list = OrderedDict([
+                               (37, '37'),
+                               (67, '67'),
+                               (68, '68'),
+                               (69, '69'),
+                               (70, '70'),
+                               (71, '71'),
+                               (72, '72'),
+                               (73, '73'),
+                               (74, '74'),
+                               ])
+    elif style == 'best':
+        nn_list = OrderedDict([(46, '')]) #efeETG
+        nn_list = OrderedDict([(88, '')]) #efiITG
 
-elif style == 'duo':
-    nn_list = OrderedDict([
-        (205, 'es_20'),
-        (204, 'es_5'),
-        (203, 'es_wrong')
-        ])
+    elif style == 'duo':
+        nn_list = OrderedDict([
+            (205, 'es_20'),
+            (204, 'es_5'),
+            (203, 'es_wrong')
+            ])
 
-#nn_list = OrderedDict([(88, 'efiITG_GB')])
+    return nn_list
 
 slicedim = 'Ati'
 def prep_nns(nn_list, style, slicedim):
@@ -178,6 +182,7 @@ data = store['megarun1/flattened']
 #itor = zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.09']); slicedim = 'Ate'
     #for name, val in itor:
     #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
+nn_list = populate_nn_list(style)
 nns = prep_nns(nn_list, style, slicedim)
 df, target_names = prep_df(input, data, nns)
 unsafe = is_unsafe(df, nns)
@@ -209,14 +214,14 @@ def calculate_thresh2(feature, target, debug=False):
 
     return thresh2
 #5.4 ms ± 115 µs per loop (mean ± std. dev. of 7 runs, 100 loops each) total
-def process_chunk(target_names, chunck):
+def process_chunk(target_names, chunck, settings=None):
 
     res = []
     for ii, row in enumerate(chunck.iterrows()):
-        res.append(process_row(target_names, row))
+        res.append(process_row(target_names, row, settings=settings))
     return res
 
-def process_row(target_names, row, ax1=None, unsafe=True):
+def process_row(target_names, row, ax1=None, unsafe=True, settings=None):
     index, slice_ = row
     feature = slice_.index.levels[1]
     #target = slice.loc[target_names]
@@ -230,7 +235,7 @@ def process_row(target_names, row, ax1=None, unsafe=True):
         popbacks = np.empty_like(thresh_nn)
         thresh1_misses = np.empty_like(thresh_nn)
         thresh2_misses = np.empty_like(thresh_nn)
-        if plot_zerocolors:
+        if settings['plot_zerocolors']:
             maxgam = slice_['maxgam']
 
         # Create slice, assume sorted
@@ -239,18 +244,18 @@ def process_row(target_names, row, ax1=None, unsafe=True):
                         feature.values[-1],
                         200)
         #if plot:
-        if not ax1 and plot:
+        if not ax1 and settings['plot']:
             fig = plt.figure()
-            if plot_pop and plot_slice:
+            if settings['plot_pop'] and settings['plot_slice']:
                 gs = gridspec.GridSpec(2, 2, height_ratios=[10, 1], width_ratios=[5,1],
                                     left=0.05, right=0.95, wspace=0.05, hspace=0.05)
                 ax2 = plt.subplot(gs[1,0])
                 ax3 = plt.subplot(gs[0,1])
-            if not plot_pop and plot_slice:
+            if not settings['plot_pop'] and settings['plot_slice']:
                 gs = gridspec.GridSpec(2, 1, height_ratios=[10, 2], width_ratios=[1],
                                     left=0.05, right=0.95, wspace=0.05, hspace=0.05)
                 ax2 = plt.subplot(gs[1,0])
-            if not plot_pop and not plot_slice:
+            if not settings['plot_pop'] and not settings['plot_slice']:
                 gs = gridspec.GridSpec(1, 1, height_ratios=[1], width_ratios=[1],
                                     left=0.05, right=0.95, wspace=0.05, hspace=0.05)
             ax1 = plt.subplot(gs[0,0])
@@ -264,14 +269,14 @@ def process_row(target_names, row, ax1=None, unsafe=True):
             ax1.set_prop_cycle(cycler('color', plt.cm.plasma(color_range)))
             ax1.set_xlabel(nameconvert[slicedim])
             ax1.set_ylabel(nameconvert[list(nns.items())[0][1]._target_names[0]])
-        if calc_thresh1:
-            thresh1 = calculate_thresh1(x, feature, target, debug=debug)
+        if settings['calc_thresh1']:
+            thresh1 = calculate_thresh1(x, feature, target, debug=settings['debug'])
             print('whyyy?')
 
         # 12.5 µs ± 970 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        thresh2 = calculate_thresh2(feature.values, target[0,:], debug=debug)
+        thresh2 = calculate_thresh2(feature.values, target[0,:], debug=settings['debug'])
 
-        if plot and plot_threshlines:
+        if settings['plot'] and settings['plot_threshlines']:
             ax1.axvline(thresh2, c='black', linestyle='dashed')
 
         # 13.7 µs ± 1.1 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
@@ -287,7 +292,7 @@ def process_row(target_names, row, ax1=None, unsafe=True):
 
         # Plot target points
 
-        if plot and plot_slice:
+        if settings['plot'] and settings['plot_slice']:
             table = ax2.table(cellText=[[nameconvert[name] for name in df.index.names],
                                         ['{:.2f}'.format(xx) for xx in index]],cellLoc='center')
             table.auto_set_font_size(False)
@@ -307,7 +312,7 @@ def process_row(target_names, row, ax1=None, unsafe=True):
             else:
                 nn_pred = nn.get_output(pd.DataFrame(slice_dict), safe=not unsafe, output_pandas=True).values[:,0]
 
-        if plot and plot_nns:
+        if settings['plot'] and settings['plot_nns']:
             lines = []
             if style == 'duo':
                 labels = np.repeat([nn.label for nn in nns.values()], 2)
@@ -334,10 +339,10 @@ def process_row(target_names, row, ax1=None, unsafe=True):
                 except IndexError:
                     thresh_nn[ii] = np.nan
 
-        if plot and plot_threshlines:
+        if settings['plot'] and settings['plot_threshlines']:
             for ii, row in enumerate(thresh_nn):
                 ax1.axvline(row, c=lines[ii].get_color(), linestyle='dotted')
-            if debug:
+            if settings['debug']:
                 print('network ', nn_index, 'threshold ', thresh)
 
 
@@ -357,16 +362,16 @@ def process_row(target_names, row, ax1=None, unsafe=True):
                         popbacks[ii] = np.nan
                 else:
                     popbacks[ii] = np.nan
-        if plot and plot_threshlines:
+        if settings['plot'] and settings['plot_threshlines']:
             for ii, row in enumerate(popbacks):
                 ax1.axvline(row, c=lines[ii].get_color(), linestyle='dashdot')
 
-            if debug:
+            if settings['debug']:
                 print('network ', nn_index, 'threshold ', thresh)
 
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
-        if plot and plot_pop:
+        if settings['plot'] and settings['plot_pop']:
             thresh2_misses = thresh_nn - thresh2
             thresh2_popback = popbacks - thresh2
             slice_stats = np.array([thresh2_misses, thresh2_popback]).T
@@ -377,11 +382,11 @@ def process_row(target_names, row, ax1=None, unsafe=True):
             table.auto_set_font_size(False)
             ax3.axis('tight')
             ax3.axis('off')
-        if debug:
+        if settings['debug']:
             print(slice_stats.flatten())
 
-        if plot:
-            if plot_zerocolors:
+        if settings['plot']:
+            if settings['plot_zerocolors']:
                 color = target.copy()
                 color[(target == 0) & (maxgam == 0)] = 'green'
                 color[(target != 0) & (maxgam == 0)] = 'red'
@@ -389,7 +394,7 @@ def process_row(target_names, row, ax1=None, unsafe=True):
                 color[(target != 0) & (maxgam != 0)] = 'blue'
             else:
                 color='blue'
-            if hide_qualikiz:
+            if settings['hide_qualikiz']:
                 color='white'
                 zorder=1
                 label=''
@@ -403,7 +408,7 @@ def process_row(target_names, row, ax1=None, unsafe=True):
                             column, c=color, label=label, marker=marker, zorder=zorder)
 
         # Plot regression
-        if plot and plot_thresh1line and not np.isnan(thresh1):
+        if settings['plot'] and settings['plot_thresh1line'] and not np.isnan(thresh1):
             #plot_min = ax1.get_ylim()[0]
             plot_min = -0.1
             x_plot = x[(thresh_pred > plot_min) & (thresh_pred < ax1.get_ylim()[1])]
@@ -413,7 +418,7 @@ def process_row(target_names, row, ax1=None, unsafe=True):
             #ax1.axvline(thresh1, c='black', linestyle='dotted')
 
         slice_res = np.array([thresh_nn, popbacks]).T
-        if plot:
+        if settings['plot']:
             ax1.legend()
             ax1.set_ylim(bottom=min(ax1.get_ylim()[0], 0))
             plt.show()
@@ -424,7 +429,8 @@ def process_row(target_names, row, ax1=None, unsafe=True):
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
 
-if parallel:
+settings = mode_to_settings(mode)
+if settings['parallel']:
     num_processes = cpu_count()
     chunk_size = int(df.shape[0]/num_processes)
     chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
@@ -432,10 +438,10 @@ if parallel:
 
 starttime = time.time()
 
-if not parallel:
-    results = process_chunk(target_names, df)
+if not settings['parallel']:
+    results = process_chunk(target_names, df, settings=settings)
 else:
-    results = pool.map(partial(process_chunk, target_names), chunks)
+    results = pool.map(partial(process_chunk, target_names, settings=settings), chunks)
 #for row in df.iterrows():
 #    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
