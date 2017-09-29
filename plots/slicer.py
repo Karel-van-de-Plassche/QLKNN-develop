@@ -161,7 +161,7 @@ def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=Tr
         #for name, val in itor:
         #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
-    #df = df.iloc[1040:20040,:]
+    df = df.iloc[1040:20040,:]
     return df, target_names
 
 def is_unsafe(df, nns):
@@ -416,69 +416,95 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
     #sliced += 1
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
+def extract_stats(totstats):
+    df = totstats
+    totstats = totstats.reorder_levels([2,0,1], axis=1)
 
-style = 'duo'
-mode = 'debug'
-mode = 'quick'
+    results = pd.DataFrame()
 
-slicedim = 'Ati'
-store = pd.HDFStore('../7D_nions0_flat.h5')
-input = store['megarun1/input']
-data = store['megarun1/flattened']
-nn_list = populate_nn_list(style)
-if style != 'similar':
-    labels=True
-else:
-    labels=False
-nns = prep_nns(nn_list, slicedim, labels=labels)
-filter_less = 140
-filter_geq = 0
-df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
-unsafe = is_unsafe(df, nns)
+    for relabs, measure in zip(['rel', 'abs'], ['thresh', 'pop']):
+        df = totstats[measure]
+        qlk_data = df['QLK']
+        network_data = df.drop('QLK', axis=1)
+        if relabs == 'rel':
+            mis = network_data.subtract(qlk_data, level=1).divide(qlk_data, level=1)
+        elif relabs == 'abs':
+            mis = network_data.subtract(qlk_data, level=1)
 
-settings = mode_to_settings(mode)
-if settings['parallel']:
-    num_processes = cpu_count()
-    chunk_size = int(df.shape[0]/num_processes)
-    chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
-    pool = Pool(processes=num_processes)
+        quant1 = 0.025
+        quant2 = 1 - quant1
+        quant = mis.quantile([quant1, quant2])
+        results['_'.join([measure, relabs, 'mis', 'median'])] = mis.median()
+        results['_'.join([measure, relabs, 'mis', '95width'])] = quant.loc[quant2] - quant.loc[quant1]
 
-starttime = time.time()
 
-if not settings['parallel']:
-    results = process_chunk(target_names, df, settings=settings, unsafe=unsafe)
-else:
-    results = pool.map(partial(process_chunk, target_names, settings=settings, unsafe=unsafe), chunks)
-#for row in df.iterrows():
-#    process_row(row)
-print(len(df), 'took ', time.time() - starttime, ' seconds')
 
-zero_slices = 0
-totstats = []
-qlk_thresh = []
-for result in chain(*results):
-    if result[0] == 1:
-        zero_slices += 1
+    embed()
+
+if __name__ == '__main__':
+    style = 'duo'
+    mode = 'debug'
+    mode = 'quick'
+
+    slicedim = 'Ati'
+    store = pd.HDFStore('../7D_nions0_flat.h5')
+    input = store['megarun1/input']
+    data = store['megarun1/flattened']
+    nn_list = populate_nn_list(style)
+    if style != 'similar':
+        labels=True
     else:
-        totstats.append(result[2])
-        qlk_thresh.append(result[1])
+        labels=False
+    nns = prep_nns(nn_list, slicedim, labels=labels)
+    filter_less = np.inf
+    filter_geq = -np.inf
+    df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
+    unsafe = is_unsafe(df, nns)
 
-stats = ['thresh', 'pop']
-totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, stats))))
+    settings = mode_to_settings(mode)
+    if settings['parallel']:
+        num_processes = cpu_count()
+        chunk_size = int(df.shape[0]/num_processes)
+        chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
+        pool = Pool(processes=num_processes)
 
-qlk_columns = list(product(['QLK'], target_names, stats))
-qlk_data = np.full([len(totstats), len(qlk_columns)], np.nan)
-qlk_data[:, ::] = np.tile(qlk_thresh, np.array([len(qlk_columns),1])).T
-qlk_data = pd.DataFrame(qlk_data, columns=pd.MultiIndex.from_tuples(qlk_columns))
+    starttime = time.time()
 
-totstats = totstats.join(qlk_data)
+    if not settings['parallel']:
+        results = process_chunk(target_names, df, settings=settings, unsafe=unsafe)
+    else:
+        results = pool.map(partial(process_chunk, target_names, settings=settings, unsafe=unsafe), chunks)
+    #for row in df.iterrows():
+    #    process_row(row)
+    print(len(df), 'took ', time.time() - starttime, ' seconds')
 
-#slice = df.sample(1)
-#plt.scatter(slice[slicedim], target)
+    zero_slices = 0
+    totstats = []
+    qlk_thresh = []
+    for result in chain(*results):
+        if result[0] == 1:
+            zero_slices += 1
+        else:
+            totstats.append(result[2])
+            qlk_thresh.append(result[1])
 
-#for el in product(*uni.values()):
-print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
-embed()
-totstats._metadata = {'zero_slices': zero_slices}
-with open('totstats_' + style + '.pkl', 'wb') as file_:
-    pickle.dump(totstats, file_)
+    stats = ['thresh', 'pop']
+    totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, stats))))
+
+    qlk_columns = list(product(['QLK'], target_names, stats))
+    qlk_data = np.full([len(totstats), len(qlk_columns)], np.nan)
+    qlk_data[:, ::] = np.tile(qlk_thresh, np.array([len(qlk_columns),1])).T
+    qlk_data = pd.DataFrame(qlk_data, columns=pd.MultiIndex.from_tuples(qlk_columns))
+
+    totstats = totstats.join(qlk_data)
+    extract_stats(totstats)
+
+    #slice = df.sample(1)
+    #plt.scatter(slice[slicedim], target)
+
+    #for el in product(*uni.values()):
+    print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
+    embed()
+    totstats._metadata = {'zero_slices': zero_slices}
+    with open('totstats_' + style + '.pkl', 'wb') as file_:
+        pickle.dump(totstats, file_)
