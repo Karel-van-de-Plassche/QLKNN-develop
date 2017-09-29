@@ -33,15 +33,8 @@ else:
 
 from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
-#    for slicedim, var in slice['input'].items():
-#        try:
-#            in_df = in_df.loc[np.isclose(in_df[slicedim], var, atol=1e-5, rtol=1e-3)]
-#        except KeyError:
-#            pass
-nn_indeces = [37, 58, 60] #nozero <60, zero <60, zero <100
-nn_indeces = [62, 63] #nozero mabse <60, zero mabse <60
-nn_indeces = [58, 63]
 from collections import OrderedDict
+
 style = 'duo'
 mode = 'debug'
 mode = 'quick'
@@ -162,7 +155,7 @@ def prep_df(input, data, nns):
     df = shuffle_panda(df)
     #df.sort_values('smag', inplace=True)
 
-    df = df.iloc[1040:20400,:]
+    df = df.iloc[1040:20040,:]
     return df, target_names
 
 def is_unsafe(df, nns):
