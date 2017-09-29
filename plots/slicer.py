@@ -35,9 +35,6 @@ from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
 
-style = 'duo'
-mode = 'debug'
-mode = 'quick'
 def mode_to_settings(mode):
     settings = {}
     if mode == 'debug':
@@ -124,7 +121,6 @@ def populate_nn_list(style):
 
     return nn_list
 
-slicedim = 'Ati'
 def prep_nns(nn_list, style, slicedim):
     nns = OrderedDict()
     for nn_index, nn_label in nn_list.items():
@@ -158,6 +154,12 @@ def prep_df(input, data, nns):
     df = df.unstack(slicedim)
     df = shuffle_panda(df)
     #df.sort_values('smag', inplace=True)
+    #input, data = prettify_df(input, data)
+    #input = input.astype('float64')
+    # Filter
+    #itor = zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.09']); slicedim = 'Ate'
+        #for name, val in itor:
+        #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
     df = df.iloc[1040:20040,:]
     return df, target_names
@@ -172,20 +174,6 @@ def is_unsafe(df, nns):
             unsafe = False
     print('dataset loaded!')
     return unsafe
-
-store = pd.HDFStore('../7D_nions0_flat.h5')
-input = store['megarun1/input']
-data = store['megarun1/flattened']
-#input, data = prettify_df(input, data)
-#input = input.astype('float64')
-# Filter
-#itor = zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.09']); slicedim = 'Ate'
-    #for name, val in itor:
-    #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
-nn_list = populate_nn_list(style)
-nns = prep_nns(nn_list, style, slicedim)
-df, target_names = prep_df(input, data, nns)
-unsafe = is_unsafe(df, nns)
 
 
 def calculate_thresh1(x, feature, target, debug=False):
@@ -214,14 +202,14 @@ def calculate_thresh2(feature, target, debug=False):
 
     return thresh2
 #5.4 ms ± 115 µs per loop (mean ± std. dev. of 7 runs, 100 loops each) total
-def process_chunk(target_names, chunck, settings=None):
+def process_chunk(target_names, chunck, settings=None, unsafe=False):
 
     res = []
     for ii, row in enumerate(chunck.iterrows()):
-        res.append(process_row(target_names, row, settings=settings))
+        res.append(process_row(target_names, row, settings=settings, unsafe=unsafe))
     return res
 
-def process_row(target_names, row, ax1=None, unsafe=True, settings=None):
+def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
     index, slice_ = row
     feature = slice_.index.levels[1]
     #target = slice.loc[target_names]
@@ -429,6 +417,19 @@ def process_row(target_names, row, ax1=None, unsafe=True, settings=None):
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
 
+style = 'duo'
+mode = 'debug'
+mode = 'quick'
+
+slicedim = 'Ati'
+store = pd.HDFStore('../7D_nions0_flat.h5')
+input = store['megarun1/input']
+data = store['megarun1/flattened']
+nn_list = populate_nn_list(style)
+nns = prep_nns(nn_list, style, slicedim)
+df, target_names = prep_df(input, data, nns)
+unsafe = is_unsafe(df, nns)
+
 settings = mode_to_settings(mode)
 if settings['parallel']:
     num_processes = cpu_count()
@@ -439,9 +440,9 @@ if settings['parallel']:
 starttime = time.time()
 
 if not settings['parallel']:
-    results = process_chunk(target_names, df, settings=settings)
+    results = process_chunk(target_names, df, settings=settings, unsafe=unsafe)
 else:
-    results = pool.map(partial(process_chunk, target_names, settings=settings), chunks)
+    results = pool.map(partial(process_chunk, target_names, settings=settings, unsafe=unsafe), chunks)
 #for row in df.iterrows():
 #    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
@@ -456,9 +457,14 @@ for result in chain(*results):
         totstats.append(result[2])
         qlk_thresh.append(result[1])
 
-#totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
 stats = ['thresh', 'pop']
 totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, stats))))
+
+qlk_columns = list(product(['QLK'], target_names, stats))
+qlk_data = np.full([len(totstats), len(qlk_columns)], np.nan)
+qlk_data[:, ::] = np.tile(qlk_thresh, np.array([len(qlk_columns),1])).T
+qlk_data = pd.DataFrame(qlk_data, columns=pd.MultiIndex.from_tuples(qlk_columns))
+totstats = totstats.join(qlk_data)
 
 #slice = df.sample(1)
 #plt.scatter(slice[slicedim], target)

@@ -496,6 +496,9 @@ class Postprocessing(BaseModel):
     filtered_real_loss = FloatField()
     filtered_real_loss_function = TextField()
 
+class PostprocessSlice(BaseModel):
+    network = ForeignKeyField(Network, related_name='postprocess_slice')
+
 
 def create_tables():
     db.execute_sql('SET ROLE developer')
