@@ -44,7 +44,7 @@ nn_indeces = [58, 63]
 from collections import OrderedDict
 style = 'duo'
 mode = 'debug'
-mode = 'quick'
+#mode = 'quick'
 if mode == 'debug':
     plot=True
     plot_pop=True
@@ -372,14 +372,14 @@ def process_row(row, nns, target_names, ax1=None, unsafe=True):
                 print('network ', nn_index, 'threshold ', thresh)
 
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        thresh2_misses = thresh_nn - thresh2
-        thresh2_popback = popbacks - thresh2
-        slice_stats = np.array([thresh2_misses, thresh2_popback]).T
 
         if plot and plot_pop:
+            thresh2_misses = thresh_nn - thresh2
+            thresh2_popback = popbacks - thresh2
+            slice_stats = np.array([thresh2_misses, thresh2_popback]).T
             slice_strings = np.array(['{:.1f}'.format(xx) for xx in slice_stats.reshape(slice_stats.size)])
             slice_strings = slice_strings.reshape(slice_stats.shape)
-            slice_strings = np.insert(slice_strings, 0, ['thre', 'pop'], axis=0)
+            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis'], axis=0)
             table = ax3.table(cellText=slice_strings, loc='center')
             table.auto_set_font_size(False)
             ax3.axis('tight')
@@ -419,13 +419,14 @@ def process_row(row, nns, target_names, ax1=None, unsafe=True):
             ax1.plot(x[x< thresh1], np.zeros_like(x[x< thresh1]), c='gray', linestyle='dotted')
             #ax1.axvline(thresh1, c='black', linestyle='dotted')
 
+        slice_res = np.array([thresh_nn, popbacks]).T
         if plot:
             ax1.legend()
             ax1.set_ylim(bottom=min(ax1.get_ylim()[0], 0))
             plt.show()
             fig.savefig('slice.pdf', format='pdf', bbox_inches='tight')
             embed()
-        return (0, slice_stats.flatten())
+        return (0, thresh2, slice_res.flatten())
     #sliced += 1
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
@@ -439,7 +440,7 @@ if parallel:
 starttime = time.time()
 
 if not parallel:
-    totstats = process_chunk(nns, target_names, df)
+    results = process_chunk(nns, target_names, df)
 else:
     totstats = []
     results = pool.map(partial(process_chunk, nns, target_names), chunks)
@@ -452,13 +453,13 @@ for result in chain(*results):
     if result[0] == 1:
         zero_slices += 1
     else:
-        totstats.append(result[1])
+        totstats.append(result[2])
+        qlk_thresh.append(result[1])
 
 #totstats =  pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], ['thresh', 'pop']))))
-totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, ['thresh', 'pop']))))
+stats = ['thresh', 'pop']
+totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, stats))))
 
-print(len(df))
-print('took ', time.time() - starttime, ' seconds')
 #slice = df.sample(1)
 #plt.scatter(slice[slicedim], target)
 
