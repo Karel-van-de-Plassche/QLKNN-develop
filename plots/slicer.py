@@ -44,7 +44,7 @@ nn_indeces = [58, 63]
 from collections import OrderedDict
 style = 'duo'
 mode = 'debug'
-#mode = 'quick'
+mode = 'quick'
 if mode == 'debug':
     plot=True
     plot_pop=True
@@ -162,7 +162,7 @@ def prep_df(input, data, nns):
     df = shuffle_panda(df)
     #df.sort_values('smag', inplace=True)
 
-    df = df.iloc[1040:2040,:]
+    df = df.iloc[1040:20400,:]
     return df, target_names
 
 def is_unsafe(df, nns):
@@ -216,14 +216,14 @@ def calculate_thresh2(feature, target, debug=False):
 
     return thresh2
 #5.4 ms ± 115 µs per loop (mean ± std. dev. of 7 runs, 100 loops each) total
-def process_chunk(nns, target_names, chunck):
+def process_chunk(target_names, chunck):
 
     res = []
     for ii, row in enumerate(chunck.iterrows()):
-        res.append(process_row(row, nns, target_names))
+        res.append(process_row(target_names, row))
     return res
 
-def process_row(row, nns, target_names, ax1=None, unsafe=True):
+def process_row(target_names, row, ax1=None, unsafe=True):
     index, slice_ = row
     feature = slice_.index.levels[1]
     #target = slice.loc[target_names]
@@ -440,15 +440,16 @@ if parallel:
 starttime = time.time()
 
 if not parallel:
-    results = process_chunk(nns, target_names, df)
+    results = process_chunk(target_names, df)
 else:
-    totstats = []
-    results = pool.map(partial(process_chunk, nns, target_names), chunks)
+    results = pool.map(partial(process_chunk, target_names), chunks)
 #for row in df.iterrows():
 #    process_row(row)
 print(len(df), 'took ', time.time() - starttime, ' seconds')
 
 zero_slices = 0
+totstats = []
+qlk_thresh = []
 for result in chain(*results):
     if result[0] == 1:
         zero_slices += 1
