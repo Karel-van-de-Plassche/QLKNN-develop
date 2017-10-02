@@ -22,6 +22,7 @@
 #include "mkl.h"
 #include "omp.h"
 #include "mkl_vml_functions.h"
+#include "mkl_vml.h"
 
 static PyObject *ErrorObject;
 
@@ -224,6 +225,11 @@ Layer_apply(LayerObject *self, PyObject *args)
             break;
         case NONE:
             break;
+        case RELU:
+            double *zeros;
+            for (int ii = 0; ii < m*n; ii++)
+                zeros[ii] = 0.0;
+            vdFmax(m*n, C, zeros, C);
         default:
             PyErr_SetString(PyExc_AttributeError, "_activation has an unknown value");
             return NULL;
