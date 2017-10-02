@@ -34,6 +34,8 @@ else:
 from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
+from peewee import Param
+import re
 
 def mode_to_settings(mode):
     settings = {}
@@ -64,6 +66,34 @@ def mode_to_settings(mode):
         settings['debug']            = False
         settings['parallel']         = True
     return settings
+
+def nn_list_from_NNDB(max=20):
+    non_sliced = (Network
+                  .select(Network.id, Network.target_names, Network.feature_names)
+                  .where(Network.id.not_in(
+                      PostprocessSlice
+                      .select(PostprocessSlice.network_id)
+                  ))
+                 )
+    network = non_sliced.get()
+
+    non_sliced = (non_sliced
+                  .where(Network.target_names == Param(network.target_names))
+                  .where(Network.feature_names == Param(network.feature_names))
+                  )
+    style = 'mono'
+    if len(network.target_names) == 2:
+        match_0 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[0])
+        match_1 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[1])
+        if len(match_0) == 1 and len(match_1) == 1:
+            group_0 = match_0[0]
+            group_1 = match_1[0]
+            if ((group_0[1] == 'e' and group_1[1] == 'i') or
+                (group_0[1] == 'i' and group_1[1] == 'e')):
+                style='duo'
+    nn_list = {network.id: str(network.id) for network in non_sliced}
+    return style, nn_list
+
 
 def populate_nn_list(style):
     if style == 'c_L2':
@@ -479,6 +509,7 @@ if __name__ == '__main__':
     input = store['megarun1/input']
     data = store['megarun1/flattened']
     nn_list = populate_nn_list(style)
+    style, nn_list = nn_list_from_NNDB()
     if style != 'similar':
         labels=True
     else:
