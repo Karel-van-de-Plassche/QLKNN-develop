@@ -4,7 +4,7 @@ from multiprocessing import Pool, cpu_count
 import numpy as np
 import scipy.stats as stats
 import pandas as pd
-from itertools import product, chain
+from itertools import product, chain, zip_longest
 import pickle
 import os
 import sys
@@ -15,7 +15,7 @@ training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../..
 sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
-from model import Network, NetworkJSON
+from model import Network, NetworkJSON, PostprocessSlice
 from run_model import QuaLiKizNDNN
 from train_NDNN import shuffle_panda
 from functools import partial
@@ -161,7 +161,7 @@ def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=Tr
         #for name, val in itor:
         #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
-    df = df.iloc[1040:20040,:]
+    df = df.iloc[1040:2040,:]
     return df, target_names
 
 def is_unsafe(df, nns):
@@ -416,7 +416,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
     #sliced += 1
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
-def extract_stats(totstats):
+def extract_stats(totstats, style):
     df = totstats
     totstats = totstats.reorder_levels([2,0,1], axis=1)
 
@@ -437,12 +437,40 @@ def extract_stats(totstats):
         results['_'.join([measure, relabs, 'mis', 'median'])] = mis.median()
         results['_'.join([measure, relabs, 'mis', '95width'])] = quant.loc[quant2] - quant.loc[quant1]
 
+        results['_'.join(['no', measure, 'frac'])] = mis.isnull().sum() / len(mis)
 
+    if style == 'duo':
+        duo_results = pd.DataFrame()
+        network_data = network_data.reorder_levels([1, 0], axis=1)
+        efelike_name = network_data.columns[1][0]
+        efilike_name = network_data.columns[0][0]
+        mis = network_data[efilike_name] - network_data[efelike_name]
+        duo_results['dual_thresh_mismatch_median'] = mis.median()
+        duo_results['no_dual_thresh_frac'] = mis.isnull().sum() / len(mis)
+    else:
+        duo_results = pd.DataFrame()
+    return results, duo_results
 
-    embed()
+def extract_nn_stats(results, duo_results, nns):
+    for (network_name, res), (duo_item) in zip_longest(results.unstack().iterrows(), duo_results.iterrows()):
+        network_number = next(key for key, value in nn_list.items() if value == network_name)
+        nn = nns[network_number]
+        res_dict = {'network': network_number}
+        for stat, val in res.unstack(level=0).iteritems():
+            res_dict[stat] = val.loc[nn._target_names].values
 
+        if duo_item is not None:
+            duo_name, duo_res = duo_item
+            if duo_name != network_name:
+                raise Exception("Something went horribly wrong..")
+            else:
+                res_dict.update(duo_res)
+
+        postprocess_slice = PostprocessSlice(**res_dict)
+        postprocess_slice.save()
 if __name__ == '__main__':
     style = 'duo'
+    style = 'best'
     mode = 'debug'
     mode = 'quick'
 
@@ -497,7 +525,8 @@ if __name__ == '__main__':
     qlk_data = pd.DataFrame(qlk_data, columns=pd.MultiIndex.from_tuples(qlk_columns))
 
     totstats = totstats.join(qlk_data)
-    extract_stats(totstats)
+    #res, duo_res = extract_stats(totstats, style)
+    #extract_nn_stats(res, duo_res, nns)
 
     #slice = df.sample(1)
     #plt.scatter(slice[slicedim], target)

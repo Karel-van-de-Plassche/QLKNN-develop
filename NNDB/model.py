@@ -498,11 +498,18 @@ class Postprocessing(BaseModel):
 
 class PostprocessSlice(BaseModel):
     network = ForeignKeyField(Network, related_name='postprocess_slice')
-
+    thresh_rel_mis_median       = ArrayField(FloatField)
+    thresh_rel_mis_95width      = ArrayField(FloatField)
+    no_thresh_frac              = ArrayField(FloatField)
+    pop_abs_mis_median          = ArrayField(FloatField)
+    pop_abs_mis_95width         = ArrayField(FloatField)
+    no_pop_frac                 = ArrayField(FloatField)
+    dual_thresh_mismatch_median = FloatField(null=True)
+    no_dual_thresh_frac         = FloatField(null=True)
 
 def create_tables():
     db.execute_sql('SET ROLE developer')
-    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript])
+    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocessing])
 
 def purge_tables():
     clsmembers = inspect.getmembers(sys.modules[__name__], lambda member: inspect.isclass(member) and member.__module__ == __name__)
