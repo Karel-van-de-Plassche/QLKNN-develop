@@ -17,13 +17,10 @@ module1 = Extension('qlknn',
                     sources = ['qlknnmodule.c'],
                     extra_link_args=extra_link_args, extra_compile_args=extra_compile_args)
 
-module2 = Extension('noddy',
-                    sources = ['noddymodule.c'])
-
 setup (name = 'PackageName',
        version = '1.0',
        description = 'This is a demo package',
-       ext_modules = [module1, module2])
+       ext_modules = [module1])
 
 # Compile with sudo python setup.py config --compiler=intelem build_clib --compiler=intelem build_ext --compiler=intelem install
 
