@@ -16,7 +16,7 @@ sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
 from model import Network, NetworkJSON, PostprocessSlice
-from run_model import QuaLiKizNDNN
+from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
 
@@ -181,7 +181,7 @@ def populate_nn_list(nn_set):
 
     return slicedim, style, nn_list
 
-def prep_nns(nn_list, slicedim, labels=True):
+def nns_from_nn_list(nn_list, slicedim, labels=True):
     nns = OrderedDict()
     for nn_index, nn_label in nn_list.items():
         nn = nns[nn_index] = load_nn(nn_index)
@@ -190,6 +190,30 @@ def prep_nns(nn_list, slicedim, labels=True):
         else:
             nn.label = ''
     return nns
+
+def nns_from_manual():
+    nns = OrderedDict()
+
+    div_nn = load_nn(405)
+    sum_nn = load_nn(406)
+    nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], div_nn, sum_nn, [lambda x, y: x * y/(x + 1), lambda x, y: y/(x + 1)])
+    nn.label = 'div_style'
+    nns[nn.label] = nn
+
+    nn_efi = load_nn(88)
+    nn_efe = load_nn(89)
+    nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], nn_efi, nn_efe, [lambda x, y: x, lambda x, y: y])
+    nn.label = 'sep_style'
+    nns[nn.label] = nn
+
+    nn = load_nn(205)
+    nn.label = 'combo_style'
+    nns[nn.label] = nn
+
+    slicedim = 'Ati'
+    style='duo'
+    return slicedim, style, nns
+
 
 def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
     target_names = list(nns.items())[0][1]._target_names
@@ -545,9 +569,14 @@ if __name__ == '__main__':
         labels=True
     else:
         labels=False
-    nns = prep_nns(nn_list, slicedim, labels=labels)
-    filter_less = np.inf
-    filter_geq = -np.inf
+    nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
+    slicedim, style, nns = nns_from_manual()
+    if mode == 'quick':
+        filter_geq = -np.inf
+        filter_less = np.inf
+    else:
+        filter_geq = 0
+        filter_less = 60
     df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
     unsafe = is_unsafe(df, nns)
 
@@ -558,7 +587,7 @@ if __name__ == '__main__':
         chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
         pool = Pool(processes=num_processes)
 
-    print('Starting {.d} slices for {.d} networks'.format(len(df), len(nns)))
+    print('Starting {:d} slices for {:d} networks'.format(len(df), len(nns)))
     starttime = time.time()
 
     if not settings['parallel']:
