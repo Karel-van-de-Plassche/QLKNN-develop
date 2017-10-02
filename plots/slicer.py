@@ -109,8 +109,8 @@ def nn_list_from_NNDB(max=20):
     return slicedim, style, nn_list
 
 
-def populate_nn_list(style):
-    if style == 'c_L2':
+def populate_nn_list(nn_set):
+    if nn_set == 'c_L2':
         nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
         #                       (48, '$c_{L2} = 0.05$'),
                                (37, '$c_{L2} = 0.1$'),
@@ -120,7 +120,8 @@ def populate_nn_list(style):
         #                       (52, '$c_{L2} = 1.0$'),
                                (53, '$c_{L2} = 2.0$')])
         slicedim = 'Ate'
-    elif style == 'topo':
+        style = 'mono'
+    elif nn_set == 'topo':
         nn_list = OrderedDict([(65, 'neurons = $(10, 10)$'),
                                (64, 'neurons = $(30, 30)$'),
                                (73, 'neurons = $(30, 30, 30)$'),
@@ -129,23 +130,27 @@ def populate_nn_list(style):
                                (38, 'neurons = $(80, 80)$'),
                                (66, 'neurons = $(120, 120)$')])
         slicedim = 'Ate'
-    elif style == 'filter':
+        style = 'mono'
+    elif nn_set == 'filter':
         #nn_list = OrderedDict([(37, 'filter = 3'),
         #                       (58, 'filter = 4'),
         #                       (60, 'filter = 5')])
         nn_list = OrderedDict([(37, '$max(\chi_{ETG,e}) = 60$'),
                                (60, '$max(\chi_{ETG,e}) = 100$')])
         slicedim = 'Ate'
-    elif style == 'goodness':
+        style = 'mono'
+    elif nn_set == 'goodness':
         nn_list = OrderedDict([(62, 'goodness = mabse'),
                                (37, 'goodness = mse')])
         slicedim = 'Ate'
-    elif style == 'early_stop':
+        style = 'mono'
+    elif nn_set == 'early_stop':
         nn_list = OrderedDict([(37, 'stop measure = loss'),
                                #(11, '$early_stop = mse'),
                                (18, 'stop measure = MSE')])
         slicedim = 'Ate'
-    elif style == 'similar':
+        style = 'mono'
+    elif nn_set == 'similar':
         nn_list = OrderedDict([
                                (37, '37'),
                                (67, '67'),
@@ -158,20 +163,23 @@ def populate_nn_list(style):
                                (74, '74'),
                                ])
         slicedim = 'Ate'
-    elif style == 'best':
+        style = 'mono'
+    elif nn_set == 'best':
         nn_list = OrderedDict([(46, '')]) #efeETG
         nn_list = OrderedDict([(88, '')]) #efiITG
         slicedim = 'Ate'
+        style = 'mono'
 
-    elif style == 'duo':
+    elif nn_set == 'duo':
         nn_list = OrderedDict([
             (205, 'es_20'),
             (204, 'es_5'),
             (203, 'es_wrong')
             ])
         slicedim = 'Ati'
+        style = 'duo'
 
-    return slicedim, nn_list
+    return slicedim, style, nn_list
 
 def prep_nns(nn_list, slicedim, labels=True):
     nns = OrderedDict()
@@ -519,17 +527,16 @@ def extract_nn_stats(results, duo_results, nns):
 
         postprocess_slice = PostprocessSlice(**res_dict)
         postprocess_slice.save()
-
 if __name__ == '__main__':
-    style = 'duo'
-    style = 'best'
+    nn_set = 'duo'
+    nn_set = 'best'
     mode = 'debug'
-    mode = 'quick'
+    #mode = 'quick'
 
     store = pd.HDFStore('../7D_nions0_flat.h5')
     input = store['megarun1/input']
     data = store['megarun1/flattened']
-    slicedim, nn_list = populate_nn_list(style)
+    slicedim, style, nn_list = populate_nn_list(nn_set)
     slicedim, style, nn_list = nn_list_from_NNDB()
     if style != 'similar':
         labels=True
