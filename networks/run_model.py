@@ -147,20 +147,19 @@ class QuaLiKizDuoNN():
             raise Exception('len(target_names) = {.f} and len(combo_func) = {.f}'
                             .format(len(target_names),  len(combo_funcs)))
         self._combo_funcs = combo_funcs
-        embed()
         self._target_names = target_names
 
-    def get_output(self, **kwargs):
+    def get_output(self, input, **kwargs):
         output = pd.DataFrame()
-        output1 = self._nn1.get_output(**kwargs)
-        output2 = self._nn2.get_output(**kwargs)
+        output1 = self._nn1.get_output(input, **kwargs)
+        output2 = self._nn2.get_output(input, **kwargs)
         for target_name, combo_func in zip(self._target_names, self._combo_funcs):
-            output[target_name] = np.squeeze(self.combo_func(output1, output2))
+            output[target_name] = np.squeeze(combo_func(output1, output2))
         return output
 
     @property
     def _feature_names(self):
-        return self._nn1.feature_names
+        return self._nn1._feature_names
 
     @property
     def _feature_max(self):
