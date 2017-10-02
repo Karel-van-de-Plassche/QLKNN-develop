@@ -136,38 +136,39 @@ class QuaLiKizComboNN():
         return feature_min
 
 class QuaLiKizDuoNN():
-    def __init__(self, target_name, nn1, nn2, combo_func):
+    def __init__(self, target_names, nn1, nn2, combo_funcs):
         self._nn1 = nn1
         self._nn2 = nn2
-        if np.any(self.feature_min > self.feature_max):
+        if np.any(self._feature_min > self._feature_max):
             raise Exception('Feature min > feature max')
-        if np.all(nn1.feature_names.ne(nn2.feature_names)):
-            Exception('Supplied NNs have different feature names')
-        self._combo_func = combo_func
-        self._target_name = target_name
+        if np.all(nn1._feature_names.ne(nn2._feature_names)):
+            raise Exception('Supplied NNs have different feature names')
+        if not len(target_names) == len(combo_funcs):
+            raise Exception('len(target_names) = {.f} and len(combo_func) = {.f}'
+                            .format(len(target_names),  len(combo_funcs)))
+        self._combo_funcs = combo_funcs
+        embed()
+        self._target_names = target_names
 
     def get_output(self, **kwargs):
         output = pd.DataFrame()
-        output1 = self._nn1.get_output(**kwargs).values
-        output2 = self._nn2.get_output(**kwargs).values
-        output[self._target_name] = np.squeeze(self._combo_func(output1, output2))
+        output1 = self._nn1.get_output(**kwargs)
+        output2 = self._nn2.get_output(**kwargs)
+        for target_name, combo_func in zip(self._target_names, self._combo_funcs):
+            output[target_name] = np.squeeze(self.combo_func(output1, output2))
         return output
 
     @property
-    def target_names(self):
-        return [self._target_name]
-
-    @property
-    def feature_names(self):
+    def _feature_names(self):
         return self._nn1.feature_names
 
     @property
-    def feature_max(self):
-        return self._nn1.feature_max.combine(self._nn2.feature_max, min)
+    def _feature_max(self):
+        return self._nn1._feature_max.combine(self._nn2._feature_max, min)
 
     @property
-    def feature_min(self):
-        return self._nn1.feature_min.combine(self._nn2.feature_min, max)
+    def _feature_min(self):
+        return self._nn1._feature_min.combine(self._nn2._feature_min, max)
 
 class QuaLiKizNDNN():
     def __init__(self, nn_dict, target_names_mask=None, layer_mode=default_layer_mode):
@@ -246,7 +247,6 @@ class QuaLiKizNDNN():
         #20.9 µs ± 2.43 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
         #19.1 µs ± 240 ns per loop (mean ± std. dev. of 7 runs, 10000 loops each)
         #2.67 µs ± 29.7 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-
 
         for layer in self.layers:
             output = np.empty([input.shape[0], layer._weights.shape[1]])
