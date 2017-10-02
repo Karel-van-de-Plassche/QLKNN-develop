@@ -219,6 +219,7 @@ Layer_apply(LayerObject *self, PyObject *args)
                 m, n, k, alpha, A, k, B, n, beta, C, n);
     //mode = VML_HA;
     //vmlSetMode(VML_LA);
+    double *zeros;
     switch(self->_activation) {
         case TANH:
             vdTanh(m*n, C, C);
@@ -226,10 +227,12 @@ Layer_apply(LayerObject *self, PyObject *args)
         case NONE:
             break;
         case RELU:
-            double *zeros;
+            zeros = (double *)calloc( m*n, sizeof( double ) );
             for (int ii = 0; ii < m*n; ii++)
                 zeros[ii] = 0.0;
             vdFmax(m*n, C, zeros, C);
+            free(zeros);
+            break;
         default:
             PyErr_SetString(PyExc_AttributeError, "_activation has an unknown value");
             return NULL;
