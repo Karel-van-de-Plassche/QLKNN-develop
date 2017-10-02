@@ -230,8 +230,11 @@ def is_unsafe(df, nns):
         slicedim_idx = nn._feature_names[nn._feature_names == slicedim].index[0]
         varlist = list(df.index.names)
         varlist.insert(slicedim_idx, slicedim)
-        if ~np.all(varlist == nn._feature_names):
-            unsafe = False
+        try:
+            if ~np.all(varlist == nn._feature_names):
+                unsafe = False
+        except ValueError:
+            raise Exception('Dataset has features {!s} but dataset has features {!s}'.format(varlist, list(nn._feature_names)))
     print('dataset loaded!')
     return unsafe
 
@@ -555,6 +558,7 @@ if __name__ == '__main__':
         chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
         pool = Pool(processes=num_processes)
 
+    print('Starting {.d} slices for {.d} networks'.format(len(df), len(nns)))
     starttime = time.time()
 
     if not settings['parallel']:
