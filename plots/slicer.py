@@ -80,6 +80,7 @@ def nn_list_from_NNDB(max=20):
     non_sliced = (non_sliced
                   .where(Network.target_names == Param(network.target_names))
                   .where(Network.feature_names == Param(network.feature_names))
+                  .limit(max)
                   )
     style = 'mono'
     if len(network.target_names) == 2:
@@ -91,8 +92,21 @@ def nn_list_from_NNDB(max=20):
             if ((group_0[1] == 'e' and group_1[1] == 'i') or
                 (group_0[1] == 'i' and group_1[1] == 'e')):
                 style='duo'
+            else:
+                raise Exception('non-matching target_names. Not sure what to do.. {s}'
+                                .format(network.target_names))
+    matches = []
+    for target_name in network.target_names:
+        matches.extend(re.compile('^.f.(ITG|ETG|TEM)_GB').findall(target_name))
+    if matches[1:] == matches[:-1]:
+        if matches[0] == 'ITG':
+            slicedim = 'Ati'
+        elif matches[0] == 'TEM' or matches[0] == 'ETG':
+            slicedim = 'Ate'
+    else:
+        raise Exception('Unequal stability regime. Cannot determine slicedim')
     nn_list = {network.id: str(network.id) for network in non_sliced}
-    return style, nn_list
+    return slicedim, style, nn_list
 
 
 def populate_nn_list(style):
@@ -105,6 +119,7 @@ def populate_nn_list(style):
                                (49, '$c_{L2} = 0.5$'),
         #                       (52, '$c_{L2} = 1.0$'),
                                (53, '$c_{L2} = 2.0$')])
+        slicedim = 'Ate'
     elif style == 'topo':
         nn_list = OrderedDict([(65, 'neurons = $(10, 10)$'),
                                (64, 'neurons = $(30, 30)$'),
@@ -113,19 +128,23 @@ def populate_nn_list(style):
                                (34, 'neurons = $(60, 60)$'),
                                (38, 'neurons = $(80, 80)$'),
                                (66, 'neurons = $(120, 120)$')])
+        slicedim = 'Ate'
     elif style == 'filter':
         #nn_list = OrderedDict([(37, 'filter = 3'),
         #                       (58, 'filter = 4'),
         #                       (60, 'filter = 5')])
         nn_list = OrderedDict([(37, '$max(\chi_{ETG,e}) = 60$'),
                                (60, '$max(\chi_{ETG,e}) = 100$')])
+        slicedim = 'Ate'
     elif style == 'goodness':
         nn_list = OrderedDict([(62, 'goodness = mabse'),
                                (37, 'goodness = mse')])
+        slicedim = 'Ate'
     elif style == 'early_stop':
         nn_list = OrderedDict([(37, 'stop measure = loss'),
                                #(11, '$early_stop = mse'),
                                (18, 'stop measure = MSE')])
+        slicedim = 'Ate'
     elif style == 'similar':
         nn_list = OrderedDict([
                                (37, '37'),
@@ -138,9 +157,11 @@ def populate_nn_list(style):
                                (73, '73'),
                                (74, '74'),
                                ])
+        slicedim = 'Ate'
     elif style == 'best':
         nn_list = OrderedDict([(46, '')]) #efeETG
         nn_list = OrderedDict([(88, '')]) #efiITG
+        slicedim = 'Ate'
 
     elif style == 'duo':
         nn_list = OrderedDict([
@@ -148,8 +169,9 @@ def populate_nn_list(style):
             (204, 'es_5'),
             (203, 'es_wrong')
             ])
+        slicedim = 'Ati'
 
-    return nn_list
+    return slicedim, nn_list
 
 def prep_nns(nn_list, slicedim, labels=True):
     nns = OrderedDict()
@@ -191,7 +213,7 @@ def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=Tr
         #for name, val in itor:
         #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
-    df = df.iloc[1040:2040,:]
+    #df = df.iloc[1040:2040,:]
     return df, target_names
 
 def is_unsafe(df, nns):
@@ -338,7 +360,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                     lines.append(ax1.plot(x, nn_preds[:, ii], label=labels[ii])[0])
                     lines.append(ax1.plot(x, nn_preds[:, ii+1], label=labels[ii+1], c=lines[-1].get_color(), linestyle='dashed')[0])
             else:
-                for ii, row in enumerate(nn_preds.T):
+                for ii, (nn, row) in enumerate(zip(nns.values(), nn_preds.T)):
                     lines.append(ax1.plot(x, row, label=nn.label)[0])
 
         matrix_style = False
@@ -482,34 +504,33 @@ def extract_stats(totstats, style):
     return results, duo_results
 
 def extract_nn_stats(results, duo_results, nns):
-    for (network_name, res), (duo_item) in zip_longest(results.unstack().iterrows(), duo_results.iterrows()):
+    for network_name, res in results.unstack().iterrows():
         network_number = next(key for key, value in nn_list.items() if value == network_name)
         nn = nns[network_number]
         res_dict = {'network': network_number}
         for stat, val in res.unstack(level=0).iteritems():
             res_dict[stat] = val.loc[nn._target_names].values
 
-        if duo_item is not None:
-            duo_name, duo_res = duo_item
-            if duo_name != network_name:
-                raise Exception("Something went horribly wrong..")
-            else:
-                res_dict.update(duo_res)
+        try :
+            duo_res = duo_results[network_name]
+            res_dict.update(duo_res)
+        except KeyError:
+            pass
 
         postprocess_slice = PostprocessSlice(**res_dict)
         postprocess_slice.save()
+
 if __name__ == '__main__':
     style = 'duo'
     style = 'best'
     mode = 'debug'
     mode = 'quick'
 
-    slicedim = 'Ati'
     store = pd.HDFStore('../7D_nions0_flat.h5')
     input = store['megarun1/input']
     data = store['megarun1/flattened']
-    nn_list = populate_nn_list(style)
-    style, nn_list = nn_list_from_NNDB()
+    slicedim, nn_list = populate_nn_list(style)
+    slicedim, style, nn_list = nn_list_from_NNDB()
     if style != 'similar':
         labels=True
     else:
