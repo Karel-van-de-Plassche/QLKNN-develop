@@ -17,13 +17,13 @@ def model_to_json(name, feature_names, target_names,
     dict_['hidden_activation'] = settings['hidden_activation']
     dict_['output_activation'] = settings['output_activation']
 
-    sp_result = subprocess.run('git rev-parse HEAD',
-                               stdout=subprocess.PIPE,
-                               shell=True,
-                               check=True)
-    nn_version = sp_result.stdout.decode('UTF-8').strip()
+    #sp_result = subprocess.run('git rev-parse HEAD',
+    #                           stdout=subprocess.PIPE,
+    #                           shell=True,
+    #                           check=True)
+    #nn_version = sp_result.stdout.decode('UTF-8').strip()
     metadata = {
-        'nn_develop_version': nn_version,
+    #    'nn_develop_version': nn_version,
         'c_L2': float(l2_scale.eval())
     }
     dict_['_metadata'] = metadata

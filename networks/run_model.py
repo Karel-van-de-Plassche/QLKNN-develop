@@ -5,14 +5,6 @@ import os
 from collections import OrderedDict
 import pandas as pd
 from warnings import warn
-try:
-    import qlknn
-except:
-    print("Cannot load custom module, do something!");
-    default_layer_mode = 'classic'
-else:
-    default_layer_mode = 'intel'
-
 def sigm_tf(x):
     return 1./(1 + np.exp(-1 * x))
 
@@ -170,7 +162,7 @@ class QuaLiKizDuoNN():
         return self._nn1._feature_min.combine(self._nn2._feature_min, max)
 
 class QuaLiKizNDNN():
-    def __init__(self, nn_dict, target_names_mask=None, layer_mode=default_layer_mode):
+    def __init__(self, nn_dict, target_names_mask=None, layer_mode=None):
         """ General ND fully-connected multilayer perceptron neural network
 
         Initialize this class using a nn_dict. This dict is usually read
@@ -178,6 +170,13 @@ class QuaLiKizNDNN():
         file using the supplied function in QuaLiKiz-Tensorflow
         """
         parsed = {}
+        try:
+            import qlknn
+        except:
+            layer_mode = 'classic'
+        else:
+            layer_mode = 'intel'
+
         # Read and parse the json. E.g. put arrays in arrays and the rest in a dict
         for name, value in nn_dict.items():
             if name == 'hidden_activation' or name == 'output_activation':

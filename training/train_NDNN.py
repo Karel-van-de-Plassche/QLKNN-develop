@@ -28,7 +28,6 @@ from IPython import embed
 import json
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from run_model import QuaLiKizNDNN
 from datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
 from nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm
 
@@ -43,12 +42,16 @@ def print_last_row(df, header=False):
                                   col_space=12,
                                   justify='left'))
 
-def train(settings, warm_start_nn=None):
+def train(settings, warm_start_nn=None, wdir='.'):
     # Import data
     start = time.time()
     train_dims = settings['train_dims']
     # Open HDF store. This is usually a soft link to our filtered dataset
-    store = pd.HDFStore('filtered_everything_nions0.h5', 'r')
+    try:
+        store = pd.HDFStore(settings['dataset_path'], 'r')
+    except IOError:
+        print('Could not find {!s} in {!s}'.format(settings['dataset_path'], os.path.abspath(os.curdir)))
+        raise
 
     # Get the targets (train_dims) and features (input)
     target_df = store.get(train_dims[0]).to_frame()
@@ -67,6 +70,11 @@ def train(settings, warm_start_nn=None):
         del input_df['Nustar']
     except KeyError:
         print('No Nustar in dataset')
+
+    if settings['drop_outlier_above'] < 1:
+        target_df = target_df[target_df < target_df.quantile(settings['drop_outlier_above'])]
+    # Remove NaNs
+    target_df = target_df.loc[(target_df.dropna()).index]
 
     # Use only samples in the feature set that are in the target set
     input_df = input_df.loc[target_df.index]
@@ -541,9 +549,12 @@ def train(settings, warm_start_nn=None):
     with open('nn.json', 'w') as nn_file:
         json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
 
+    with open('done', 'w') as file_:
+        file_.write('')
 
 def main(_):
     nn=None
+    #from run_model import QuaLiKizNDNN
     #nn = QuaLiKizNDNN.from_json('nn.json')
     with open('./settings.json') as file_:
         settings = json.load(file_)

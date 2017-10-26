@@ -15,6 +15,7 @@ import json
 import pandas as pd
 import subprocess
 import socket
+import re
 
 db = PostgresqlExtDatabase(database='nndb', host='gkdb.org')
 class BaseModel(Model):
@@ -29,21 +30,27 @@ class TrainScript(BaseModel):
 
     @classmethod
     def from_file(cls, pwd):
-        with db.atomic() as txn:
-            sp_result = subprocess.run('git rev-parse HEAD',
-                                       stdout=subprocess.PIPE,
-                                       shell=True,
-                                       check=True)
-            version = sp_result.stdout.decode('UTF-8').strip()
-            with open(pwd, 'r') as script:
-                script = script.read()
+        with open(pwd, 'r') as script:
+            script = script.read()
 
-            train_script = TrainScript(
-                script=script,
-                version=version
-            )
-            train_script.save()
-            return train_script
+        train_script_query = TrainScript.select().where(TrainScript.script == script)
+        if train_script_query.count() == 0:
+            with db.atomic() as txn:
+                sp_result = subprocess.run('git rev-parse HEAD',
+                                           stdout=subprocess.PIPE,
+                                           shell=True,
+                                           check=True)
+                version = sp_result.stdout.decode('UTF-8').strip()
+                train_script = TrainScript(
+                    script=script,
+                    version=version
+                )
+                train_script.save()
+        elif train_script_query.count() == 1:
+            train_script = train_script_query.get()
+        else:
+            raise Exception('multiple train scripts found. Could not choose')
+        return train_script
 
 class Filter(BaseModel):
     script = TextField()
@@ -62,6 +69,17 @@ class Filter(BaseModel):
             filter = Filter(script=script)
             filter.save()
 
+    @classmethod
+    def find_by_path_name(cls, name):
+        split = re.split('filtered_(\d)D_nions0_flat_filter(\d).h5', name)
+        try:
+            if len(split) != 4:
+                raise
+            filter_id = int(split[2])
+        except:
+            raise Exception('Could not find filter ID from name "{!s}"'.format(name))
+        return filter_id
+
 
 class Network(BaseModel):
     filter = ForeignKeyField(Filter, related_name='filter', null=True)
@@ -76,6 +94,7 @@ class Network(BaseModel):
     target_names = ArrayField(TextField)
     target_min = HStoreField()
     target_max = HStoreField()
+    timestamp = DateTimeField(constraints=[SQL('DEFAULT now()')])
 
     @classmethod
     def find_similar_topology_by_settings(cls, settings_path):
@@ -218,18 +237,12 @@ class Network(BaseModel):
                     print('Could not parse', path_, 'is training done?')
 
     @classmethod
-    def from_folder(cls, pwd, filter_id=None):
+    def from_folder(cls, pwd):
         with db.atomic() as txn:
             script_file = os.path.join(pwd, 'train_NDNN.py')
-            with open(script_file, 'r') as script:
-                script = script.read()
-            train_script_query = TrainScript.select().where(TrainScript.script == script)
-            if train_script_query.count() == 0:
-                train_script = TrainScript.from_file(script_file)
-            elif train_script_query.count() == 1:
-                train_script = train_script_query.get()
-            else:
-                raise Exception('multiple train scripts found. Could not choose')
+            #with open(script_file, 'r') as script:
+            #    script = script.read()
+            train_script = TrainScript.from_file(script_file)
 
             json_path = os.path.join(pwd, 'nn.json')
             nn = QuaLiKizNDNN.from_json(json_path)
@@ -247,61 +260,62 @@ class Network(BaseModel):
                         dict_[name] = {str(key): str(val) for key, val in attr.items()}
 
             dict_['train_script'] = train_script
-            dict_['filter_id'] = filter_id
-            network = Network(**dict_)
-            network.save()
 
             with open(os.path.join(pwd, 'settings.json')) as file_:
                 settings = json.load(file_)
-                try:
-                    hyperpar = Hyperparameters(network=network,
-                                               hidden_neurons=settings['hidden_neurons'],
-                                               hidden_activation=settings['hidden_activation'],
-                                               output_activation=settings['output_activation'],
-                                               standardization=settings['standardization'],
-                                               goodness=settings['goodness'],
-                                               drop_chance=settings['drop_chance'],
-                                               optimizer=settings['optimizer'],
-                                               cost_l2_scale=settings['cost_l2_scale'],
-                                               cost_l1_scale=settings['cost_l1_scale'],
-                                               early_stop_after=settings['early_stop_after'],
-                                               early_stop_measure=settings['early_stop_measure'],
-                                               minibatches=settings['minibatches']
-                    )
-                except KeyError:
-                    print('Legacy file.. Fallback')
-                    hyperpar = Hyperparameters(network=network,
-                                               hidden_neurons=settings['hidden_neurons'],
-                                               hidden_activation=settings['hidden_activation'],
-                                               output_activation=settings['output_activation'],
-                                               standardization=settings['standardization'],
-                                               goodness=settings['goodness'],
-                                               optimizer=settings['optimizer'],
-                                               cost_l2_scale=settings['cost_l2_scale'],
-                                               cost_l1_scale=settings['cost_l1_scale'],
-                                               early_stop_after=settings['early_stop_after'],
-                    )
-                hyperpar.save()
-                if settings['optimizer'] == 'lbfgs':
-                    optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
-                                               maxfun=settings['lbfgs_maxfun'],
-                                               maxiter=settings['lbfgs_maxiter'],
-                                               maxls=settings['lbfgs_maxls'])
-                elif settings['optimizer'] == 'adam':
-                    optimizer = AdamOptimizer(hyperparameters=hyperpar,
+
+            dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
+            network = Network(**dict_)
+            network.save()
+            try:
+                hyperpar = Hyperparameters(network=network,
+                                           hidden_neurons=settings['hidden_neurons'],
+                                           hidden_activation=settings['hidden_activation'],
+                                           output_activation=settings['output_activation'],
+                                           standardization=settings['standardization'],
+                                           goodness=settings['goodness'],
+                                           drop_chance=settings['drop_chance'],
+                                           optimizer=settings['optimizer'],
+                                           cost_l2_scale=settings['cost_l2_scale'],
+                                           cost_l1_scale=settings['cost_l1_scale'],
+                                           early_stop_after=settings['early_stop_after'],
+                                           early_stop_measure=settings['early_stop_measure'],
+                                           minibatches=settings['minibatches']
+                )
+            except KeyError:
+                print('Legacy file.. Fallback')
+                hyperpar = Hyperparameters(network=network,
+                                           hidden_neurons=settings['hidden_neurons'],
+                                           hidden_activation=settings['hidden_activation'],
+                                           output_activation=settings['output_activation'],
+                                           standardization=settings['standardization'],
+                                           goodness=settings['goodness'],
+                                           optimizer=settings['optimizer'],
+                                           cost_l2_scale=settings['cost_l2_scale'],
+                                           cost_l1_scale=settings['cost_l1_scale'],
+                                           early_stop_after=settings['early_stop_after'],
+                )
+            hyperpar.save()
+            if settings['optimizer'] == 'lbfgs':
+                optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
+                                           maxfun=settings['lbfgs_maxfun'],
+                                           maxiter=settings['lbfgs_maxiter'],
+                                           maxls=settings['lbfgs_maxls'])
+            elif settings['optimizer'] == 'adam':
+                optimizer = AdamOptimizer(hyperparameters=hyperpar,
+                                          learning_rate=settings['learning_rate'],
+                                          beta1=settings['adam_beta1'],
+                                          beta2=settings['adam_beta2'])
+            elif settings['optimizer'] == 'adadelta':
+                optimizer = AdadeltaOptimizer(hyperparameters=hyperpar,
                                               learning_rate=settings['learning_rate'],
-                                              beta1=settings['adam_beta1'],
-                                              beta2=settings['adam_beta2'])
-                elif settings['optimizer'] == 'adadelta':
-                    optimizer = AdadeltaOptimizer(hyperparameters=hyperpar,
-                                                  learning_rate=settings['learning_rate'],
-                                                  rho=settings['adadelta_rho'])
-                elif settings['optimizer'] == 'rmsprop':
-                    optimizer = RmspropOptimizer(hyperparameters=hyperpar,
-                                                  learning_rate=settings['learning_rate'],
-                                                  decay=settings['rmsprop_decay'],
-                                                  momentum=settings['rmsprop_momentum'])
-                optimizer.save()
+                                              rho=settings['adadelta_rho'])
+            elif settings['optimizer'] == 'rmsprop':
+                optimizer = RmspropOptimizer(hyperparameters=hyperpar,
+                                              learning_rate=settings['learning_rate'],
+                                              decay=settings['rmsprop_decay'],
+                                              momentum=settings['rmsprop_momentum'])
+            optimizer.save()
 
             activations = settings['hidden_activation'] + [settings['output_activation']]
             for ii, layer in enumerate(nn.layers):
@@ -350,15 +364,14 @@ class NetworkLayer(BaseModel):
 
 class NetworkMetadata(BaseModel):
     network = ForeignKeyField(Network, related_name='network_metadata')
-    nn_develop_version = TextField()
     epoch = IntegerField()
     best_epoch = IntegerField()
-    rms_test = FloatField(null=True)
-    rms_train = FloatField()
+    rms_test = FloatField()
+    rms_train = FloatField(null=True)
     rms_validation = FloatField()
-    loss_test = FloatField(null=True)
+    loss_test = FloatField()
     loss_train = FloatField(null=True)
-    loss_validation = FloatField(null=True)
+    loss_validation = FloatField()
     metadata = HStoreField()
 
     @classmethod
@@ -371,13 +384,15 @@ class NetworkMetadata(BaseModel):
                 rms_train = None
             try:
                 loss_train = json_dict['loss_train']
+            except KeyError:
+                loss_train = None
+            try:
                 loss_validation = json_dict['loss_validation']
                 loss_test = json_dict['loss_test']
             except KeyError:
-                loss_train = loss_validation = loss_test = None
+                loss_validation = loss_test = None
             network_metadata = NetworkMetadata(
                 network=network,
-                nn_develop_version=json_dict['nn_develop_version'],
                 epoch=json_dict['epoch'],
                 best_epoch=json_dict['best_epoch'],
                 rms_test=json_dict['rms_test'],
@@ -507,6 +522,10 @@ class PostprocessSlice(BaseModel):
     dual_thresh_mismatch_median = FloatField(null=True)
     no_dual_thresh_frac         = FloatField(null=True)
 
+def create_schema():
+    db.execute_sql('SET ROLE developer')
+    db.execute_sql('CREATE SCHEMA develop AUTHORIZATION developer')
+
 def create_tables():
     db.execute_sql('SET ROLE developer')
     db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocessing])
@@ -581,7 +600,9 @@ CREATE VIEW
 
 
 
-
+if __name__ == '__main__':
+    from IPython import embed
+    embed()
 #purge_tables()
 #create_tables()
 #create_views()
