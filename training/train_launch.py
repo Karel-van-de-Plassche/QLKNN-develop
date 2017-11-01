@@ -49,16 +49,12 @@ def create_dir(name, settings):
     with open(os.path.join(name, 'settings.json'), 'w') as file_:
         json.dump(settings, file_, indent=4)
 
-def launch_training(path):
-    old_dir = os.curdir()
-    os.chdir(path)
-
 def train_job(settings):
-    old_dir = os.curdir
+    old_dir = os.getcwd()
     with tempfile.TemporaryDirectory() as tmpdirname:
         print('created temporary directory', tmpdirname)
         TrainScript.from_file('./train_NDNN.py')
-        shutil.copy('./train_NDNN.py', os.path.join(tmpdirname, 'train_NDNN.py'))
+        shutil.copy(os.path.join(os.getcwd(), './train_NDNN.py'), os.path.join(tmpdirname, 'train_NDNN.py'))
         settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
         with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
             json.dump(settings, file_)

@@ -16,14 +16,14 @@ import model
 #        return train_nn
 
 def check_settings_dict(settings):
-    for var in ['train_dims', 'dataset_path']:
+    for var in ['train_dims']:
         if var in settings:
             raise Exception(var, 'should be set seperately, not in the settings dict')
 
 class TrainNN(luigi.contrib.postgres.CopyToTable):
     settings = luigi.DictParameter()
     train_dims = luigi.ListParameter()
-    dataset_path = luigi.Parameter()
+    batch = luigi.Parameter()
 
 
     database = 'nndb'
@@ -56,10 +56,10 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         #opt_string = json.dumps(cli_settings)
         #opt_string = opt_string.replace("[", "")
         #opt_string = opt_string.replace("]", "")
+        os.chdir(os.path.dirname(__file__))
         check_settings_dict(self.settings)
         settings = dict(self.settings)
         settings['train_dims'] = self.train_dims
-        settings['dataset_path'] = self.dataset_path
         self.NNDB_nn = train_job(settings)
         super().run()
         print("train_job done")
@@ -67,22 +67,40 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
     def rows(self):
         yield [self.NNDB_nn.id]
 
-
-class TrainNNpart(TrainNN):
-    pass
-
 class TrainBatch(luigi.WrapperTask):
-    base_settings = luigi.DictParameter()
+    submit_date = luigi.DateHourParameter()
     train_dims = luigi.ListParameter()
     #scan = luigi.DictParameter()
-    dataset_path = luigi.Parameter()
+    settings_list = luigi.ListParameter()
 
     def requires(self):
-        settings = dict(self.base_settings)
-        check_settings_dict(settings)
-        yield TrainNN(settings, self.train_dims, self.dataset_path)
-        settings['hidden_neurons'] = [100, 100]
-        yield TrainNN(settings, self.train_dims, self.dataset_path)
+        for settings in self.settings_list:
+            check_settings_dict(settings)
+            yield TrainNN(settings, self.train_dims, self.task_id)
+
+class TrainDenseBatch(TrainBatch):
+    dim = 7
+    plan = {'cost_l2_scale': [0.05, 0.1, 0.2],
+            'hidden_neurons': [[30] * 3, [64] * 3, [60] * 2],
+            'filter': [3, 5],
+            'activations': ['tanh', 'relu']
+            }
+
+    plan['dataset_path'] = []
+    for filter in plan.pop('filter'):
+        plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
+
+    from itertools import product
+    with open('default_settings.json') as file_:
+        settings = json.load(file_)
+        settings.pop('train_dims')
+
+    settings_list = []
+    for val in product(*plan.values()):
+        par = dict(zip(plan.keys(), val))
+        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
+        settings.update(par)
+        settings_list.append(settings.copy())
 
 
 
