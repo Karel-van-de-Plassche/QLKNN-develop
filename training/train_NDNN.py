@@ -43,6 +43,7 @@ def print_last_row(df, header=False):
                                   justify='left'))
 
 def train(settings, warm_start_nn=None, wdir='.'):
+    tf.reset_default_graph()
     # Import data
     start = time.time()
     train_dims = settings['train_dims']
@@ -58,6 +59,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
     for target_name in train_dims[1:]:
         target_df = pd.concat([target_df, store.get(target_name)], axis=1)
     input_df = store.select('input')
+    store.close()
 
     try:
         del input_df['nions']  # Delete leftover artifact from dataset split
@@ -118,7 +120,8 @@ def train(settings, warm_start_nn=None, wdir='.'):
     """
 
     # Start tensorflow session
-    sess = tf.InteractiveSession()
+    #sess = tf.InteractiveSession()
+    sess = tf.Session()
     #config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, \
     #                    allow_soft_placement=True, device_count = {'CPU': 1})
     #session = tf.Session(config=config)
@@ -297,7 +300,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
     tf.gfile.MakeDirs(log_dir)
     train_writer = tf.summary.FileWriter(log_dir + '/train', sess.graph)
     validation_writer = tf.summary.FileWriter(log_dir + '/validation', sess.graph)
-    tf.global_variables_initializer().run()
+    tf.global_variables_initializer().run(session=sess)
     timediff(start, 'Variables initialized')
 
     epoch = 0
@@ -407,7 +410,10 @@ def train(settings, warm_start_nn=None, wdir='.'):
                     if save_best_networks:
                         nn_best_file = os.path.join(checkpoint_dir,
                                                       'nn_checkpoint_' + str(epoch) + '.json')
-                        model_to_json(nn_best_file, scan_dims.values.tolist(),
+                        trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
+                        model_to_json(nn_best_file, 
+                                      trainable,
+                                      scan_dims.values.tolist(),
                                       train_dims.values.tolist(),
                                       datasets.train, scale_factor.astype('float64'),
                                       scale_bias.astype('float64'),
@@ -421,7 +427,10 @@ def train(settings, warm_start_nn=None, wdir='.'):
                     if save_checkpoint_networks:
                         nn_checkpoint_file = os.path.join(checkpoint_dir,
                                                       'nn_checkpoint_' + str(epoch) + '.json')
-                        model_to_json(nn_checkpoint_file, scan_dims.values.tolist(),
+                        trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
+                        model_to_json(nn_checkpoint_file,
+                                      trainable,
+                                      scan_dims.values.tolist(),
                                       train_dims.values.tolist(),
                                       datasets.train, scale_factor.astype('float64'),
                                       scale_bias.astype('float64'),
@@ -498,7 +507,9 @@ def train(settings, warm_start_nn=None, wdir='.'):
     validation_log_file.close()
     del validation_log
 
+    trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
     model_to_json('nn.json',
+                  trainable,
                   scan_dims.values.tolist(),
                   train_dims.values.tolist(),
                   datasets.train,
@@ -513,16 +524,15 @@ def train(settings, warm_start_nn=None, wdir='.'):
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
-    ests = y.eval(feed_dict)
-    rms_val = np.round(np.sqrt(mse.eval(feed_dict)), 4)
-    loss_val = np.round(loss.eval(feed_dict), 4)
+    rms_val = np.round(np.sqrt(mse.eval(feed_dict, session=sess)), 4)
+    loss_val = np.round(loss.eval(feed_dict, session=sess), 4)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
-    rms_test = np.round(np.sqrt(mse.eval(feed_dict)), 4)
-    loss_test = np.round(loss.eval(feed_dict), 4)
+    rms_test = np.round(np.sqrt(mse.eval(feed_dict, session=sess)), 4)
+    loss_test = np.round(loss.eval(feed_dict, session=sess), 4)
     print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
     #xs, ys = datasets.train.next_batch(-1, shuffle=False)
     #feed_dict = {x: xs, y_ds: ys, is_train: False}
@@ -544,13 +554,11 @@ def train(settings, warm_start_nn=None, wdir='.'):
     with open('nn.json') as nn_file:
         data = json.load(nn_file)
 
-    data['_metadata'].update(metadata)
+    data['_metadata'] = metadata
 
     with open('nn.json', 'w') as nn_file:
         json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
-
-    with open('done', 'w') as file_:
-        file_.write('')
+    sess.close()
 
 def main(_):
     nn=None

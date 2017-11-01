@@ -3,33 +3,32 @@ import numpy as np
 import subprocess
 import json
 
-def model_to_json(name, feature_names, target_names,
+def model_to_json(name, trainable, feature_names, target_names,
                   train_set, scale_factor, scale_bias, l2_scale, settings):
-    dict_ = {x.name: tf.to_double(x).eval().tolist() for x in tf.trainable_variables()}
-    dict_['prescale_factor'] = scale_factor.astype('float64').to_dict()
-    dict_['prescale_bias'] = scale_bias.astype('float64').to_dict()
-    dict_['feature_min'] = dict(train_set._features.astype('float64').min())
-    dict_['feature_max'] = dict(train_set._features.astype('float64').max())
-    dict_['feature_names'] = feature_names
-    dict_['target_names'] = target_names
-    dict_['target_min'] = dict(train_set._target.astype('float64').min())
-    dict_['target_max'] = dict(train_set._target.astype('float64').max())
-    dict_['hidden_activation'] = settings['hidden_activation']
-    dict_['output_activation'] = settings['output_activation']
+    trainable['prescale_factor'] = scale_factor.astype('float64').to_dict()
+    trainable['prescale_bias'] = scale_bias.astype('float64').to_dict()
+    trainable['feature_min'] = dict(train_set._features.astype('float64').min())
+    trainable['feature_max'] = dict(train_set._features.astype('float64').max())
+    trainable['feature_names'] = feature_names
+    trainable['target_names'] = target_names
+    trainable['target_min'] = dict(train_set._target.astype('float64').min())
+    trainable['target_max'] = dict(train_set._target.astype('float64').max())
+    trainable['hidden_activation'] = settings['hidden_activation']
+    trainable['output_activation'] = settings['output_activation']
 
     #sp_result = subprocess.run('git rev-parse HEAD',
     #                           stdout=subprocess.PIPE,
     #                           shell=True,
     #                           check=True)
     #nn_version = sp_result.stdout.decode('UTF-8').strip()
-    metadata = {
+    #metadata = {
     #    'nn_develop_version': nn_version,
-        'c_L2': float(l2_scale.eval())
-    }
-    dict_['_metadata'] = metadata
+    #    'c_L2': float(l2_scale.eval())
+    #}
+    #trainable['_metadata'] = metadata
 
     with open(name, 'w') as file_:
-        json.dump(dict_, file_, sort_keys=True, indent=4, separators=(',', ': '))
+        json.dump(trainable, file_, sort_keys=True, indent=4, separators=(',', ': '))
 
 def weight_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
     """Create a weight variable with appropriate initialization."""
