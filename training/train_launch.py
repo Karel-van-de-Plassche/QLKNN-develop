@@ -3,6 +3,15 @@ import sys
 import json
 from itertools import product
 from IPython import embed
+NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
+sys.path.append(NNDB_path)
+
+from model import Network, TrainScript
+import train_NDNN
+
+import tempfile
+import shutil
+import json
 #root = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'nns')
 #if not os.path.isdir(root):
 #    os.mkdir(root)
@@ -43,3 +52,19 @@ def create_dir(name, settings):
 def launch_training(path):
     old_dir = os.curdir()
     os.chdir(path)
+
+def train_job(settings):
+    old_dir = os.curdir
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        print('created temporary directory', tmpdirname)
+        TrainScript.from_file('./train_NDNN.py')
+        shutil.copy('./train_NDNN.py', os.path.join(tmpdirname, 'train_NDNN.py'))
+        settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
+        with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
+            json.dump(settings, file_)
+        os.chdir(tmpdirname)
+        train_NDNN.train(settings)
+        print('Training done!')
+        nndb_nn = Network.from_folder(tmpdirname)
+        os.chdir(old_dir)
+        return nndb_nn
