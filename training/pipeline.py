@@ -19,6 +19,8 @@ def check_settings_dict(settings):
     for var in ['train_dims']:
         if var in settings:
             raise Exception(var, 'should be set seperately, not in the settings dict')
+class DummyTask(luigi.Task):
+    pass
 
 class TrainNN(luigi.contrib.postgres.CopyToTable):
     settings = luigi.DictParameter()
