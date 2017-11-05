@@ -1,14 +1,16 @@
-import sciluigi as sl
 import luigi
+import luigi.contrib.postgres
 from train_launch import train_job
 import train_NDNN
 import os
 import json
+import signal
 from IPython import embed
 import sys
 NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
 sys.path.append(NNDB_path)
 import model
+from itertools import product
 
 #class TrainNNWorkflow():
 #    def workflow(self):
@@ -25,7 +27,7 @@ class DummyTask(luigi.Task):
 class TrainNN(luigi.contrib.postgres.CopyToTable):
     settings = luigi.DictParameter()
     train_dims = luigi.ListParameter()
-    batch = luigi.Parameter()
+    uid = luigi.Parameter()
 
 
     database = 'nndb'
@@ -38,26 +40,8 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
     user=split[-2].strip()
     password=split[-1].strip()
     columns = [('network_id', 'INT')]
-    #slurminfo = sl.SlurmInfo(sl.RUNMODE_LOCAL, 'tester', 'karelQueue', 1, '20:00:00', 'testjob', 2)
-    #path = sl.Parameter()
 
     def run(self):
-        #os.chdir(os.path.dirname(self.in_settings().path))
-        #cli_settings = []
-        #for key, val in self.settings.items():
-        #    if isinstance(val, tuple):
-        #        if isinstance(val[0], str):
-        #            val = '","'.join(map(str, val))
-        #            val += '",'
-        #            val = '"' + val
-        #        else:
-        #            val = ','.join(map(str, val))
-        #    if val is not None:
-        #        cli_settings.append('--' + key + '=' + json.dumps(val))
-        #        #cli_settings['--' + key] = val
-        #opt_string = json.dumps(cli_settings)
-        #opt_string = opt_string.replace("[", "")
-        #opt_string = opt_string.replace("]", "")
         os.chdir(os.path.dirname(__file__))
         check_settings_dict(self.settings)
         settings = dict(self.settings)
@@ -69,6 +53,11 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
     def rows(self):
         yield [self.NNDB_nn.id]
 
+    def on_failure(self, exception):
+        print('Training failed! Killing worker')
+        os.kill(os.getpid(), signal.SIGUSR1)
+        super().on_failure(exception)
+
 class TrainBatch(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
     train_dims = luigi.ListParameter()
@@ -79,6 +68,42 @@ class TrainBatch(luigi.WrapperTask):
         for settings in self.settings_list:
             check_settings_dict(settings)
             yield TrainNN(settings, self.train_dims, self.task_id)
+
+class TrainRepeatingBatch(luigi.WrapperTask):
+    submit_date = luigi.DateHourParameter()
+    train_dims = luigi.ListParameter()
+    #scan = luigi.DictParameter()
+    settings = luigi.DictParameter()
+    repeat = luigi.IntParameter(significant=False)
+
+    def requires(self):
+        check_settings_dict(self.settings)
+        for ii in range(self.repeat):
+            yield TrainNN(self.settings, self.train_dims, self.task_id + '_' + str(ii))
+
+class TrainReluBatch(TrainBatch):
+    dim = 7
+    plan = {'cost_l2_scale': [0.05, 0.1, 0.2],
+            'hidden_neurons': [[30] * 3, [64] * 3, [60] * 2],
+            'filter': [3, 5],
+            'activations': ['relu']
+            }
+
+    plan['dataset_path'] = []
+    for filter in plan.pop('filter'):
+        plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
+
+    with open(os.path.join(os.path.dirname(__file__), 'default_settings.json')) as file_:
+        settings = json.load(file_)
+        settings.pop('train_dims')
+    settings['early_stop_after'] = 20
+
+    settings_list = []
+    for val in product(*plan.values()):
+        par = dict(zip(plan.keys(), val))
+        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
+        settings.update(par)
+        settings_list.append(settings.copy())
 
 class TrainDenseBatch(TrainBatch):
     dim = 7
@@ -92,8 +117,7 @@ class TrainDenseBatch(TrainBatch):
     for filter in plan.pop('filter'):
         plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
 
-    from itertools import product
-    with open('default_settings.json') as file_:
+    with open(os.path.join(os.path.dirname(__file__), 'default_settings.json')) as file_:
         settings = json.load(file_)
         settings.pop('train_dims')
 
@@ -110,4 +134,4 @@ class TrainDenseBatch(TrainBatch):
         #self.ex(['./train_NDNN_cli.py', '-vv'] + cli_settings + ['train'])
 
 if __name__ == '__main__':
-    sl.run(main_task_cls=TrainNN)
+    luigi.run(main_task_cls=TrainNN)

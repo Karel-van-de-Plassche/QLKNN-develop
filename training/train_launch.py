@@ -51,16 +51,17 @@ def create_dir(name, settings):
 
 def train_job(settings):
     old_dir = os.getcwd()
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        print('created temporary directory', tmpdirname)
-        TrainScript.from_file('./train_NDNN.py')
-        shutil.copy(os.path.join(os.getcwd(), './train_NDNN.py'), os.path.join(tmpdirname, 'train_NDNN.py'))
-        settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
-        with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
-            json.dump(settings, file_)
-        os.chdir(tmpdirname)
-        train_NDNN.train(settings)
-        print('Training done!')
-        nndb_nn = Network.from_folder(tmpdirname)
-        os.chdir(old_dir)
-        return nndb_nn
+    tmpdirname = tempfile.mkdtemp(prefix='trainNN_')
+    print('created temporary directory', tmpdirname)
+    TrainScript.from_file('./train_NDNN.py')
+    shutil.copy(os.path.join(os.getcwd(), './train_NDNN.py'), os.path.join(tmpdirname, 'train_NDNN.py'))
+    settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
+    with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
+        json.dump(settings, file_)
+    os.chdir(tmpdirname)
+    train_NDNN.train(settings)
+    print('Training done!')
+    nndb_nn = Network.from_folder(tmpdirname)
+    os.chdir(old_dir)
+    shutil.rmtree(tmpdirname)
+    return nndb_nn
