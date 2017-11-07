@@ -9,9 +9,13 @@ from IPython import embed
 import sys
 NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
 sys.path.append(NNDB_path)
+import train_NDNN
 import model
+from model import TrainScript, Network
+import shutil
 from itertools import product
 import time
+import tempfile
 
 #class TrainNNWorkflow():
 #    def workflow(self):
@@ -48,7 +52,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         settings = dict(self.settings)
         settings['train_dims'] = self.train_dims
         old_dir = os.getcwd()
-        tmpdirname = tempfile.mkdtemp(prefix='trainNN_')
+        self.tmpdirname = tmpdirname = tempfile.mkdtemp(prefix='trainNN_')
         print('created temporary directory', tmpdirname)
         TrainScript.from_file('./train_NDNN.py')
         shutil.copy(os.path.join(os.getcwd(), './train_NDNN.py'), os.path.join(tmpdirname, 'train_NDNN.py'))
@@ -77,7 +81,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         print('Training failed! Killing worker')
         os.kill(os.getpid(), signal.SIGUSR1)
         traceback_string = traceback.format_exc()
-        return "Runtime error:\n%s" % traceback_string
+        return "Runtime error:\n%s\n%s" % (traceback_string, self.tmpdirname))
 
 class TrainBatch(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
