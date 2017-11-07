@@ -1,7 +1,6 @@
 import luigi
 import traceback
 import luigi.contrib.postgres
-from train_launch import train_job
 import train_NDNN
 import os
 import json
@@ -11,7 +10,6 @@ import sys
 NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
 sys.path.append(NNDB_path)
 import train_NDNN
-import model
 from model import TrainScript, Network
 import shutil
 from itertools import product
