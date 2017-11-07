@@ -1,4 +1,5 @@
 import luigi
+import traceback
 import luigi.contrib.postgres
 from train_launch import train_job
 import train_NDNN
@@ -16,6 +17,7 @@ import shutil
 from itertools import product
 import time
 import tempfile
+import socket
 
 #class TrainNNWorkflow():
 #    def workflow(self):
@@ -47,6 +49,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
     columns = [('network_id', 'INT')]
 
     def run(self):
+        self.set_status_message('Starting job')
         os.chdir(os.path.dirname(__file__))
         check_settings_dict(self.settings)
         settings = dict(self.settings)
@@ -60,18 +63,24 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
             json.dump(settings, file_)
         os.chdir(tmpdirname)
+        self.set_status_message('Training NN')
         train_NDNN.train(settings)
         print('Training done!')
         for ii in range(10):
-            self.set_status_message("Try: {!s} / 10".format(ii))
+            self.set_status_message("Trying to submit to NNDB, try: {!s} / 10".format(ii + 1))
             try:
                 self.NNDB_nn = Network.from_folder(tmpdirname)
             except Exception as ee:
-                print(ee)
+                exception = ee
                 time.sleep(5*60)
+            else:
+                break
+        if not hasattr(self, 'NNDB_nn'):
+            raise exception
         os.chdir(old_dir)
         shutil.rmtree(tmpdirname)
         super().run()
+        self.set_status_message('Done! NNDB id: {!s}'.format(self.NNDB_nn.id))
         print("train_job done")
 
     def rows(self):
@@ -81,7 +90,14 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         print('Training failed! Killing worker')
         os.kill(os.getpid(), signal.SIGUSR1)
         traceback_string = traceback.format_exc()
-        return "Runtime error:\n%s\n%s" % (traceback_string, self.tmpdirname)
+        with open('traceback.dump', 'w') as file_:
+           file_.write(traceback.format_exc())
+
+        message = 'Host: {!s}\nDir: {!s}\nRuntime error:\n{!s}'.format(socket.gethostname(),
+                                                                        self.tmpdirname,
+                                                                        traceback_string)
+        self.set_status_message(message)
+        return message
 
 class TrainBatch(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
