@@ -81,7 +81,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         print('Training failed! Killing worker')
         os.kill(os.getpid(), signal.SIGUSR1)
         traceback_string = traceback.format_exc()
-        return "Runtime error:\n%s\n%s" % (traceback_string, self.tmpdirname))
+        return "Runtime error:\n%s\n%s" % (traceback_string, self.tmpdirname)
 
 class TrainBatch(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
