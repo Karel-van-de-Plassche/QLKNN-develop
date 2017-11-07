@@ -58,7 +58,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         os.chdir(tmpdirname)
         train_NDNN.train(settings)
         print('Training done!')
-        for ii in range(10):.
+        for ii in range(10):
             self.set_status_message("Try: {!s} / 10".format(ii))
             try:
                 self.NNDB_nn = Network.from_folder(tmpdirname)
