@@ -11,6 +11,7 @@ NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NND
 sys.path.append(NNDB_path)
 import model
 from itertools import product
+import time
 
 #class TrainNNWorkflow():
 #    def workflow(self):
@@ -46,7 +47,26 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         check_settings_dict(self.settings)
         settings = dict(self.settings)
         settings['train_dims'] = self.train_dims
-        self.NNDB_nn = train_job(settings)
+        old_dir = os.getcwd()
+        tmpdirname = tempfile.mkdtemp(prefix='trainNN_')
+        print('created temporary directory', tmpdirname)
+        TrainScript.from_file('./train_NDNN.py')
+        shutil.copy(os.path.join(os.getcwd(), './train_NDNN.py'), os.path.join(tmpdirname, 'train_NDNN.py'))
+        settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
+        with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
+            json.dump(settings, file_)
+        os.chdir(tmpdirname)
+        train_NDNN.train(settings)
+        print('Training done!')
+        for ii in range(10):.
+            self.set_status_message("Try: {!s} / 10".format(ii))
+            try:
+                self.NNDB_nn = Network.from_folder(tmpdirname)
+            except Exception as ee:
+                print(ee)
+                time.sleep(5*60)
+        os.chdir(old_dir)
+        shutil.rmtree(tmpdirname)
         super().run()
         print("train_job done")
 
@@ -56,7 +76,8 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
     def on_failure(self, exception):
         print('Training failed! Killing worker')
         os.kill(os.getpid(), signal.SIGUSR1)
-        super().on_failure(exception)
+        traceback_string = traceback.format_exc()
+        return "Runtime error:\n%s" % traceback_string
 
 class TrainBatch(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
@@ -81,35 +102,11 @@ class TrainRepeatingBatch(luigi.WrapperTask):
         for ii in range(self.repeat):
             yield TrainNN(self.settings, self.train_dims, self.task_id + '_' + str(ii))
 
-class TrainReluBatch(TrainBatch):
-    dim = 7
-    plan = {'cost_l2_scale': [0.05, 0.1, 0.2],
-            'hidden_neurons': [[30] * 3, [64] * 3, [60] * 2],
-            'filter': [3, 5],
-            'activations': ['relu']
-            }
-
-    plan['dataset_path'] = []
-    for filter in plan.pop('filter'):
-        plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
-
-    with open(os.path.join(os.path.dirname(__file__), 'default_settings.json')) as file_:
-        settings = json.load(file_)
-        settings.pop('train_dims')
-    settings['early_stop_after'] = 20
-
-    settings_list = []
-    for val in product(*plan.values()):
-        par = dict(zip(plan.keys(), val))
-        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
-        settings.update(par)
-        settings_list.append(settings.copy())
-
 class TrainDenseBatch(TrainBatch):
     dim = 7
     plan = {'cost_l2_scale': [0.05, 0.1, 0.2],
             'hidden_neurons': [[30] * 3, [64] * 3, [60] * 2],
-            'filter': [3, 5],
+            'filter': [2, 5],
             'activations': ['tanh', 'relu']
             }
 
@@ -124,6 +121,8 @@ class TrainDenseBatch(TrainBatch):
     settings_list = []
     for val in product(*plan.values()):
         par = dict(zip(plan.keys(), val))
+        if par['activations'] == 'relu':
+            par['early_stop_after'] = 15
         par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
         settings.update(par)
         settings_list.append(settings.copy())
