@@ -61,11 +61,11 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
             json.dump(settings, file_)
         os.chdir(tmpdirname)
-        self.set_status_message('Training NN')
+        self.set_status_message('Started training on {!s}'.format(socket.gethostname()))
         train_NDNN.train(settings)
         print('Training done!')
         for ii in range(10):
-            self.set_status_message("Trying to submit to NNDB, try: {!s} / 10".format(ii + 1))
+            self.set_status_message('Trying to submit to NNDB, try: {!s} / 10 on {!s}'.format(ii+1, socket.gethostname()))
             try:
                 self.NNDB_nn = Network.from_folder(tmpdirname)
             except Exception as ee:
