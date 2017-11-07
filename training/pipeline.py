@@ -77,11 +77,12 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
                 break
         if not hasattr(self, 'NNDB_nn'):
             raise exception
-        os.chdir(old_dir)
-        shutil.rmtree(tmpdirname)
-        super().run()
-        self.set_status_message('Done! NNDB id: {!s}'.format(self.NNDB_nn.id))
-        print("train_job done")
+        else:
+            os.chdir(old_dir)
+            shutil.rmtree(tmpdirname)
+            super().run()
+            self.set_status_message('Done! NNDB id: {!s}'.format(self.NNDB_nn.id))
+            print("train_job done")
 
     def rows(self):
         yield [self.NNDB_nn.id]
