@@ -60,6 +60,8 @@ class Filter(BaseModel):
     remove_negative = BooleanField(null=True)
     remove_zeros = BooleanField(null=True)
     gam_filter = BooleanField(null=True)
+    ck_max = FloatField(null=True)
+    diffsep_max = FloatField(null=True)
 
     @classmethod
     def from_file(cls, pwd):

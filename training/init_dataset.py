@@ -94,7 +94,7 @@ def filter_all(store_name):
         #                     )]
         index = input.index
         min = 0
-        max = 60
+        max = 100
         data = data.loc[index]
         for flux in ['efeETG_GB',
                      'efeITG_GB',
@@ -106,6 +106,8 @@ def filter_all(store_name):
             data = data.loc[(data[flux] >= 0)]
         data = data.loc[(data['efe_GB'] != 0) | (data['efi_GB'] != 0)]
         data = data.loc[(data['efe_GB'] < max) & (data['efi_GB'] < max)]
+        data = data.loc[np.isclose(data['efe_GB'], (data['efeETG_GB'] + data['efeITG_GB'] + data['efeTEM_GB']), rtol=2e-1)]
+        data = data.loc[(np.abs(data['cki']) < 50) & (np.abs(data['cke']) < 50)]
 
 
         index = data.index
@@ -229,8 +231,8 @@ def filter_individual(store_name):
     store.close()
     newstore.close()
 #extract_nns()
-#filter_all('everything_nions0_flat.h5.1')
+filter_all('7D_nions0_flat.h5')
 #filter_individual('filtered_7D_nions0_flat.h5')
-create_folders('filtered_everything_nions0.h5')
+#create_folders('filtered_everything_nions0.h5')
 #extract_nns('7D_filtered_NNs')
 print('Script done')
