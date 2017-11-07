@@ -160,7 +160,8 @@ def train(settings, warm_start_nn=None, wdir='.'):
     # Define fully connected feed-forward NN. Potentially with dropout.
     layers = [x_scaled]
     debug = False
-    drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
+    if settings['drop_chance'] != 0:
+        drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
     is_train = tf.placeholder(tf.bool)
     for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
         if warm_start_nn is None:
@@ -182,10 +183,13 @@ def train(settings, warm_start_nn=None, wdir='.'):
             act = None
 
         layer = nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
-        dropout = tf.layers.dropout(layer, drop_prob, training=is_train)
-        if debug:
-            tf.summary.histogram('post_dropout_layer_' + str(ii), dropout)
-        layers.append(dropout)
+        if settings['drop_chance'] != 0:
+            dropout = tf.layers.dropout(layer, drop_prob, training=is_train)
+            if debug:
+                tf.summary.histogram('post_dropout_layer_' + str(ii), dropout)
+            layers.append(dropout)
+        else:
+            layers.append(layer)
 
     # Last layer (output layer) usually has no activation
     activation = settings['output_activation']
