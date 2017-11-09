@@ -5,6 +5,7 @@ import numpy as np
 import inspect
 import sys
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
+from playhouse.shortcuts import RetryOperationalError
 from IPython import embed
 from warnings import warn
 import os
@@ -17,7 +18,10 @@ import subprocess
 import socket
 import re
 
-db = PostgresqlExtDatabase(database='nndb', host='gkdb.org')
+class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
+    pass
+db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
+
 class BaseModel(Model):
     """A base model that will use our Postgresql database"""
     class Meta:
