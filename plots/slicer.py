@@ -558,19 +558,22 @@ if __name__ == '__main__':
     nn_set = 'duo'
     nn_set = 'best'
     mode = 'debug'
-    #mode = 'quick'
+    mode = 'quick'
+    submit_to_nndb = True
 
     store = pd.HDFStore('../7D_nions0_flat.h5')
     input = store['megarun1/input']
     data = store['megarun1/flattened']
+    data = data.join(store['megarun1/combo'])
     slicedim, style, nn_list = populate_nn_list(nn_set)
     slicedim, style, nn_list = nn_list_from_NNDB()
     if style != 'similar':
         labels=True
     else:
         labels=False
+
     nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
-    slicedim, style, nns = nns_from_manual()
+    #slicedim, style, nns = nns_from_manual()
     if mode == 'quick':
         filter_geq = -np.inf
         filter_less = np.inf
@@ -617,8 +620,9 @@ if __name__ == '__main__':
     qlk_data = pd.DataFrame(qlk_data, columns=pd.MultiIndex.from_tuples(qlk_columns))
 
     totstats = totstats.join(qlk_data)
-    #res, duo_res = extract_stats(totstats, style)
-    #extract_nn_stats(res, duo_res, nns)
+    if submit_to_nndb is True:
+        res, duo_res = extract_stats(totstats, style)
+        extract_nn_stats(res, duo_res, nns)
 
     #slice = df.sample(1)
     #plt.scatter(slice[slicedim], target)
