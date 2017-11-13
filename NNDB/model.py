@@ -11,7 +11,7 @@ from warnings import warn
 import os
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
 sys.path.append(networks_path)
-from run_model import QuaLiKizNDNN
+from run_model import QuaLiKizNDNN, QuaLiKizComboNN
 import json
 import pandas as pd
 import subprocess
@@ -86,6 +86,16 @@ class Filter(BaseModel):
             raise Exception('Could not find filter ID from name "{!s}"'.format(name))
         return filter_id
 
+#class ComboNetwork(BaseModel):
+#    target_name = ArrayField(TextField)
+#    recipe = TextField()
+#
+#    def to_QuaLiKizComboNN(self):
+#        target_name = self.target_name.get()
+#        recipe = self.recipe.get()
+#        94 plus
+#        85 div
+#        embed()
 
 class Network(BaseModel):
     filter = ForeignKeyField(Filter, related_name='filter', null=True)
@@ -103,31 +113,47 @@ class Network(BaseModel):
     timestamp = DateTimeField(constraints=[SQL('DEFAULT now()')])
 
     @classmethod
+    def find_partner_by_id(cls, network_id):
+        q1 = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
+        q2 = Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
+        return q1 & q2
+
+    @classmethod
     def find_similar_topology_by_settings(cls, settings_path):
         with open(settings_path) as file_:
             json_dict = json.load(file_)
-            cls.find_similar_topology_by_values(json_dict['train_dim'],
+            cls.find_similar_topology_by_values(
                                                 json_dict['hidden_neurons'],
                                                 json_dict['hidden_activation'],
-                                                json_dict['output_activation'])
+                                                json_dict['output_activation'],
+                                                train_dim=json_dict['train_dim'])
         return query
 
     @classmethod
-    def find_similar_topology_by_id(cls, network_id):
+    def find_similar_topology_by_id(cls, network_id, match_train_dim=True):
         query = (Network
-                 .select(Network.target_names,
+                 .select(
                          Hyperparameters.hidden_neurons,
                          Hyperparameters.hidden_activation,
                          Hyperparameters.output_activation)
                  .where(Network.id == network_id)
                  .join(Hyperparameters)
         )
-        return cls.find_similar_topology_by_values(*query.tuples().get())
+
+        train_dim, = (Network
+                 .select(
+                         Network.target_names)
+                 .where(Network.id == network_id)
+                 ).tuples().get()
+        if match_train_dim is not True:
+            train_dim = None
+        query = cls.find_similar_topology_by_values(*query.tuples().get(), train_dim=train_dim)
+        query = query.where(Network.id != network_id)
+        return query
 
     @classmethod
-    def find_similar_topology_by_values(cls, train_dim, hidden_neurons, hidden_activation, output_activation):
+    def find_similar_topology_by_values(cls, hidden_neurons, hidden_activation, output_activation, train_dim=None):
         query = (Network.select()
-                 .where(Network.target_names == Param(train_dim))
                  .join(Hyperparameters)
                  .where(Hyperparameters.hidden_neurons ==
                         Param(hidden_neurons))
@@ -135,6 +161,10 @@ class Network(BaseModel):
                         Param(hidden_activation))
                  .where(Hyperparameters.output_activation ==
                         Param(output_activation)))
+
+        if train_dim is not None:
+            query = query.where(Network.target_names ==
+                        Param(train_dim))
         return query
 
     @classmethod
@@ -150,9 +180,9 @@ class Network(BaseModel):
         return query
 
     @classmethod
-    def find_similar_networkpar_by_id(cls, network_id):
+    def find_similar_networkpar_by_id(cls, network_id, match_train_dim=True):
         query = (Network
-                 .select(Network.target_names,
+                 .select(
                          Hyperparameters.goodness,
                          Hyperparameters.cost_l2_scale,
                          Hyperparameters.cost_l1_scale,
@@ -161,17 +191,21 @@ class Network(BaseModel):
                  .join(Hyperparameters)
         )
 
-        filter_id = (Network
-                 .select(Network.filter_id)
+        filter_id, train_dim = (Network
+                 .select(Network.filter_id,
+                         Network.target_names)
                  .where(Network.id == network_id)
-                 ).tuples().get()[0]
-        return cls.find_similar_networkpar_by_values(*query.tuples().get(), filter_id=filter_id)
+                 ).tuples().get()
+        if match_train_dim is not True:
+            train_dim = None
+
+        query = cls.find_similar_networkpar_by_values(*query.tuples().get(), filter_id=filter_id, train_dim=train_dim)
+        query = query.where(Network.id != network_id)
+        return query
 
     @classmethod
-    def find_similar_networkpar_by_values(cls, train_dim, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, filter_id=None):
+    def find_similar_networkpar_by_values(cls, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, filter_id=None, train_dim=None):
         query = (Network.select()
-                 .where(Network.target_names ==
-                        Param(train_dim))
                  .join(Hyperparameters)
                  .where(Hyperparameters.goodness ==
                         goodness)
@@ -182,6 +216,10 @@ class Network(BaseModel):
                  .where(Hyperparameters.early_stop_measure ==
                         early_stop_measure)
                  )
+        if train_dim is not None:
+            query = query.where(Network.target_names ==
+                        Param(train_dim))
+
         if filter_id is not None:
                  query = query.where(Network.filter_id ==
                                      Param(filter_id))
@@ -217,7 +255,9 @@ class Network(BaseModel):
                  .select(Network.filter_id)
                  .where(Network.id == network_id)
                  ).tuples().get()[0]
-        return cls.find_similar_trainingpar_by_values(*query.tuples().get())
+        query = cls.find_similar_trainingpar_by_values(*query.tuples().get())
+        query = query.where(Network.id != network_id)
+        return query
 
     @classmethod
     def find_similar_trainingpar_by_values(cls, train_dim, minibatches, optimizer, standardization, early_stop_after):
@@ -339,7 +379,7 @@ class Network(BaseModel):
             return network
 
     def to_QuaLiKizNDNN(self):
-        json_dict = self.networkjson_set.get().network_json
+        json_dict = self.network_json.get().network_json
         nn = QuaLiKizNDNN(json_dict)
         return nn
 
@@ -534,7 +574,7 @@ def create_schema():
 
 def create_tables():
     db.execute_sql('SET ROLE developer')
-    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocessing])
+    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocessing, ComboNetwork])
 
 def purge_tables():
     clsmembers = inspect.getmembers(sys.modules[__name__], lambda member: inspect.isclass(member) and member.__module__ == __name__)
