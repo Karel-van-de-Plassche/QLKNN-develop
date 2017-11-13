@@ -87,9 +87,9 @@ class QuaLiKizComboNN():
         self._nns = nns
         feature_names = nns[0]
         for nn in self._nns:
-            if np.all(nn.feature_names.ne(feature_names)):
+            if np.all(nn._feature_names.ne(feature_names)):
                 Exception('Supplied NNs have different feature names')
-        if np.any(self.feature_min > self.feature_max):
+        if np.any(self._feature_min > self._feature_max):
             raise Exception('Feature min > feature max')
 
         self._combo_func = combo_func
@@ -104,27 +104,27 @@ class QuaLiKizComboNN():
         return output
 
     @property
-    def target_names(self):
+    def _target_names(self):
         return [self._target_name]
 
     @property
-    def feature_names(self):
-        return self._nns[0].feature_names
+    def _feature_names(self):
+        return self._nns[0]._feature_names
 
     @property
-    def feature_max(self):
-        feature_max = pd.Series(np.full_like(self._nns[0].feature_max, np.inf),
-                                index=self._nns[0].feature_max.index)
+    def _feature_max(self):
+        feature_max = pd.Series(np.full_like(self._nns[0]._feature_max, np.inf),
+                                index=self._nns[0]._feature_max.index)
         for nn in self._nns:
-            feature_max = nn.feature_max.combine(feature_max, min)
+            feature_max = nn._feature_max.combine(feature_max, min)
         return feature_max
 
     @property
-    def feature_min(self):
-        feature_min = pd.Series(np.full_like(self._nns[0].feature_min, -np.inf),
-                                index=self._nns[0].feature_min.index)
+    def _feature_min(self):
+        feature_min = pd.Series(np.full_like(self._nns[0]._feature_min, -np.inf),
+                                index=self._nns[0]._feature_min.index)
         for nn in self._nns:
-            feature_min = nn.feature_min.combine(feature_min, max)
+            feature_min = nn._feature_min.combine(feature_min, max)
         return feature_min
 
 class QuaLiKizDuoNN():
