@@ -17,7 +17,7 @@ class Dataset():
     def num_examples(self):
         return self._num_examples
 
-    def next_batch(self, batch_size, shuffle=True):
+    def next_batch(self, batch_size, shuffle=True, pandas=False):
         start = self._index_in_epoch
         if batch_size == -1:
             batch_size = self._num_examples
@@ -38,7 +38,12 @@ class Dataset():
             assert batch_size <= self._num_examples, \
                 'Batch size asked bigger than number of samples'
         end = self._index_in_epoch
-        batch = (self._features.iloc[start:end], self._target.iloc[start:end])
+        if pandas is True:
+            batch = (self._features.iloc[start:end], self._target.iloc[start:end])
+        else:
+            batch = (self._features._data.blocks[0].get_values()[:, start:end].T, self._target._data.blocks[0].get_values()[:, start:end].T)
+
+
         return batch
 
     def to_hdf(self, file, key):
