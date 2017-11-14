@@ -44,5 +44,6 @@
     "steps_per_report": null,
     "epochs_per_report": null,
     "save_checkpoint_networks": null,
-    "save_best_networks": null
+    "save_best_networks": null,
+    "track_training_time": null
 }

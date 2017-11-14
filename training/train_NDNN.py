@@ -343,6 +343,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
     epochs_per_report = setting(settings.get('epochs_per_report'),np.inf)
     save_checkpoint_networks = setting(settings.get('save_checkpoint_networks'), False)
     save_best_networks = setting(settings.get('save_best_networks'), True)
+    track_training_time = setting(settings.get('track_training_time'), False)
 
     # Set up log files
     train_log_file = open('train_log.csv', 'a', 1)
@@ -358,12 +359,13 @@ def train(settings, warm_start_nn=None, wdir='.'):
         for ii in range(steps_per_epoch * max_epoch):
             # Write figures, summaries and check early stopping each epoch
             if datasets.train.epochs_completed > epoch:
-                step_start = time.time()
+                if track_training_time is True:
+                    step_start = time.time()
                 epoch = datasets.train.epochs_completed
                 xs, ys = datasets.validation.next_batch(-1, shuffle=False)
                 feed_dict = {x: xs, y_ds: ys, is_train: False}
                 # Run with full trace every epochs_per_report Gives full runtime information
-                if not ii % epochs_per_report:
+                if not ii % epochs_per_report and (ii != 0 or epochs_per_report == 1):
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
@@ -380,7 +382,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
 
                 validation_writer.add_summary(summary, ii)
                 # More debugging every epochs_per_report
-                if not ii % epochs_per_report:
+                if not ii % epochs_per_report and (ii != 0 or epochs_per_report == 1):
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline.json', 'w') as f:
@@ -393,12 +395,13 @@ def train(settings, warm_start_nn=None, wdir='.'):
                 'model.ckpt'), global_step=ii)
 
                 # Update CSV logs
-                validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+                if track_training_time is True:
+                    validation_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
 
-                validation_log.loc[ii:].to_csv(validation_log_file, header=False)
-                validation_log = validation_log[0:0]
-                train_log.loc[ii - minibatches:].to_csv(train_log_file, header=False)
-                train_log = train_log[0:0]
+                    validation_log.loc[ii:].to_csv(validation_log_file, header=False)
+                    validation_log = validation_log[0:0]
+                    train_log.loc[ii - minibatches:].to_csv(train_log_file, header=False)
+                    train_log = train_log[0:0]
 
                 # Determine early-stopping criterion
                 if settings['early_stop_measure'] == 'mse':
@@ -446,7 +449,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
                     break
             else: # If NOT epoch done
                 # Extra debugging every steps_per_report
-                if not ii % steps_per_report:
+                if not ii % steps_per_report and (ii != 0 or steps_per_report == 1):
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
@@ -478,13 +481,14 @@ def train(settings, warm_start_nn=None, wdir='.'):
                 train_writer.add_summary(summary, ii)
 
                 # Extra debugging every steps_per_report
-                if not ii % steps_per_report:
+                if not ii % steps_per_report and (ii != 0 or steps_per_report == 1):
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
                     with open('timeline_run.json', 'w') as f:
                         f.write(ctf)
                 # Add to CSV log buffer
-                train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+                if track_training_time is True:
+                    train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
 
             # Stop if loss is nan or inf
             if np.isnan(lo) or np.isinf(lo):
