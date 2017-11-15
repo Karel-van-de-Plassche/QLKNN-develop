@@ -86,16 +86,33 @@ class Filter(BaseModel):
             raise Exception('Could not find filter ID from name "{!s}"'.format(name))
         return filter_id
 
-#class ComboNetwork(BaseModel):
-#    target_name = ArrayField(TextField)
-#    recipe = TextField()
-#
-#    def to_QuaLiKizComboNN(self):
-#        target_name = self.target_name.get()
-#        recipe = self.recipe.get()
-#        94 plus
-#        85 div
-#        embed()
+class ComboNetwork(BaseModel):
+    target_name = ArrayField(TextField)
+    recipe = TextField()
+
+    def to_QuaLiKizComboNN(self):
+        target_name = self.target_name.get()
+        recipe = self.recipe.get()
+        #94 plus
+        #85 div
+        embed()
+
+    @classmethod
+    def divsum_from_id(cls, network_id):
+        query = (Network
+                 .select()
+                 .where(Network.id == network_id)
+                 )
+        nn = query.get()
+        if len(nn.target_names) != 1:
+            raise Exception('Divsum network needs div or sum network, not {!s}'.format(nn.target_names))
+        target_name = nn.target_names[0]
+        splitted = re.compile('(.*)_(div|plus)_(.*)').split(target_name)
+        if len(splitted) != 5:
+            raise Exception('Could not split {!s} in divsum parts'.format(target_name))
+
+        splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(nn.target_names)
+
 
 class Network(BaseModel):
     filter = ForeignKeyField(Filter, related_name='filter', null=True)
