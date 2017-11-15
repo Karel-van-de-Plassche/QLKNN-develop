@@ -392,7 +392,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
 
                 # Save checkpoint
                 save_path = saver.save(sess, os.path.join(checkpoint_dir,
-                'model.ckpt'), global_step=ii)
+                                                          'model.ckpt'), global_step=ii, write_meta_graph=False)
 
                 # Update CSV logs
                 if track_training_time is True:
@@ -456,7 +456,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
                 else:
                     run_options = None
                     run_metadata = None
-                xs, ys = datasets.train.next_batch(batch_size)
+                xs, ys = datasets.train.next_batch(batch_size, shuffle=True)
                 feed_dict = {x: xs, y_ds: ys, is_train: True}
                 # If we have a scipy-style optimizer
                 if optimizer:
