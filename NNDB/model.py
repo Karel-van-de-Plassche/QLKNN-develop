@@ -93,25 +93,49 @@ class ComboNetwork(BaseModel):
     def to_QuaLiKizComboNN(self):
         target_name = self.target_name.get()
         recipe = self.recipe.get()
-        #94 plus
-        #85 div
+        #94 div
+        #85 sum
         embed()
 
     @classmethod
-    def divsum_from_id(cls, network_id):
+    def divsum_from_div_id(cls, network_id):
         query = (Network
                  .select()
                  .where(Network.id == network_id)
                  )
         nn = query.get()
         if len(nn.target_names) != 1:
-            raise Exception('Divsum network needs div or sum network, not {!s}'.format(nn.target_names))
+            raise Exception('Divsum network needs div network, not {!s}'.format(nn.target_names))
         target_name = nn.target_names[0]
         splitted = re.compile('(.*)_(div|plus)_(.*)').split(target_name)
         if len(splitted) != 5:
             raise Exception('Could not split {!s} in divsum parts'.format(target_name))
 
-        splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(nn.target_names)
+        if splitted[2] == 'div':
+            partner_op = '_plus_'
+        else:
+            raise Exception('Divsum network needs div network, not {!s}'.format(nn.target_names))
+
+        query = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
+        query &= Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
+        query &= (Network
+                 .select()
+                 .where(Network.target_names == Param([splitted[1] + partner_op + splitted[3]]))
+                 )
+        if query.count() != 1:
+            raise Exception('Found {:d} matches.'.format(query.count()))
+
+        nn_sum = query.get()
+        target_1 = splitted[1]
+        recipe_target_1 = '({{{1:d}}} * {{{0:d}}})/ ({{{1:d}}} + 1)'.format(nn_sum.id, nn.id)
+        target_2 = splitted[3]
+        recipe_target_2 = '{{{0:d}}} / ({{{1:d}}} + 1)'.format(nn_sum.id, nn.id)
+
+        for target, recipe_target in [(target_1, recipe_target_1), (target_2, recipe_target_2)]:
+            if ComboNetwork.select().where(ComboNetwork.recipe == recipe_target).count() == 0:
+                ComboNetwork(target_name=[target], recipe=recipe_target).save()
+            else:
+                print('Network with recipe {!s} already exists! Skipping!'.format(recipe_target_1))
 
 
 class Network(BaseModel):
