@@ -89,7 +89,7 @@ class Filter(BaseModel):
 
 class ComboNetwork(BaseModel):
     target_name = ArrayField(TextField)
-    recipe = TextField()
+    recipe = TextField(unique=True)
 
     def to_QuaLiKizComboNN(self):
         target_name = self.target_name.get()
@@ -141,14 +141,15 @@ class ComboNetwork(BaseModel):
         if query.count() != 1:
             print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
             sort = sorted([(el.network_metadata.get().rms_validation, el.id) for el in query])
-            print('Selected {:d} with RMS val {.2f}'.format(sort[0]))
-
-            query = query.join(NetworkMetadata).order_by(NetworkMetadata.rms_validation)
-            exit()
+            print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
+            query = (Network
+                     .select()
+                     .where(Network.id == sort[0][1])
+            )
 
         nn_sum = query.get()
         target_1 = splitted[1]
-        recipe_target_1 = '({{{1:d}}} * {{{0:d}}})/ ({{{1:d}}} + 1)'.format(nn_sum.id, nn.id)
+        recipe_target_1 = '({{{1:d}}} * {{{0:d}}}) / ({{{1:d}}} + 1)'.format(nn_sum.id, nn.id)
         target_2 = splitted[3]
         recipe_target_2 = '{{{0:d}}} / ({{{1:d}}} + 1)'.format(nn_sum.id, nn.id)
 
