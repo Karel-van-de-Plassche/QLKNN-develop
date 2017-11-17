@@ -88,7 +88,7 @@ class Filter(BaseModel):
         return filter_id
 
 class ComboNetwork(BaseModel):
-    target_name = ArrayField(TextField)
+    target_names = ArrayField(TextField)
     recipe = TextField(unique=True)
 
     def to_QuaLiKizComboNN(self):
@@ -155,7 +155,7 @@ class ComboNetwork(BaseModel):
 
         for target, recipe_target in [(target_1, recipe_target_1), (target_2, recipe_target_2)]:
             if ComboNetwork.select().where(ComboNetwork.recipe == recipe_target).count() == 0:
-                ComboNetwork(target_name=[target], recipe=recipe_target).save()
+                ComboNetwork(target_names=[target], recipe=recipe_target).save()
             else:
                 print('Network with recipe {!s} already exists! Skipping!'.format(recipe_target_1))
 
@@ -711,7 +711,6 @@ CREATE VIEW
 
 if __name__ == '__main__':
     from IPython import embed
-    ComboNetwork.find_divsum_candidates()
     embed()
 #purge_tables()
 #create_tables()
