@@ -17,6 +17,7 @@ import pandas as pd
 import subprocess
 import socket
 import re
+import traceback
 
 class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
     pass
@@ -98,6 +99,20 @@ class ComboNetwork(BaseModel):
         embed()
 
     @classmethod
+    def find_divsum_candidates(cls):
+        query = (Network
+                 .select()
+                 .where(Network.target_names[0] % '%_div_%')
+                 .where(Network.target_names.dimensions == 1)
+                 )
+        for network in query:
+            try:
+                cls.divsum_from_div_id(network.id)
+            except Exception:
+                traceback.print_exc()
+        embed()
+        pass
+    @classmethod
     def divsum_from_div_id(cls, network_id):
         query = (Network
                  .select()
@@ -118,12 +133,18 @@ class ComboNetwork(BaseModel):
 
         query = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
         query &= Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
+        partner_target = [splitted[1] + partner_op + splitted[3]]
         query &= (Network
                  .select()
-                 .where(Network.target_names == Param([splitted[1] + partner_op + splitted[3]]))
+                 .where(Network.target_names == Param(partner_target))
                  )
         if query.count() != 1:
-            raise Exception('Found {:d} matches.'.format(query.count()))
+            print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
+            sort = sorted([(el.network_metadata.get().rms_validation, el.id) for el in query])
+            print('Selected {:d} with RMS val {.2f}'.format(sort[0]))
+
+            query = query.join(NetworkMetadata).order_by(NetworkMetadata.rms_validation)
+            exit()
 
         nn_sum = query.get()
         target_1 = splitted[1]
@@ -689,6 +710,7 @@ CREATE VIEW
 
 if __name__ == '__main__':
     from IPython import embed
+    ComboNetwork.find_divsum_candidates()
     embed()
 #purge_tables()
 #create_tables()
