@@ -1,6 +1,7 @@
 from peewee import *
 from peewee import (FloatField, FloatField, ProgrammingError, IntegerField, BooleanField,
                     Param, Passthrough)
+from peewee import fn
 import numpy as np
 import inspect
 import sys
@@ -11,13 +12,16 @@ from warnings import warn
 import os
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
 sys.path.append(networks_path)
-from run_model import QuaLiKizNDNN, QuaLiKizComboNN
+from run_model import QuaLiKizNDNN, QuaLiKizComboNN, QuaLiKizMultiNN
 import json
 import pandas as pd
 import subprocess
 import socket
 import re
 import traceback
+import operator
+from functools import reduce
+from itertools import chain
 
 class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
     pass
@@ -90,17 +94,42 @@ class Filter(BaseModel):
 class ComboNetwork(BaseModel):
     target_names = ArrayField(TextField)
     recipe = TextField(unique=True)
+    feature_names = ArrayField(TextField)
+
+    def extract_nn_names(self):
+        return set(re.compile('(?<=nn)(.\d)').findall(self.recipe))
 
     def to_QuaLiKizComboNN(self):
-        target_names = self.target_names
-        recipe = self.recipe
-        network_names = set(re.compile('(?<=nn)(.\d)').findall(recipe))
+        network_names = self.extract_nn_names()
         #networks = {'nn' + str(num): Network.by_id(int(num)).to_QuaLiKizNDNN() for num in networks}
-        networks = [Network.by_id(int(num)).to_QuaLiKizNDNN() for num in network_names]
+        networks = [Network.by_id(int(num)).get().to_QuaLiKizNDNN() for num in network_names]
+        recipe = self.recipe
         for ii, name in enumerate(network_names):
             recipe = recipe.replace('nn' + name, 'args[' + str(ii) + ']')
-        exec('def combo_func(*args): return' + recipe, globals())
-        return QuaLiKizComboNN(target_names, networks, combo_func)
+        exec('def combo_func(*args): return ' + recipe, globals())
+        return QuaLiKizComboNN(self.target_names, networks, combo_func)
+
+    @classmethod
+    def by_id(cls, network_id):
+        query = (cls
+                 .select()
+                 .where(cls.id == network_id)
+        )
+        return query
+
+    @classmethod
+    def find_partner_by_id(cls, network_id):
+        nn = cls.by_id(network_id).get()
+        network_names = nn.extract_nn_names()
+        query = (cls.select()
+                 .where(ComboNetwork.id != network_id)
+                 .where(ComboNetwork.recipe.contains(network_names.pop()))
+                 )
+        for name in network_names:
+            query &= cls.select().where(ComboNetwork.recipe.contains(name))
+        if query.count() > 1:
+            raise Exception('More than one partner found. Not sure what to do..')
+        return query
 
     @classmethod
     def find_divsum_candidates(cls):
@@ -158,7 +187,7 @@ class ComboNetwork(BaseModel):
 
         for target, recipe_target in [(target_1, recipe_target_1), (target_2, recipe_target_2)]:
             if ComboNetwork.select().where(ComboNetwork.recipe == recipe_target).count() == 0:
-                ComboNetwork(target_names=[target], recipe=recipe_target).save()
+                ComboNetwork(target_names=[target], feature_names=nn.feature_names, recipe=recipe_target).save()
             else:
                 print('Network with recipe {!s} already exists! Skipping!'.format(recipe_target_1))
 
@@ -182,9 +211,9 @@ class Network(BaseModel):
     def by_id(cls, network_id):
         query = (cls
                  .select()
-                 .where(Network.id == network_id)
+                 .where(cls.id == network_id)
         )
-        return query.get()
+        return query
 
     @classmethod
     def find_partner_by_id(cls, network_id):
@@ -471,6 +500,112 @@ class Network(BaseModel):
                'early_stop_after': net.hyperparameters.get().early_stop_after}
         )
 
+class MultiNetwork(BaseModel):
+    network                     = ForeignKeyField(Network, related_name='pair_network', null=True)
+    combo_network               = ForeignKeyField(ComboNetwork, related_name='pair_network', null=True)
+    network_partners            = ArrayField(IntegerField, null=True)
+    combo_network_partners      = ArrayField(IntegerField, null=True)
+    target_names                = ArrayField(TextField)
+    feature_names               = ArrayField(TextField)
+
+    def to_QuaLiKizMultiNN(self):
+        nns = []
+        if self.combo_network is not None:
+            nns.append(self.combo_network.to_QuaLiKizComboNN())
+        if self.combo_network_partners is not None:
+            for nn_id in self.combo_network_partners:
+                nn = ComboNetwork.by_id(nn_id).get().to_QuaLiKizComboNN()
+                nns.append(nn)
+        if self.network is not None:
+            nns.append(self.network.to_QuaLiKizNDNN())
+        if self.network_partners is not None:
+            for nn_id in self.network_partners:
+                nn = Network.by_id(nn_id).get().to_QuaLiKizNDNN()
+                nns.append(nn)
+
+        return QuaLiKizMultiNN(nns)
+
+
+    @classmethod
+    def by_id(cls, network_id):
+        query = (cls
+                 .select()
+                 .where(cls.id == network_id)
+        )
+        return query
+
+    @classmethod
+    def from_candidates(cls):
+        #subquery = (Network.select(Network.id.alias('id'),
+        #                           fn.unnest(Network.target_names).alias('unnested_tags'))
+        #            .alias('subquery'))
+        tags = ["div", "plus"]
+        #tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
+        #tags_filter = reduce(operator.or_, tags_filters)
+        query = no_elements_in_list(Network, tags)
+        query &= (Network.select()
+                  .where(SQL("array_length(target_names, 1) = 1"))
+                  .where(Network.target_names != Param(['efeETG_GB']))
+                  )
+        #query = (Network.select()
+        #         .join(subquery, on=subquery.c.id == Network.id)
+        #         .where(SQL("array_length(target_names, 1) = 1"))
+        #         .where(~tags_filter)
+        #         .where(Network.target_names != Param(['efeETG_GB']))
+        #         # gets rid of duplicates
+        #         .group_by(Network.id)
+        #)
+        combo_query = (ComboNetwork.select())
+
+        for nn in chain(query, combo_query):
+            splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(nn.target_names[0])
+            if splitted[1] == 'i':
+                partner_target = ''.join(splitted[:1] + ['e'] + splitted[2:])
+            else:
+                print('Skipping, prefer to have ion network first')
+                continue
+
+            query = nn.__class__.find_partner_by_id(nn.id)
+            query &= (nn.__class__.select()
+                     .where(nn.__class__.target_names == Param([partner_target]))
+                     )
+            if query.count() == 0:
+                print('No partners found for {!s}, id {!s}, target {!s}'.format(nn, nn.id, nn.target_names))
+            elif query.count() == 1:
+                partner = query.get()
+                if isinstance(nn, Network):
+                    duplicate_check = (MultiNetwork.select()
+                                       .where((MultiNetwork.network_id == partner.id)
+                                        | (MultiNetwork.network_id == nn.id)
+                                        | MultiNetwork.network_partners.contains(partner.id)
+                                        | MultiNetwork.network_partners.contains(nn.id))
+                                        )
+                    if duplicate_check.count() == 0:
+                        cls(network=nn,
+                            network_partners=[partner.id],
+                            target_names=nn.target_names + partner.target_names,
+                            feature_names=nn.feature_names
+                            ).save()
+                    else:
+                        print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
+                else:
+                    duplicate_check = (MultiNetwork.select()
+                                       .where((MultiNetwork.combo_network_id == partner.id)
+                                        | (MultiNetwork.combo_network_id == nn.id)
+                                        | MultiNetwork.combo_network_partners.contains(partner.id)
+                                        | MultiNetwork.combo_network_partners.contains(nn.id))
+                                        )
+                    if duplicate_check.count() == 0:
+                        cls(combo_network=nn,
+                            combo_network_partners=[partner.id],
+                            target_names=nn.target_names + partner.target_names,
+                            feature_names=nn.feature_names
+                            ).save()
+                    else:
+                        print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
+            else:
+                raise Exception('More than one partner found. Not sure what to do..')
+
 class NetworkJSON(BaseModel):
     network = ForeignKeyField(Network, related_name='network_json')
     network_json = JSONField()
@@ -632,7 +767,9 @@ class Postprocessing(BaseModel):
     filtered_real_loss_function = TextField()
 
 class PostprocessSlice(BaseModel):
-    network = ForeignKeyField(Network, related_name='postprocess_slice')
+    network = ForeignKeyField(Network, related_name='postprocess_slice', null=True)
+    combo_network = ForeignKeyField(ComboNetwork, related_name='postprocess_slice', null=True)
+    multi_network = ForeignKeyField(MultiNetwork, related_name='postprocess_slice', null=True)
     thresh_rel_mis_median       = ArrayField(FloatField)
     thresh_rel_mis_95width      = ArrayField(FloatField)
     no_thresh_frac              = ArrayField(FloatField)
@@ -658,6 +795,20 @@ def purge_tables():
                 db.drop_table(cls, cascade=True)
             except ProgrammingError:
                 db.rollback()
+
+def no_elements_in_list(cls, tags):
+    subquery = (cls.select(cls.id.alias('id'),
+                               fn.unnest(cls.target_names).alias('unnested_tags'))
+                .alias('subquery'))
+    tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
+    tags_filter = reduce(operator.or_, tags_filters)
+    query = (cls.select()
+             .join(subquery, on=subquery.c.id == cls.id)
+             .where(~tags_filter)
+             # gets rid of duplicates
+             .group_by(cls.id)
+    )
+    return query
 
 def create_views():
     """
