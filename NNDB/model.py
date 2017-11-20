@@ -92,11 +92,15 @@ class ComboNetwork(BaseModel):
     recipe = TextField(unique=True)
 
     def to_QuaLiKizComboNN(self):
-        target_name = self.target_name.get()
-        recipe = self.recipe.get()
-        #94 div
-        #85 sum
-        embed()
+        target_names = self.target_names
+        recipe = self.recipe
+        network_names = set(re.compile('(?<=nn)(.\d)').findall(recipe))
+        #networks = {'nn' + str(num): Network.by_id(int(num)).to_QuaLiKizNDNN() for num in networks}
+        networks = [Network.by_id(int(num)).to_QuaLiKizNDNN() for num in network_names]
+        for ii, name in enumerate(network_names):
+            recipe = recipe.replace('nn' + name, 'args[' + str(ii) + ']')
+        exec('def combo_func(*args): return' + recipe, globals())
+        return QuaLiKizComboNN(target_names, networks, combo_func)
 
     @classmethod
     def find_divsum_candidates(cls):
@@ -110,8 +114,7 @@ class ComboNetwork(BaseModel):
                 cls.divsum_from_div_id(network.id)
             except Exception:
                 traceback.print_exc()
-        embed()
-        pass
+
     @classmethod
     def divsum_from_div_id(cls, network_id):
         query = (Network
@@ -149,9 +152,9 @@ class ComboNetwork(BaseModel):
 
         nn_sum = query.get()
         target_1 = splitted[1]
-        recipe_target_1 = '({{{1:d}}} * {{{0:d}}}) / ({{{1:d}}} + 1)'.format(nn_sum.id, nn.id)
+        recipe_target_1 = '(nn{1:d} * nn{0:d}) / (nn{1:d} + 1)'.format(nn_sum.id, nn.id)
         target_2 = splitted[3]
-        recipe_target_2 = '{{{0:d}}} / ({{{1:d}}} + 1)'.format(nn_sum.id, nn.id)
+        recipe_target_2 = 'nn{0:d} / (nn{1:d} + 1)'.format(nn_sum.id, nn.id)
 
         for target, recipe_target in [(target_1, recipe_target_1), (target_2, recipe_target_2)]:
             if ComboNetwork.select().where(ComboNetwork.recipe == recipe_target).count() == 0:
@@ -174,6 +177,14 @@ class Network(BaseModel):
     target_min = HStoreField()
     target_max = HStoreField()
     timestamp = DateTimeField(constraints=[SQL('DEFAULT now()')])
+
+    @classmethod
+    def by_id(cls, network_id):
+        query = (cls
+                 .select()
+                 .where(Network.id == network_id)
+        )
+        return query.get()
 
     @classmethod
     def find_partner_by_id(cls, network_id):
