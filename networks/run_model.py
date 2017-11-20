@@ -95,12 +95,10 @@ class QuaLiKizComboNN():
         self._combo_func = combo_func
         self._target_name = target_name
 
-    def get_output(self, **kwargs):
-        output = pd.DataFrame()
-        #output1 = self._nn1.get_output(**kwargs).values
-        #output2 = self._nn2.get_output(**kwargs).values
-        #output[self._target_name] = np.squeeze(self._combo_func(output1, output2))
-        output[self._target_name] = np.squeeze(self._combo_func(*[nn.get_output(**kwargs).as_matrix() for nn in self._nns]))
+    def get_output(self, input, output_pandas=True, **kwargs):
+        output = np.squeeze(self._combo_func(*[nn.get_output(input, output_pandas=False, **kwargs) for nn in self._nns]))
+        if output_pandas is True:
+            output = pd.DataFrame(output, columns=self._target_names)
         return output
 
     @property
