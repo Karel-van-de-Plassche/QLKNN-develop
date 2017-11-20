@@ -16,74 +16,72 @@ class QuaLiKizMultiNN():
         self._nns = nns
         feature_names = nns[0]
         for nn in self._nns:
-            if len(nn.target_names) == 1:
-                name = nn.target_names[0]
+            if len(nn._target_names) == 1:
+                name = nn._target_names[0]
             else:
                 NotImplementedError('Multitarget not implemented yet')
-            if np.all(nn.feature_names.ne(feature_names)):
+            if np.all(nn._feature_names.ne(feature_names)):
                 Exception('Supplied NNs have different feature names')
-        if np.any(self.feature_min > self.feature_max):
+        if np.any(self._feature_min > self._feature_max):
             raise Exception('Feature min > feature max')
 
     @property
-    def target_names(self):
+    def _target_names(self):
         targets = []
         for nn in self._nns:
-            targets.extend(list(nn.target_names))
+            targets.extend(list(nn._target_names))
         return targets
 
-    def get_output(self, target, **kwargs):
-        for nn in self._nns:
-            if [target] == list(nn.target_names):
-                result = nn.get_output(**kwargs)
-                break
-            elif target in nn.target_names.values:
-                NotImplementedError('Multitarget not implemented yet')
-        return result
-
-    def get_outputs(self, **kwargs):
+    def get_output(self, input, output_pandas=True, **kwargs):
         results = pd.DataFrame()
         feature_max = -np.inf
         feature_min = np.inf
-        for nn in self._nns:
-            if len(nn.target_names) == 1:
-                #name = nn.target_names[0]
-                out = nn.get_output(**kwargs)
-                results[out.columns] = nn.get_output(**kwargs)
+        out_tot = np.empty((input.shape[0], len(self._nns)))
+        out_name = []
+        for ii, nn in enumerate(self._nns):
+            if len(nn._target_names) == 1:
+                out = nn.get_output(input, **kwargs)
+                out_tot[:, ii] = np.squeeze(out)
+                if output_pandas:
+                    out_name.extend(out.columns.values)
             elif target in nn.target_names.values:
                 NotImplementedError('Multitarget not implemented yet')
 
+        if output_pandas == True:
+            results = pd.DataFrame(out_tot, columns=out_name)
+        else:
+            results = out_tot
         return results
 
     @property
-    def target_names(self):
+    def _target_names(self):
         target_names = []
         for nn in self._nns:
-            target_names.extend(nn.target_names)
+            target_names.extend(nn._target_names)
         return list(set(target_names))
 
     @property
-    def feature_names(self):
-        return self._nns[0].feature_names
+    def _feature_names(self):
+        return self._nns[0]._feature_names
 
     @property
-    def feature_max(self):
-        feature_max = pd.Series(np.full_like(self._nns[0].feature_max, np.inf),
-                                index=self._nns[0].feature_max.index)
+    def _feature_max(self):
+        feature_max = pd.Series(np.full_like(self._nns[0]._feature_max, np.inf),
+                                index=self._nns[0]._feature_max.index)
         for nn in self._nns:
-            feature_max = nn.feature_max.combine(feature_max, min)
+            feature_max = nn._feature_max.combine(feature_max, min)
         return feature_max
 
     @property
-    def feature_min(self):
-        feature_min = pd.Series(np.full_like(self._nns[0].feature_min, -np.inf),
-                                index=self._nns[0].feature_min.index)
+    def _feature_min(self):
+        feature_min = pd.Series(np.full_like(self._nns[0]._feature_min, -np.inf),
+                                index=self._nns[0]._feature_min.index)
         for nn in self._nns:
-            feature_min = nn.feature_min.combine(feature_min, max)
+            feature_min = nn._feature_min.combine(feature_min, max)
         return feature_min
 
 class QuaLiKizComboNN():
-    def __init__(self, target_name, nns, combo_func):
+    def __init__(self, target_names, nns, combo_func):
         self._nns = nns
         feature_names = nns[0]
         for nn in self._nns:
@@ -93,17 +91,13 @@ class QuaLiKizComboNN():
             raise Exception('Feature min > feature max')
 
         self._combo_func = combo_func
-        self._target_name = target_name
+        self._target_names = target_names
 
     def get_output(self, input, output_pandas=True, **kwargs):
-        output = np.squeeze(self._combo_func(*[nn.get_output(input, output_pandas=False, **kwargs) for nn in self._nns]))
+        output = self._combo_func(*[nn.get_output(input, output_pandas=False, **kwargs) for nn in self._nns])
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
         return output
-
-    @property
-    def _target_names(self):
-        return [self._target_name]
 
     @property
     def _feature_names(self):
