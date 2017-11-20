@@ -15,7 +15,7 @@ training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../..
 sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
-from model import Network, NetworkJSON, PostprocessSlice
+from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list
 from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
@@ -34,7 +34,7 @@ else:
 from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
-from peewee import Param
+from peewee import Param, fn
 import re
 
 def mode_to_settings(mode):
@@ -68,14 +68,26 @@ def mode_to_settings(mode):
     return settings
 
 def nn_list_from_NNDB(max=20):
-    non_sliced = (Network
-                  .select(Network.id, Network.target_names, Network.feature_names)
-                  .where(Network.id.not_in(
-                      PostprocessSlice
-                      .select(PostprocessSlice.network_id)
-                  ))
-                 )
-    network = non_sliced.get()
+    for cls, field_name in [(Network, 'network'),
+                (ComboNetwork, 'combo_network'),
+                (MultiNetwork, 'multi_network')]:
+        print(cls)
+        tags = ["div", "plus"]
+        non_sliced = no_elements_in_list(cls, tags)
+        non_sliced &= (cls
+                      .select()
+                      .where(~fn.EXISTS(PostprocessSlice.select().where(getattr(PostprocessSlice, field_name) == cls.id)))
+                      #.where(cls.id.not_in(
+                      #    PostprocessSlice
+                      #    .select(getattr(PostprocessSlice, field_name))
+                      #))
+                      .where(~cls.target_names.contains_any('%div%'))
+                      #.where(cls.target_names != Param(['efiITG_GB_div_efeITG_GB']))
+                      #.where(cls.target_names != Param(['efiITG_GB_plus_efeITG_GB']))
+                     )
+        network = non_sliced.get()
+        print(non_sliced.count())
+    embed()
 
     non_sliced = (non_sliced
                   .where(Network.target_names == Param(network.target_names))
@@ -106,6 +118,7 @@ def nn_list_from_NNDB(max=20):
     else:
         raise Exception('Unequal stability regime. Cannot determine slicedim')
     nn_list = {network.id: str(network.id) for network in non_sliced}
+    exit()
     return slicedim, style, nn_list
 
 
@@ -194,20 +207,41 @@ def nns_from_nn_list(nn_list, slicedim, labels=True):
 def nns_from_manual():
     nns = OrderedDict()
 
-    div_nn = load_nn(405)
-    sum_nn = load_nn(406)
-    nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], div_nn, sum_nn, [lambda x, y: x * y/(x + 1), lambda x, y: y/(x + 1)])
-    nn.label = 'div_style'
-    nns[nn.label] = nn
+    #div_nn = load_nn(405)
+    #sum_nn = load_nn(406)
+    #nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], div_nn, sum_nn, [lambda x, y: x * y/(x + 1), lambda x, y: y/(x + 1)])
+    #nn.label = 'div_style'
+    #nns[nn.label] = nn
 
-    nn_efi = load_nn(88)
-    nn_efe = load_nn(89)
-    nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], nn_efi, nn_efe, [lambda x, y: x, lambda x, y: y])
-    nn.label = 'sep_style'
-    nns[nn.label] = nn
+    #nn_efi = load_nn(88)
+    #nn_efe = load_nn(89)
+    #nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], nn_efi, nn_efe, [lambda x, y: x, lambda x, y: y])
+    #nn.label = 'sep_style'
+    #nns[nn.label] = nn
 
-    nn = load_nn(205)
-    nn.label = 'combo_style'
+    #nn = load_nn(205)
+    #nn.label = 'combo_style'
+    #nns[nn.label] = nn
+
+    #subnn = (ComboNetwork.select()
+    #            .where(ComboNetwork.id == 78)
+    #            ).get()
+    #nn = subnn.to_QuaLiKizComboNN()
+    #nn.label = 'bla'
+    #nns[nn.label] = nn
+
+    #nn = Network.by_id(172).get().to_QuaLiKizNDNN()
+    #nn.label = 'Network_172'
+    #nns[nn.label] = nn
+
+    #dbnn = ComboNetwork.by_id(73).get()
+    #nn = dbnn.to_QuaLiKizComboNN()
+    #nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
+    #nns[nn.label] = nn
+
+    dbnn = MultiNetwork.by_id(238).get()
+    nn = dbnn.to_QuaLiKizMultiNN()
+    nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
     nns[nn.label] = nn
 
     slicedim = 'Ati'
@@ -216,7 +250,8 @@ def nns_from_manual():
 
 
 def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
-    target_names = list(nns.items())[0][1]._target_names
+    nn0 = list(nns.values())[0]
+    target_names = nn0._target_names
     df = (pd.DataFrame({'leq': data['gam_leq_GB'],
                         'less': data['gam_less_GB']})
           .max(axis=1)
@@ -246,6 +281,7 @@ def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=Tr
         #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
     #df = df.iloc[1040:2040,:]
+    print('dataset loaded!')
     return df, target_names
 
 def is_unsafe(df, nns):
@@ -259,7 +295,6 @@ def is_unsafe(df, nns):
                 unsafe = False
         except ValueError:
             raise Exception('Dataset has features {!s} but dataset has features {!s}'.format(varlist, list(nn._feature_names)))
-    print('dataset loaded!')
     return unsafe
 
 
@@ -540,20 +575,26 @@ def extract_stats(totstats, style):
 
 def extract_nn_stats(results, duo_results, nns):
     for network_name, res in results.unstack().iterrows():
-        network_number = next(key for key, value in nn_list.items() if value == network_name)
-        nn = nns[network_number]
-        res_dict = {'network': network_number}
+        network_class, network_number = network_name.split('_')
+        nn = nns[network_name]
+        if network_class == 'Network':
+            res_dict = {'network': network_number}
+        elif network_class == 'ComboNetwork':
+            res_dict = {'combo_network': network_number}
+        elif network_class == 'MultiNetwork':
+            res_dict = {'multi_network': network_number}
         for stat, val in res.unstack(level=0).iteritems():
             res_dict[stat] = val.loc[nn._target_names].values
 
         try :
-            duo_res = duo_results[network_name]
+            duo_res = duo_results.loc[network_name]
             res_dict.update(duo_res)
         except KeyError:
             pass
 
         postprocess_slice = PostprocessSlice(**res_dict)
         postprocess_slice.save()
+
 if __name__ == '__main__':
     nn_set = 'duo'
     nn_set = 'best'
@@ -564,16 +605,19 @@ if __name__ == '__main__':
     store = pd.HDFStore('../7D_nions0_flat.h5')
     input = store['megarun1/input']
     data = store['megarun1/flattened']
-    data = data.join(store['megarun1/combo'])
-    slicedim, style, nn_list = populate_nn_list(nn_set)
+    data = data.join(store['megarun1/synthetic'])
+    #data = data.join(store['megarun1/combo'])
+    #slicedim, style, nn_list = populate_nn_list(nn_set)
     slicedim, style, nn_list = nn_list_from_NNDB()
+    #slicedim, style, nns = nns_from_manual()
+
+    #nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
+
     if style != 'similar':
         labels=True
     else:
         labels=False
 
-    nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
-    #slicedim, style, nns = nns_from_manual()
     if mode == 'quick':
         filter_geq = -np.inf
         filter_less = np.inf
@@ -624,12 +668,9 @@ if __name__ == '__main__':
         res, duo_res = extract_stats(totstats, style)
         extract_nn_stats(res, duo_res, nns)
 
-    #slice = df.sample(1)
-    #plt.scatter(slice[slicedim], target)
 
-    #for el in product(*uni.values()):
-    print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
-    embed()
-    totstats._metadata = {'zero_slices': zero_slices}
-    with open('totstats_' + style + '.pkl', 'wb') as file_:
-        pickle.dump(totstats, file_)
+    #print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
+    #embed()
+    #totstats._metadata = {'zero_slices': zero_slices}
+    #with open('totstats_' + style + '.pkl', 'wb') as file_:
+    #    pickle.dump(totstats, file_)
