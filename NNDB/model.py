@@ -109,6 +109,8 @@ class ComboNetwork(BaseModel):
         exec('def combo_func(*args): return ' + recipe, globals())
         return QuaLiKizComboNN(self.target_names, networks, combo_func)
 
+    to_QuaLiKizNN = to_QuaLiKizComboNN
+
     @classmethod
     def by_id(cls, network_id):
         query = (cls
@@ -486,6 +488,8 @@ class Network(BaseModel):
         nn = QuaLiKizNDNN(json_dict)
         return nn
 
+    to_QuaLiKizNN = to_QuaLiKizNDNN
+
     def summarize(self):
         net = self.select().get()
         print({'target_names':     net.target_names,
@@ -525,6 +529,7 @@ class MultiNetwork(BaseModel):
 
         return QuaLiKizMultiNN(nns)
 
+    to_QuaLiKizNN = to_QuaLiKizMultiNN
 
     @classmethod
     def by_id(cls, network_id):
