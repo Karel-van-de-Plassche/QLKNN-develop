@@ -97,7 +97,7 @@ class ComboNetwork(BaseModel):
     feature_names = ArrayField(TextField)
 
     def extract_nn_names(self):
-        return set(re.compile('(?<=nn)(.\d)').findall(self.recipe))
+        return set(re.compile('(?<=nn)(\d+)').findall(self.recipe))
 
     def to_QuaLiKizComboNN(self):
         network_names = self.extract_nn_names()
@@ -782,6 +782,7 @@ class PostprocessSlice(BaseModel):
     pop_abs_mis_95width         = ArrayField(FloatField)
     no_pop_frac                 = ArrayField(FloatField)
     dual_thresh_mismatch_median = FloatField(null=True)
+    dual_thresh_mismatch_95width= FloatField(null=True)
     no_dual_thresh_frac         = FloatField(null=True)
 
 def create_schema():
