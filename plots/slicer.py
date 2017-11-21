@@ -67,7 +67,7 @@ def mode_to_settings(mode):
         settings['parallel']         = True
     return settings
 
-def nn_list_from_NNDB(max=20):
+def nns_from_NNDB(max=20):
     for cls, field_name in [(Network, 'network'),
                 (ComboNetwork, 'combo_network'),
                 (MultiNetwork, 'multi_network')]:
@@ -85,13 +85,13 @@ def nn_list_from_NNDB(max=20):
                       #.where(cls.target_names != Param(['efiITG_GB_div_efeITG_GB']))
                       #.where(cls.target_names != Param(['efiITG_GB_plus_efeITG_GB']))
                      )
-        network = non_sliced.get()
-        print(non_sliced.count())
-    embed()
+        if non_sliced.count() > 0:
+            network = non_sliced.get()
+            break
 
-    non_sliced = (non_sliced
-                  .where(Network.target_names == Param(network.target_names))
-                  .where(Network.feature_names == Param(network.feature_names))
+    non_sliced &= (cls.select()
+                  .where(cls.target_names == Param(network.target_names))
+                  .where(cls.feature_names == Param(network.feature_names))
                   .limit(max)
                   )
     style = 'mono'
@@ -118,8 +118,13 @@ def nn_list_from_NNDB(max=20):
     else:
         raise Exception('Unequal stability regime. Cannot determine slicedim')
     nn_list = {network.id: str(network.id) for network in non_sliced}
-    exit()
-    return slicedim, style, nn_list
+
+    nns = OrderedDict()
+    for dbnn in non_sliced:
+        nn = dbnn.to_QuaLiKizNN()
+        nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
+        nns[nn.label] = nn
+    return slicedim, style, nns
 
 
 def populate_nn_list(nn_set):
@@ -608,7 +613,7 @@ if __name__ == '__main__':
     data = data.join(store['megarun1/synthetic'])
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
-    slicedim, style, nn_list = nn_list_from_NNDB()
+    slicedim, style, nns = nns_from_NNDB()
     #slicedim, style, nns = nns_from_manual()
 
     #nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
