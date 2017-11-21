@@ -70,7 +70,8 @@ def mode_to_settings(mode):
 def nns_from_NNDB(max=20):
     for cls, field_name in [(Network, 'network'),
                 (ComboNetwork, 'combo_network'),
-                (MultiNetwork, 'multi_network')]:
+                (MultiNetwork, 'multi_network')
+                ]:
         print(cls)
         tags = ["div", "plus"]
         non_sliced = no_elements_in_list(cls, tags)
@@ -92,8 +93,8 @@ def nns_from_NNDB(max=20):
     non_sliced &= (cls.select()
                   .where(cls.target_names == Param(network.target_names))
                   .where(cls.feature_names == Param(network.feature_names))
-                  .limit(max)
                   )
+    non_sliced = non_sliced.limit(max)
     style = 'mono'
     if len(network.target_names) == 2:
         match_0 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[0])
@@ -572,7 +573,9 @@ def extract_stats(totstats, style):
         efelike_name = network_data.columns[1][0]
         efilike_name = network_data.columns[0][0]
         mis = network_data[efilike_name] - network_data[efelike_name]
+        quant = mis.quantile([quant1, quant2])
         duo_results['dual_thresh_mismatch_median'] = mis.median()
+        duo_results['dual_thresh_mismatch_95width'] = quant.loc[quant2] - quant.loc[quant1]
         duo_results['no_dual_thresh_frac'] = mis.isnull().sum() / len(mis)
     else:
         duo_results = pd.DataFrame()
