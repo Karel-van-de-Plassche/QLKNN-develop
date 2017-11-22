@@ -54,8 +54,8 @@ def filter_negative(data):
             pass
     return bool
 
-def filter_ck(data, ck_bound):
-    return (np.abs(data['cki']) < ck_bound) & (np.abs(data['cke']) < ck_bound)
+def filter_ck(data, bound):
+    return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
 
 def filter_totsep(data, divsum_factor):
     bool = pd.Series(np.full(len(data), True), index=data.index)
@@ -74,7 +74,10 @@ def filter_totsep(data, divsum_factor):
             print('After filter divsum {!s} {:.2f}% left'.format(totname, 100*np.sum(bool)/startlen))
     return bool
 
-def sanity_filter(data, ck_bound, divsum_factor):
+def filter_ambipolar(data, bound):
+    return (data['absambi'] < bound) & (data['absambi'] > 1/bound)
+
+def sanity_filter(data, ck_bound, divsum_factor, ambi_bound):
     # Throw away point if negative heat flux
     data = data.loc[filter_negative(data)]
     print('After filter negative {:.2f}% left'.format(100*len(data)/startlen))
@@ -87,6 +90,9 @@ def sanity_filter(data, ck_bound, divsum_factor):
     # Throw away point if sep flux is way higher than tot flux
     data = data.loc[filter_totsep(data, divsum_factor)]
     print('After filter divsum {:.2f}% left'.format(100*len(data)/startlen))
+
+    data = data.loc[filter_ambipolar(data, ambi_bound)]
+    print('After filter ambipolar {:.2f}% left'.format(100*len(data)/startlen))
 
     # Alternatively:
     #data = data.loc[filter_negative(data) & filter_ck(data, ck_bound) & filter_totsep(data, divsum_factor)]
@@ -122,6 +128,6 @@ if __name__ == '__main__':
 
     startlen = len(data)
     filtered_store = pd.HDFStore('filtered_' + store_name, 'w')
-    data = sanity_filter(data, 50, 1.5)
+    data = sanity_filter(data, 50, 1.5, 1.5)
     data = stability_filter(data)
     data = regime_filter(data, 0, 60)
