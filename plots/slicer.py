@@ -50,7 +50,7 @@ def mode_to_settings(mode):
         settings['plot_thresh1line'] = False
         settings['calc_thresh1']     = False
         settings['hide_qualikiz']    = False
-        settings['debug']            = False
+        settings['debug']            = True
         settings['parallel']         = False
     elif mode == 'quick':
         settings['plot']             = False
@@ -76,7 +76,7 @@ def mode_to_settings(mode):
         settings['plot_thresh1line'] = False
         settings['calc_thresh1']     = False
         settings['hide_qualikiz']    = False
-        settings['debug']            = False
+        settings['debug']            = True
         settings['parallel']         = False
     return settings
 
@@ -253,10 +253,9 @@ def nns_from_manual():
 
     dbnns = []
     dbnns.append(MultiNetwork.by_id(119).get())
-    dbnns.append(Network.by_id(161).get())
-    dbnns.append(MultiNetwork.by_id(102).get())
+    #dbnns.append(Network.by_id(161).get())
+    #dbnns.append(MultiNetwork.by_id(102).get())
 
-    #dbnn = MultiNetwork.by_id(238).get()
     for dbnn in dbnns:
         nn = dbnn.to_QuaLiKizNN()
         nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
@@ -276,6 +275,11 @@ def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=Tr
           .to_frame('maxgam')
           )
     df = input.join([data[target_names], df['maxgam']])
+
+    #itor = zip(['An', 'Ate', 'Ti_Te', 'qx', 'smag', 'x'], ['0.00', '10.00', '1.00', '5.00', '0.40', '0.45'])
+    #for name, val in itor:
+    #    df = df[np.isclose(df[name], float(val),     atol=1e-5, rtol=1e-3)]
+
     df = df[(df[target_names] < filter_less).all(axis=1)]
     df = df[(df[target_names] >= filter_geq).all(axis=1)]
     #print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
@@ -294,9 +298,6 @@ def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=Tr
     #input, data = prettify_df(input, data)
     #input = input.astype('float64')
     # Filter
-    #itor = zip(['An', 'Ati', 'Ti_Te', 'qx', 'smag', 'x'], ['1.00', '6.50', '2.50', '3.00', '-1.00', '0.09']); slicedim = 'Ate'
-        #for name, val in itor:
-        #    input = input[np.isclose(input[name], float(val),     atol=1e-5, rtol=1e-3)]
 
     #df = df.iloc[1040:2040,:]
     print('dataset loaded!')
@@ -510,8 +511,8 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             table.auto_set_font_size(False)
             ax3.axis('tight')
             ax3.axis('off')
-        if settings['debug']:
-            print(slice_stats.flatten())
+            if settings['debug']:
+                print(slice_stats.flatten())
 
         if settings['plot']:
             if settings['plot_zerocolors']:
@@ -551,6 +552,9 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             ax1.set_ylim(bottom=min(ax1.get_ylim()[0], 0))
             plt.show()
             fig.savefig('slice.pdf', format='pdf', bbox_inches='tight')
+            qlk_data = pd.DataFrame(target.T, columns=target_names, index=feature)
+            nn_data = pd.DataFrame(nn_preds, columns=pd.MultiIndex.from_product([[nn.label for nn in nns.values()], target_names]))
+            nn_data.index.name = feature.name
             embed()
         return (0, thresh2, slice_res.flatten())
     #sliced += 1
