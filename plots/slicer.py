@@ -585,6 +585,9 @@ def extract_stats(totstats, style):
 
     if style == 'duo':
         duo_results = pd.DataFrame()
+        measure = 'thresh'
+        df2 = df[measure]
+        network_data = df2.drop('QLK', axis=1)
         network_data = network_data.reorder_levels([1, 0], axis=1)
         efelike_name = network_data.columns[1][0]
         efilike_name = network_data.columns[0][0]
