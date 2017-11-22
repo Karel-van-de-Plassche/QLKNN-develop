@@ -52,7 +52,7 @@ def mode_to_settings(mode):
         settings['hide_qualikiz']    = False
         settings['debug']            = False
         settings['parallel']         = False
-    if mode == 'quick':
+    elif mode == 'quick':
         settings['plot']             = False
         settings['plot_pop']         = False
         settings['plot_nns']         = False
@@ -65,6 +65,19 @@ def mode_to_settings(mode):
         settings['hide_qualikiz']    = False
         settings['debug']            = False
         settings['parallel']         = True
+    elif mode == 'pretty':
+        settings['plot']             = True
+        settings['plot_pop']         = False
+        settings['plot_nns']         = True
+        settings['plot_slice']       = False
+        settings['plot_poplines']    = False
+        settings['plot_threshlines'] = False
+        settings['plot_zerocolors']  = False
+        settings['plot_thresh1line'] = False
+        settings['calc_thresh1']     = False
+        settings['hide_qualikiz']    = False
+        settings['debug']            = False
+        settings['parallel']         = False
     return settings
 
 def nns_from_NNDB(max=20):
@@ -236,19 +249,18 @@ def nns_from_manual():
     #nn.label = 'bla'
     #nns[nn.label] = nn
 
-    #nn = Network.by_id(172).get().to_QuaLiKizNDNN()
-    #nn.label = 'Network_172'
-    #nns[nn.label] = nn
+    #dbnn = Network.by_id(135).get()
 
-    #dbnn = ComboNetwork.by_id(73).get()
-    #nn = dbnn.to_QuaLiKizComboNN()
-    #nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
-    #nns[nn.label] = nn
+    dbnns = []
+    dbnns.append(MultiNetwork.by_id(119).get())
+    dbnns.append(Network.by_id(161).get())
+    dbnns.append(MultiNetwork.by_id(102).get())
 
-    dbnn = MultiNetwork.by_id(238).get()
-    nn = dbnn.to_QuaLiKizMultiNN()
-    nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
-    nns[nn.label] = nn
+    #dbnn = MultiNetwork.by_id(238).get()
+    for dbnn in dbnns:
+        nn = dbnn.to_QuaLiKizNN()
+        nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
+        nns[nn.label] = nn
 
     slicedim = 'Ati'
     style='duo'
@@ -545,15 +557,15 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
     #if sliced % 1000 == 0:
     #    print(sliced, 'took ', time.time() - starttime, ' seconds')
 def extract_stats(totstats, style):
-    df = totstats
-    totstats = totstats.reorder_levels([2,0,1], axis=1)
+    df = totstats.copy()
+    df = df.reorder_levels([2,0,1], axis=1)
 
     results = pd.DataFrame()
 
     for relabs, measure in zip(['rel', 'abs'], ['thresh', 'pop']):
-        df = totstats[measure]
-        qlk_data = df['QLK']
-        network_data = df.drop('QLK', axis=1)
+        df2 = df[measure]
+        qlk_data = df2['QLK']
+        network_data = df2.drop('QLK', axis=1)
         if relabs == 'rel':
             mis = network_data.subtract(qlk_data, level=1).divide(qlk_data, level=1)
         elif relabs == 'abs':
@@ -581,7 +593,7 @@ def extract_stats(totstats, style):
         duo_results = pd.DataFrame()
     return results, duo_results
 
-def extract_nn_stats(results, duo_results, nns):
+def extract_nn_stats(results, duo_results, nns, submit_to_nndb=False):
     for network_name, res in results.unstack().iterrows():
         network_class, network_number = network_name.split('_')
         nn = nns[network_name]
@@ -601,12 +613,15 @@ def extract_nn_stats(results, duo_results, nns):
             pass
 
         postprocess_slice = PostprocessSlice(**res_dict)
-        postprocess_slice.save()
+        if submit_to_nndb is True:
+            postprocess_slice.save()
 
 if __name__ == '__main__':
     nn_set = 'duo'
     nn_set = 'best'
+    mode = 'pretty'
     mode = 'debug'
+    submit_to_nndb = False
     mode = 'quick'
     submit_to_nndb = True
 
@@ -672,9 +687,8 @@ if __name__ == '__main__':
     qlk_data = pd.DataFrame(qlk_data, columns=pd.MultiIndex.from_tuples(qlk_columns))
 
     totstats = totstats.join(qlk_data)
-    if submit_to_nndb is True:
-        res, duo_res = extract_stats(totstats, style)
-        extract_nn_stats(res, duo_res, nns)
+    res, duo_res = extract_stats(totstats, style)
+    extract_nn_stats(res, duo_res, nns, submit_to_nndb=submit_to_nndb)
 
 
     #print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
