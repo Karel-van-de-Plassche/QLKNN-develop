@@ -4,6 +4,7 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 from IPython import embed
+from qualikiz_tools.qualikiz_io.outputfiles import xarray_to_pandas
 
 def metadatize(ds):
     scan_dims = [dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim != 'numsols']
@@ -64,6 +65,7 @@ def prep_sepflux(ds):
 
 
 
+# Calculate synthetic and sanity-check variables
 ds = xr.open_dataset('Zeffcombo.nc.1')
 ds = prep_totflux(ds)
 ds_sep = xr.open_dataset('Zeffcombo.sep.nc.1')
@@ -71,4 +73,11 @@ ds_sep = prep_sepflux(ds_sep)
 ds_tot = ds.merge(ds_sep)
 ds_tot.to_netcdf('Zeffcombo.combo.nc', format='NETCDF4', engine='netcdf4')
 ds_tot.sel(nions=0).to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
-embed()
+
+# Convert to pandas
+dfs = xarray_to_pandas(ds_tot, verbose=True)
+store = pd.HDFStore('./gen2_9D_nions0_flat.h5')
+dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].index.name = 'dimx'
+store['/megarun1/input'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
+store['/megarun1/flattened'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
+store ['/megarun1/constants'] = dfs['constants']
