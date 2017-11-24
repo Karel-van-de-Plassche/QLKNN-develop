@@ -42,10 +42,7 @@ def print_last_row(df, header=False):
                                   col_space=12,
                                   justify='left'))
 
-def train(settings, warm_start_nn=None, wdir='.'):
-    tf.reset_default_graph()
-    # Import data
-    start = time.time()
+def prep_dataset(settings):
     train_dims = settings['train_dims']
     # Open HDF store. This is usually a soft link to our filtered dataset
     try:
@@ -75,6 +72,9 @@ def train(settings, warm_start_nn=None, wdir='.'):
 
     if settings['drop_outlier_above'] < 1:
         target_df = target_df[target_df < target_df.quantile(settings['drop_outlier_above'])]
+    if settings['drop_outlier_below'] > 0:
+        target_df = target_df[target_df > target_df.quantile(settings['drop_outlier_above'])]
+
     # Remove NaNs
     target_df = target_df.loc[(target_df.dropna()).index]
 
@@ -85,47 +85,23 @@ def train(settings, warm_start_nn=None, wdir='.'):
     input_df = input_df.astype(settings['dtype'])
     target_df = target_df.astype(settings['dtype'])
 
+    return input_df, target_df
+
+def train(settings, warm_start_nn=None, wdir='.'):
+    tf.reset_default_graph()
+    start = time.time()
+
+    input_df, target_df = prep_dataset(settings)
     train_dims = target_df.columns
     scan_dims = input_df.columns
-    # Keep option to restore splitted dataset from file for debugging
-    restore_split_backup = False
-    if restore_split_backup and os.path.exists('splitted.h5'):
-        datasets = Datasets.read_hdf('splitted.h5')
-    else:
-        datasets = convert_panda(input_df, target_df, settings['validation_fraction'], settings['test_fraction'])
-        datasets.to_hdf('splitted.h5')
 
-    timediff(start, 'Dataset split')
-
-    """
-    # Get a (random) slice of the data to visualize convergence
-    # TODO: Make general
-    slice_dict = {
-        'qx': 1.5,
-        'smag': .7,
-    #    'Ti_Te': 1,
-        'An': 2,
-    #    'x': 3 * .15,
-    #    'Nustar': 1e-2,
-        'Zeffx': 1}
-
-    slice_ = panda
-    for col in slice_:
-        try:
-            slice_ = slice_[np.isclose(slice_[col],
-                                       slice_dict[col], rtol=1e-2)]
-        except:
-            pass
-    #slice_ = slice_[np.isclose(slice_['Ate'], slice_['Ati'], rtol=1e-2)]
-    """
+    datasets = convert_panda(input_df, target_df, settings['validation_fraction'], settings['test_fraction'])
 
     # Start tensorflow session
-    #sess = tf.InteractiveSession()
-    sess = tf.Session()
+    config = tf.ConfigProto()
     #config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, \
     #                    allow_soft_placement=True, device_count = {'CPU': 1})
-    #session = tf.Session(config=config)
-    #K.set_session(session)
+    sess = tf.Session(config=config)
 
     # Input placeholders
     with tf.name_scope('input'):
