@@ -87,6 +87,27 @@ def prep_dataset(settings):
 
     return input_df, target_df
 
+def standardize(input_df, target_df, settings, warm_start_nn):
+    if warm_start_nn is None:
+        if settings['standardization'].startswith('minmax'):
+            min = float(settings['standardization'].split('_')[-2])
+            max = float(settings['standardization'].split('_')[-1])
+            scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
+
+        if settings['standardization'].startswith('normsm'):
+            s_t = float(settings['standardization'].split('_')[-2])
+            m_t = float(settings['standardization'].split('_')[-1])
+            scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
+    else:
+        scale_factor = pd.concat([warm_start_nn._feature_prescale_factor,
+                                  warm_start_nn._target_prescale_factor])
+        scale_bias = pd.concat([warm_start_nn._feature_prescale_bias,
+                                  warm_start_nn._target_prescale_bias])
+
+    input_df = scale_panda(input_df, scale_factor, scale_bias)
+    target_df = scale_panda(target_df, scale_factor, scale_bias)
+    return input_df, target_df, scale_factor, scale_bias
+
 class QLKNet:
     def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None):
         self.x = x
@@ -151,32 +172,14 @@ class QLKNet:
         elif activation == 'none':
             act = None
         self.y = nn_layer(layers[-1], num_target_dims, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
-        print(self.y)
 
 def train(settings, warm_start_nn=None, wdir='.'):
     tf.reset_default_graph()
     start = time.time()
 
     input_df, target_df = prep_dataset(settings)
+    input_df, target_df, scale_factor, scale_bias = standardize(input_df, target_df, settings, warm_start_nn=warm_start_nn)
 
-    if warm_start_nn is None:
-        if settings['standardization'].startswith('minmax'):
-            min = float(settings['standardization'].split('_')[-2])
-            max = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
-
-        if settings['standardization'].startswith('normsm'):
-            s_t = float(settings['standardization'].split('_')[-2])
-            m_t = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
-    else:
-        scale_factor = pd.concat([warm_start_nn._feature_prescale_factor,
-                                  warm_start_nn._target_prescale_factor])
-        scale_bias = pd.concat([warm_start_nn._feature_prescale_bias,
-                                  warm_start_nn._target_prescale_bias])
-
-    input_df = scale_panda(input_df, scale_factor, scale_bias)
-    target_df = scale_panda(target_df, scale_factor, scale_bias)
     # Standardize input
     timediff(start, 'Scaling defined')
 
@@ -287,7 +290,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
     merged = tf.summary.merge_all()
 
     # Initialze writers, variables and logdir
-    log_dir = 'train_NDNN/logs'
+    log_dir = 'tf_logs'
     if tf.gfile.Exists(log_dir):
         tf.gfile.DeleteRecursively(log_dir)
     tf.gfile.MakeDirs(log_dir)
