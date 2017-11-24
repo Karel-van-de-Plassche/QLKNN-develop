@@ -29,7 +29,7 @@ import json
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
-from nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm
+from nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
 
 FLAGS = None
 
@@ -92,6 +92,26 @@ def train(settings, warm_start_nn=None, wdir='.'):
     start = time.time()
 
     input_df, target_df = prep_dataset(settings)
+
+    if warm_start_nn is None:
+        if settings['standardization'].startswith('minmax'):
+            min = float(settings['standardization'].split('_')[-2])
+            max = float(settings['standardization'].split('_')[-1])
+            scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
+
+        if settings['standardization'].startswith('normsm'):
+            s_t = float(settings['standardization'].split('_')[-2])
+            m_t = float(settings['standardization'].split('_')[-1])
+            scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
+    else:
+        scale_factor = pd.concat([warm_start_nn._feature_prescale_factor,
+                                  warm_start_nn._target_prescale_factor])
+        scale_bias = pd.concat([warm_start_nn._feature_prescale_bias,
+                                  warm_start_nn._target_prescale_bias])
+
+    input_df = scale_panda(input_df, scale_factor, scale_bias)
+    target_df = scale_panda(target_df, scale_factor, scale_bias)
+
     train_dims = target_df.columns
     scan_dims = input_df.columns
 
@@ -110,31 +130,10 @@ def train(settings, warm_start_nn=None, wdir='.'):
         y_ds = tf.placeholder(x.dtype, [None, len(train_dims)], name='y-input')
 
     # Standardize input
-    with tf.name_scope('standardize'):
-        if warm_start_nn is None:
-            if settings['standardization'].startswith('minmax'):
-                min = float(settings['standardization'].split('_')[-2])
-                max = float(settings['standardization'].split('_')[-1])
-                scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
-
-            if settings['standardization'].startswith('normsm'):
-                s_t = float(settings['standardization'].split('_')[-2])
-                m_t = float(settings['standardization'].split('_')[-1])
-                scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
-        else:
-            scale_factor = pd.concat([warm_start_nn._feature_prescale_factor,
-                                      warm_start_nn._target_prescale_factor])
-            scale_bias = pd.concat([warm_start_nn._feature_prescale_bias,
-                                      warm_start_nn._target_prescale_bias])
-
-        in_factor = tf.constant(scale_factor[scan_dims].values, dtype=x.dtype)
-        in_bias = tf.constant(scale_bias[scan_dims].values, dtype=x.dtype)
-
-        x_scaled = in_factor * x + in_bias
     timediff(start, 'Scaling defined')
 
     # Define fully connected feed-forward NN. Potentially with dropout.
-    layers = [x_scaled]
+    layers = [x]
     debug = False
     if settings['drop_chance'] != 0:
         drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
@@ -183,11 +182,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
     elif activation == 'none':
         act = None
     # Scale output back to original values
-    y_scaled = nn_layer(layers[-1], len(train_dims), 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
-    with tf.name_scope('destandardize'):
-        out_factor = tf.constant(scale_factor[train_dims].values, dtype=x.dtype)
-        out_bias = tf.constant(scale_bias[train_dims].values, dtype=x.dtype)
-        y = (y_scaled - out_bias) / out_factor
+    y = nn_layer(layers[-1], len(train_dims), 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
 
     timediff(start, 'NN defined')
 
