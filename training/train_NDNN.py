@@ -87,6 +87,72 @@ def prep_dataset(settings):
 
     return input_df, target_df
 
+class QLKNet:
+    def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None):
+        self.x = x
+        self.NUM_TARGET_DIMS = num_target_dims
+        self.SETTINGS = settings
+        self.DEBUG = debug
+        self.WARM_START_NN = warm_start_nn
+        self.create()
+
+    def create(self):
+        x = self.x
+        settings = self.SETTINGS
+        debug = self.DEBUG
+        warm_start_nn = self.WARM_START_NN
+        num_target_dims = self.NUM_TARGET_DIMS
+
+        layers = [x]
+        if settings['drop_chance'] != 0:
+            drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
+        self.is_train = tf.placeholder(tf.bool)
+        for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
+            if warm_start_nn is None:
+                weight_init = bias_init = 'norm_1_0'
+            else:
+                if (warm_start_nn.layers[ii - 1]._activation == activation and
+                    warm_start_nn.layers[ii - 1]._weights.shape[1] == neurons):
+                    weight_init = warm_start_nn.layers[ii - 1]._weights
+                    bias_init = warm_start_nn.layers[ii - 1]._biases
+                    activation = warm_start_nn.layers[ii - 1]._activation
+                else:
+                    raise Exception('Settings file layer shape does not match warm_start_nn')
+
+            if activation == 'tanh':
+                act = tf.tanh
+            elif activation == 'relu':
+                act = tf.nn.relu
+            elif activation == 'none':
+                act = None
+
+            layer = nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
+            if settings['drop_chance'] != 0:
+                dropout = tf.layers.dropout(layer, drop_prob, training=self.is_train)
+                if debug:
+                    tf.summary.histogram('post_dropout_layer_' + str(ii), dropout)
+                layers.append(dropout)
+            else:
+                layers.append(layer)
+
+        # Last layer (output layer) usually has no activation
+        activation = settings['output_activation']
+        if warm_start_nn is None:
+            weight_init = bias_init = 'norm_1_0'
+        else:
+            weight_init = warm_start_nn.layers[-1]._weights
+            bias_init = warm_start_nn.layers[-1]._biases
+            activation = warm_start_nn.layers[-1]._activation
+
+        if activation == 'tanh':
+            act = tf.tanh
+        elif activation == 'relu':
+            act = tf.nn.relu
+        elif activation == 'none':
+            act = None
+        self.y = nn_layer(layers[-1], num_target_dims, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
+        print(self.y)
+
 def train(settings, warm_start_nn=None, wdir='.'):
     tf.reset_default_graph()
     start = time.time()
@@ -111,6 +177,8 @@ def train(settings, warm_start_nn=None, wdir='.'):
 
     input_df = scale_panda(input_df, scale_factor, scale_bias)
     target_df = scale_panda(target_df, scale_factor, scale_bias)
+    # Standardize input
+    timediff(start, 'Scaling defined')
 
     train_dims = target_df.columns
     scan_dims = input_df.columns
@@ -129,60 +197,10 @@ def train(settings, warm_start_nn=None, wdir='.'):
                            [None, len(scan_dims)], name='x-input')
         y_ds = tf.placeholder(x.dtype, [None, len(train_dims)], name='y-input')
 
-    # Standardize input
-    timediff(start, 'Scaling defined')
+    net = QLKNet(x, len(train_dims), settings, warm_start_nn=warm_start_nn)
+    y = net.y
+    is_train = net.is_train
 
-    # Define fully connected feed-forward NN. Potentially with dropout.
-    layers = [x]
-    debug = False
-    if settings['drop_chance'] != 0:
-        drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
-    is_train = tf.placeholder(tf.bool)
-    for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
-        if warm_start_nn is None:
-            weight_init = bias_init = 'norm_1_0'
-        else:
-            if (warm_start_nn.layers[ii - 1]._activation == activation and
-                warm_start_nn.layers[ii - 1]._weights.shape[1] == neurons):
-                weight_init = warm_start_nn.layers[ii - 1]._weights
-                bias_init = warm_start_nn.layers[ii - 1]._biases
-                activation = warm_start_nn.layers[ii - 1]._activation
-            else:
-                raise Exception('Settings file layer shape does not match warm_start_nn')
-
-        if activation == 'tanh':
-            act = tf.tanh
-        elif activation == 'relu':
-            act = tf.nn.relu
-        elif activation == 'none':
-            act = None
-
-        layer = nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
-        if settings['drop_chance'] != 0:
-            dropout = tf.layers.dropout(layer, drop_prob, training=is_train)
-            if debug:
-                tf.summary.histogram('post_dropout_layer_' + str(ii), dropout)
-            layers.append(dropout)
-        else:
-            layers.append(layer)
-
-    # Last layer (output layer) usually has no activation
-    activation = settings['output_activation']
-    if warm_start_nn is None:
-        weight_init = bias_init = 'norm_1_0'
-    else:
-        weight_init = warm_start_nn.layers[-1]._weights
-        bias_init = warm_start_nn.layers[-1]._biases
-        activation = warm_start_nn.layers[-1]._activation
-
-    if activation == 'tanh':
-        act = tf.tanh
-    elif activation == 'relu':
-        act = tf.nn.relu
-    elif activation == 'none':
-        act = None
-    # Scale output back to original values
-    y = nn_layer(layers[-1], len(train_dims), 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
 
     timediff(start, 'NN defined')
 
