@@ -348,7 +348,6 @@ def train(settings, warm_start_nn=None, wdir='.'):
     timediff(start, 'Training started')
     train_start = time.time()
     ii = 0
-    embed()
     try:
         for epoch in range(max_epoch):
             for step in range(minibatches):
@@ -551,10 +550,10 @@ def train(settings, warm_start_nn=None, wdir='.'):
     metadata = {'epoch':           epoch,
                 'best_epoch':      best_epoch,
                 'rms_validation':  float(rms_val),
-                'rms_test':        float(rms_test),
+                #'rms_test':        float(rms_test),
     #            'rms_train':      float(rms_train),
                 'loss_validation': float(loss_val),
-                'loss_test':       float(loss_test),
+                #'loss_test':       float(loss_test),
     #            'loss_train':     float(loss_train)
                 }
 
