@@ -73,7 +73,7 @@ def prep_dataset(settings):
     if settings['drop_outlier_above'] < 1:
         target_df = target_df[target_df < target_df.quantile(settings['drop_outlier_above'])]
     if settings['drop_outlier_below'] > 0:
-        target_df = target_df[target_df > target_df.quantile(settings['drop_outlier_above'])]
+        target_df = target_df[target_df > target_df.quantile(settings['drop_outlier_below'])]
 
     # Remove NaNs
     target_df = target_df.loc[(target_df.dropna()).index]
