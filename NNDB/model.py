@@ -626,10 +626,10 @@ class NetworkMetadata(BaseModel):
     network = ForeignKeyField(Network, related_name='network_metadata')
     epoch = IntegerField()
     best_epoch = IntegerField()
-    rms_test = FloatField()
+    rms_test = FloatField(null=True)
     rms_train = FloatField(null=True)
     rms_validation = FloatField()
-    loss_test = FloatField()
+    loss_test = FloatField(null=True)
     loss_train = FloatField(null=True)
     loss_validation = FloatField()
     metadata = HStoreField()
@@ -640,27 +640,24 @@ class NetworkMetadata(BaseModel):
             stringified = {str(key): str(val) for key, val in json_dict.items()}
             try:
                 rms_train = json_dict['rms_train']
-            except KeyError:
-                rms_train = None
-            try:
                 loss_train = json_dict['loss_train']
             except KeyError:
-                loss_train = None
+                loss_train = rms_train = None
             try:
-                loss_validation = json_dict['loss_validation']
                 loss_test = json_dict['loss_test']
+                rms_test = json_dict['loss_test']
             except KeyError:
-                loss_validation = loss_test = None
+                rms_test = loss_test = None
             network_metadata = NetworkMetadata(
                 network=network,
                 epoch=json_dict['epoch'],
                 best_epoch=json_dict['best_epoch'],
-                rms_test=json_dict['rms_test'],
                 rms_train=rms_train,
                 rms_validation=json_dict['rms_validation'],
-                loss_test=loss_test,
+                rms_test=rms_test,
                 loss_train=loss_train,
-                loss_validation=loss_validation,
+                loss_validation=json_dict['loss_validation'],
+                loss_test=loss_test,
                 metadata=stringified
             )
             network_metadata.save()
