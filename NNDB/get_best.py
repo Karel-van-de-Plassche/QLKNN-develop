@@ -4,7 +4,7 @@ import gc
 import numpy as np
 import pandas as pd
 from itertools import chain
-from model import Network, NetworkJSON, Hyperparameters, Postprocessing
+from model import Network, NetworkJSON, NetworkMetadata, Hyperparameters, Postprocessing
 from peewee import Param
 import os
 import sys
@@ -20,22 +20,17 @@ target_to_fancy = {'efeETG_GB': 'Electron ETG Heat Flux',
                    'efiTEM_GB': 'Ion TEM Heat Flux'}
 feature_names = ['An','Ate','Ati','Ti_Te','qx','smag','x']
 query = (Network.select(Network.target_names).distinct().tuples())
-df = pd.DataFrame(columns=['target_names', 'id', 'l2_norm', 'rms', 'rms_rel'])
+df = pd.DataFrame(columns=['target_names', 'id','rms'])
 for ii, query_res in enumerate(query):
     target_names = query_res[0]
-    if len(target_names) == 1:
-        target_name = target_names[0]
-    else:
-        NotImplementedError('Multiple targets not implemented yet')
-    print(target_name)
-    subquery = (Network.select(Network.id, Postprocessing.filtered_loss, Postprocessing.filtered_rms, 100*Postprocessing.rel_filtered_rms)
+    subquery = (Network.select(Network.id, NetworkMetadata.rms_validation)
                 .where(Network.target_names == Param(target_names))
                 .where(Network.feature_names == Param(feature_names))
-                .join(Postprocessing)
-                .order_by(Postprocessing.filtered_real_loss)
+                .join(NetworkMetadata)
+                .order_by(NetworkMetadata.rms_validation)
                 .limit(1)
                 .tuples())
-    df.loc[ii] = list(chain([target_name], subquery.get()))
+    df.loc[ii] = list(chain([target_names], subquery.get()))
 df['id'] = df['id'].astype('int64')
 
 print(df)
