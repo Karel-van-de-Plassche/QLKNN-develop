@@ -471,8 +471,9 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         if settings['plot'] and settings['plot_threshlines']:
             for ii, row in enumerate(thresh_nn):
                 ax1.axvline(row, c=lines[ii].get_color(), linestyle='dotted')
-            if settings['debug']:
-                print('network ', nn_index, 'threshold ', thresh)
+                if settings['debug']:
+                    print('network ', ii, 'threshold ', row)
+
 
 
         if matrix_style:
@@ -494,9 +495,8 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         if settings['plot'] and settings['plot_threshlines']:
             for ii, row in enumerate(popbacks):
                 ax1.axvline(row, c=lines[ii].get_color(), linestyle='dashdot')
-
-            if settings['debug']:
-                print('network ', nn_index, 'threshold ', thresh)
+                if settings['debug']:
+                    print('network ', ii, 'threshold ', row)
 
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
