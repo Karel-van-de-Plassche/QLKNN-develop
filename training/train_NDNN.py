@@ -202,6 +202,8 @@ def train(settings, warm_start_nn=None, wdir='.'):
 
     net = QLKNet(x, len(train_dims), settings, warm_start_nn=warm_start_nn)
     y = net.y
+    y_descale = (net.y - scale_bias[train_dims].values) / scale_factor[train_dims].values
+    y_ds_descale = (y_ds - scale_bias[train_dims].values) / scale_factor[train_dims].values
     is_train = net.is_train
 
 
@@ -211,6 +213,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
     with tf.name_scope('Loss'):
         with tf.name_scope('mse'):
             mse = (tf.reduce_mean(tf.square(tf.subtract(y_ds, y))))
+            mse_descale = (tf.reduce_mean(tf.square(tf.subtract(y_ds_descale, y_descale))))
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('mabse'):
             mabse = (tf.reduce_mean(tf.abs(tf.subtract(y_ds, y))))
@@ -532,8 +535,10 @@ def train(settings, warm_start_nn=None, wdir='.'):
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
     rms_val = np.round(np.sqrt(mse.eval(feed_dict, session=sess)), 4)
+    rms_val_descale = np.round(np.sqrt(mse_descale.eval(feed_dict, session=sess)), 4)
     loss_val = np.round(loss.eval(feed_dict, session=sess), 4)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
+    print('{:22} {:5.2f}'.format('Descaled validation RMS error: ', rms_val_descale))
 
     # And to be sure, test against test and train set
     xs, ys = datasets.test.next_batch(-1, shuffle=False)
@@ -553,6 +558,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
                 #'rms_test':        float(rms_test),
     #            'rms_train':      float(rms_train),
                 'loss_validation': float(loss_val),
+                'descaled_loss_validation': float(rms_val_descale),
                 #'loss_test':       float(loss_test),
     #            'loss_train':     float(loss_train)
                 }
