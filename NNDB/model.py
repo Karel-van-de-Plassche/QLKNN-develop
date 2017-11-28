@@ -23,6 +23,13 @@ import operator
 from functools import reduce
 from itertools import chain
 
+def by_id(cls, network_id):
+    query = (cls
+             .select()
+             .where(cls.id == network_id)
+    )
+    return query
+
 class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
     pass
 db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
@@ -73,6 +80,10 @@ class Filter(BaseModel):
     diffsep_max = FloatField(null=True)
 
     @classmethod
+    def by_id(cls, id):
+        return by_id(cls, id)
+
+    @classmethod
     def from_file(cls, pwd):
         with db.atomic() as txn:
             with open(pwd, 'r') as script:
@@ -82,11 +93,11 @@ class Filter(BaseModel):
 
     @classmethod
     def find_by_path_name(cls, name):
-        split = re.split('filtered_(\d)D_nions0_flat_filter(\d).h5', name)
+        split = re.split('(?:gen(\d+)_|)filtered_(\d+)D_nions0_flat_filter(\d+).h5', name)
         try:
-            if len(split) != 4:
+            if len(split) != 5:
                 raise
-            filter_id = int(split[2])
+            filter_id = int(split[3])
         except:
             raise Exception('Could not find filter ID from name "{!s}"'.format(name))
         return filter_id
@@ -113,11 +124,7 @@ class ComboNetwork(BaseModel):
 
     @classmethod
     def by_id(cls, network_id):
-        query = (cls
-                 .select()
-                 .where(cls.id == network_id)
-        )
-        return query
+        return by_id(cls, network_id)
 
     @classmethod
     def find_partner_by_id(cls, network_id):
@@ -211,11 +218,7 @@ class Network(BaseModel):
 
     @classmethod
     def by_id(cls, network_id):
-        query = (cls
-                 .select()
-                 .where(cls.id == network_id)
-        )
-        return query
+        return by_id(cls, network_id)
 
     @classmethod
     def find_partner_by_id(cls, network_id):
@@ -533,11 +536,7 @@ class MultiNetwork(BaseModel):
 
     @classmethod
     def by_id(cls, network_id):
-        query = (cls
-                 .select()
-                 .where(cls.id == network_id)
-        )
-        return query
+        return by_id(cls, network_id)
 
     @classmethod
     def from_candidates(cls):
