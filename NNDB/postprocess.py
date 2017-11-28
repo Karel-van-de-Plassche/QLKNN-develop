@@ -1,110 +1,87 @@
 from IPython import embed
+from multiprocessing import Pool, cpu_count
 #import mega_nn
-import gc
 import numpy as np
+import scipy.stats as stats
 import pandas as pd
-from model import Network, NetworkJSON, Hyperparameters, Postprocessing
-from peewee import Param
+from itertools import product, chain, zip_longest
+import pickle
 import os
 import sys
+import time
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
+NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
+training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../training'))
+plots_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../plots'))
 sys.path.append(networks_path)
-from run_model import QuaLiKizNDNN
+sys.path.append(NNDB_path)
+sys.path.append(training_path)
+sys.path.append(plots_path)
+from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, Postprocessing, Filter
+from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
+from train_NDNN import shuffle_panda
+from functools import partial
+from matplotlib import gridspec, cycler
+from load_data import load_data, load_nn, prettify_df
+from collections import OrderedDict
+from peewee import Param, fn
+import re
+from slicer import get_similar_not_in_table
 
+def nns_from_nndb(max=20):
+    non_processed = get_similar_not_in_table(Postprocessing, max)
 
-store_filtered = {}
-store_filtered[3] = pd.HDFStore('../filtered_7D_nions0_flat_filter3.h5')
-store_filtered[4] = pd.HDFStore('../filtered_7D_nions0_flat_filter4.h5')
-store_filtered[5] = pd.HDFStore('../filtered_7D_nions0_flat_filter5.h5')
-store = pd.HDFStore('../7D_nions0_flat.h5')
-input = store['megarun1/input']
-df = store['megarun1/flattened']
+    nns = OrderedDict()
+    for dbnn in non_processed:
+        nn = dbnn.to_QuaLiKizNN()
+        nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
+        nns[nn.label] = nn
+    return nns
 
-#nn = mega_nn.nn
+def process_nns(nns, filter_path_name, less_bound):
+    #store = pd.HDFStore('../filtered_gen2_7D_nions0_flat_filter6.h5')
+    filter_id = Filter.find_by_path_name(filter_path_name)
+    filter = Filter.by_id(filter_id).get()
+    store = pd.HDFStore('../filtered_7D_nions0_flat_filter5.h5')
+    nn0 = list(nns.values())[0]
+    target_names = nn0._target_names
+    feature_names = nn0._feature_names
+    target = store[target_names[0]].to_frame()
+    for name in target_names[1:]:
+        target[name] = store[name]
+    print('target loaded')
+    target.columns = pd.MultiIndex.from_product([['target'], target.columns])
 
-root_name = '/megarun1/nndb_nn/'
-query = (Network.select(Network.id, Network.target_names, Network.filter).tuples())
-for query_res in query:
-    id, target_names, filter_id = query_res
+    input = store['input']
+    input = input.loc[target.index]
+    input = input[feature_names]
+    input.index.name = 'dimx'
+    input.reset_index(inplace=True)
+    dimx = input['dimx']
+    input.drop('dimx', inplace=True, axis='columns')
+    target.reset_index(inplace=True, drop=True)
 
-    try:
-        Network.get(Network.id == id).postprocessing.get()
-    except Postprocessing.DoesNotExist as e:
-        pass
-    else:
-        continue
+    print('Dataset prepared')
+    results = pd.DataFrame()
+    for label, nn in nns.items():
+        print('Starting on {!s}'.format(label))
+        out = nn.get_output(input, safe=False)
+        out.columns = pd.MultiIndex.from_product([[label], out.columns])
+        #results[out.columns] = out
+        print('Done! Merging')
+        if label == 'Network_151':
+            embed()
+        results = pd.concat([results, out], axis='columns')
+    diff = results.stack().sub(target.stack().squeeze(), axis=0).unstack()
+    rms = diff.pow(2).mean().mean(level=0).pow(0.5)
+    return rms
 
-    if len(target_names) == 1:
-        target_name = target_names[0]
-    else:
-        NotImplementedError('Multiple targets not implemented yet')
-    print(target_name, id)
-    parent_name = root_name + target_name + '/'
-    network_name = parent_name + str(id) + '_noclip'
-    #if network_name in store:
-    #    print(network_name, 'not in store')
-    #    continue
-    df = store_filtered[filter_id]
+if __name__ == '__main__':
+    filter_path_name = '../filtered_7D_nions0_flat_filter5.h5'
+    #filter_path_name = '../gen2_filtered_7D_nions0_flat_filter6.h5'
+    less_bound = 10
+    nns = nns_from_nndb()
+    rms = process_nns(nns, filter_path_name, less_bound)
+    embed()
 
-    try:
-        df_nn = store[network_name]
-
-    except KeyError:
-        continue
-
-    subquery = (Network.select(Hyperparameters.cost_l1_scale,
-                               Hyperparameters.cost_l2_scale,
-                               Hyperparameters.goodness,
-                               NetworkJSON.network_json)
-                .where(Network.id == id)
-                .join(Hyperparameters, on=Hyperparameters.network_id == Network.id)
-                .join(NetworkJSON, on=NetworkJSON.network_id == Network.id)
-                .tuples())
-    cost_l1_scale, cost_l2_scale, goodness, json_dict = subquery.get()
-    nn = QuaLiKizNDNN(json_dict)
-    se = df[target_name]
-    #se = se.loc[se > 0]
-    #se = se.loc[se < 90]
-
-    #df_nn = nn.get_output(**input.loc[se.index])
-    #df_nn.index = se.index
-    se_nn = df_nn[target_name].astype('float64').loc[df.index]
-    high_bound = nn.target_max[target_name]
-    low_bound = nn.target_min[target_name]
-    se_nn[se_nn < low_bound] = low_bound
-    se_nn[se_nn > high_bound] = high_bound
-    #se_nn.index = df[target_name].index
-    #se_nn = se_nn.loc[se_nn > nn.target_min[target_name]]
-    #se_nn = se_nn.loc[se_nn < nn.target_max[target_name]]
-    res = se_nn - se
-    filtered_mse = np.mean(np.square(res))
-    filtered_mabse = np.mean(np.abs(res))
-
-    l1_norm = nn.l1_norm
-    l2_norm = nn.l2_norm
-
-    filtered_loss = 0
-    if goodness == 'mse':
-        filtered_loss = filtered_mse
-    elif goodness == 'mabse':
-        filtered_loss = filtered_mabse
-    if cost_l1_scale != 0:
-        filtered_loss += cost_l1_scale * l1_norm
-    if cost_l2_scale != 0:
-        filtered_loss += cost_l2_scale * l2_norm
-
-
-    real_loss_function = 'filtered_mse + 0.1 * l2_norm'
-    real_loss = eval(real_loss_function)
-    filtered_rms = np.sqrt(filtered_mse)
-    rel_filtered_rms = np.sqrt(filtered_mse) / (se_nn.max() - se_nn.min())
-
-    pp = Postprocessing(network=Network.get(Network.id == id),
-                        filtered_rms=filtered_rms,
-                        rel_filtered_rms=rel_filtered_rms,
-                        l2_norm=l2_norm,
-                        filtered_loss=filtered_loss,
-                        filtered_real_loss=real_loss,
-                        filtered_real_loss_function=real_loss_function)
-    pp.save()
-
+#results = pd.DataFrame([], index=pd.MultiIndex.from_product([['target'] + list(nns.keys()), target_names]))
