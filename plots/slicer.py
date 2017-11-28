@@ -80,24 +80,16 @@ def mode_to_settings(mode):
         settings['parallel']         = False
     return settings
 
-def nns_from_NNDB(max=20):
+def get_similar_not_in_table(table, max=20):
     for cls, field_name in [(Network, 'network'),
                 (ComboNetwork, 'combo_network'),
                 (MultiNetwork, 'multi_network')
                 ]:
-        print(cls)
         tags = ["div", "plus"]
         non_sliced = no_elements_in_list(cls, tags)
         non_sliced &= (cls
                       .select()
-                      .where(~fn.EXISTS(PostprocessSlice.select().where(getattr(PostprocessSlice, field_name) == cls.id)))
-                      #.where(cls.id.not_in(
-                      #    PostprocessSlice
-                      #    .select(getattr(PostprocessSlice, field_name))
-                      #))
-                      .where(~cls.target_names.contains_any('%div%'))
-                      #.where(cls.target_names != Param(['efiITG_GB_div_efeITG_GB']))
-                      #.where(cls.target_names != Param(['efiITG_GB_plus_efeITG_GB']))
+                      .where(~fn.EXISTS(table.select().where(getattr(table, field_name) == cls.id)))
                      )
         if non_sliced.count() > 0:
             network = non_sliced.get()
@@ -108,6 +100,11 @@ def nns_from_NNDB(max=20):
                   .where(cls.feature_names == Param(network.feature_names))
                   )
     non_sliced = non_sliced.limit(max)
+    return non_sliced
+
+def nns_from_NNDB(max=20):
+    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max)
+    network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
         match_0 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[0])
@@ -269,11 +266,18 @@ def nns_from_manual():
 def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
-    df = (pd.DataFrame({'leq': data['gam_leq_GB'],
-                        'less': data['gam_less_GB']})
-          .max(axis=1)
+    feature_names = nn0._feature_names
+    input = input[feature_names]
+    if 'gam_less_GB' in data:
+        df = pd.DataFrame({'leq': data['gam_leq_GB'],
+                           'less': data['gam_less_GB']})
+    else:
+        df = pd.DataFrame({'leq': data['gam_leq_GB'],
+                           'great': data['gam_great_GB']})
+
+    df = (df.max(axis=1)
           .to_frame('maxgam')
-          )
+    )
     df = input.join([data[target_names], df['maxgam']])
 
     #itor = zip(['An', 'Ate', 'Ti_Te', 'qx', 'smag', 'x'], ['0.00', '10.00', '1.00', '5.00', '0.40', '0.45'])
@@ -437,9 +441,9 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         for ii, (nn_index, nn) in enumerate(nns.items()):
             if unsafe:
                 nn_pred = nn.get_output(np.array(slice_list).T, safe=not unsafe, output_pandas=False)
-                nn_preds = np.concatenate([nn_preds, nn_pred], axis=1)
             else:
-                nn_pred = nn.get_output(pd.DataFrame(slice_dict), safe=not unsafe, output_pandas=True).values[:,0]
+                nn_pred = nn.get_output(pd.DataFrame(slice_dict), safe=not unsafe, output_pandas=True).values
+            nn_preds = np.concatenate([nn_preds, nn_pred], axis=1)
 
         if settings['plot'] and settings['plot_nns']:
             lines = []
@@ -556,6 +560,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             nn_data = pd.DataFrame(nn_preds, columns=pd.MultiIndex.from_product([[nn.label for nn in nns.values()], target_names]))
             nn_data.index.name = feature.name
             embed()
+            plt.close(fig)
         return (0, thresh2, slice_res.flatten())
     #sliced += 1
     #if sliced % 1000 == 0:
@@ -635,7 +640,8 @@ if __name__ == '__main__':
     store = pd.HDFStore('../7D_nions0_flat.h5')
     input = store['megarun1/input']
     data = store['megarun1/flattened']
-    data = data.join(store['megarun1/synthetic'])
+    if 'megarun1/synthetic' in store:
+        data = data.join(store['megarun1/synthetic'])
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
     slicedim, style, nns = nns_from_NNDB()
