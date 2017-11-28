@@ -17,7 +17,8 @@ sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
 sys.path.append(plots_path)
-from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, Postprocessing, Filter
+import model
+from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, Postprocess, Filter
 from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
@@ -27,9 +28,10 @@ from collections import OrderedDict
 from peewee import Param, fn
 import re
 from slicer import get_similar_not_in_table
+from filtering import regime_filter, stability_filter
 
 def nns_from_nndb(max=20):
-    non_processed = get_similar_not_in_table(Postprocessing, max)
+    non_processed = get_similar_not_in_table(Postprocess, max)
 
     nns = OrderedDict()
     for dbnn in non_processed:
@@ -38,17 +40,22 @@ def nns_from_nndb(max=20):
         nns[nn.label] = nn
     return nns
 
-def process_nns(nns, filter_path_name, less_bound):
+def process_nns(nns, filter_path_name, leq_bound, less_bound):
     #store = pd.HDFStore('../filtered_gen2_7D_nions0_flat_filter6.h5')
     filter_id = Filter.find_by_path_name(filter_path_name)
-    filter = Filter.by_id(filter_id).get()
-    store = pd.HDFStore('../filtered_7D_nions0_flat_filter5.h5')
+    try:
+        filter = Filter.by_id(filter_id).get()
+    except Filter.DoesNotExist:
+        #raise
+        pass
+    store = pd.HDFStore(filter_path_name)
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
-    target = store[target_names[0]].to_frame()
+    regime = regime_filter(pd.concat([store['efe_GB'], store['efi_GB']], axis='columns'), leq_bound, less_bound).index
+    target = store[target_names[0]].to_frame().loc[regime]
     for name in target_names[1:]:
-        target[name] = store[name]
+        target[name] = store[name].loc[regime]
     print('target loaded')
     target.columns = pd.MultiIndex.from_product([['target'], target.columns])
 
@@ -67,21 +74,36 @@ def process_nns(nns, filter_path_name, less_bound):
         print('Starting on {!s}'.format(label))
         out = nn.get_output(input, safe=False)
         out.columns = pd.MultiIndex.from_product([[label], out.columns])
-        #results[out.columns] = out
         print('Done! Merging')
-        if label == 'Network_151':
-            embed()
         results = pd.concat([results, out], axis='columns')
     diff = results.stack().sub(target.stack().squeeze(), axis=0).unstack()
     rms = diff.pow(2).mean().mean(level=0).pow(0.5)
+
+    for col in rms.index:
+        cls, id = col.split('_')
+        dbnn = getattr(model, cls).by_id(int(id)).get()
+        dict_ = {}
+        if isinstance(dbnn, Network):
+            dict_['network'] = dbnn
+        elif isinstance(dbnn, ComboNetwork):
+            dict_['combo_network'] = dbnn
+        elif isinstance(dbnn, MultiNetwork):
+            dict_['multi_network'] = dbnn
+        dict_['leq_bound'] = leq_bound
+        dict_['less_bound'] = less_bound
+        dict_['rms'] = rms[col]
+        dict_['filter'] = filter
+        post = Postprocess(**dict_)
+        post.save()
+
     return rms
 
 if __name__ == '__main__':
-    filter_path_name = '../filtered_7D_nions0_flat_filter5.h5'
-    #filter_path_name = '../gen2_filtered_7D_nions0_flat_filter6.h5'
+    #filter_path_name = '../filtered_7D_nions0_flat_filter5.h5'
+    filter_path_name = '../filtered_gen2_7D_nions0_flat_filter6.h5'
+    leq_bound = 0
     less_bound = 10
-    nns = nns_from_nndb()
-    rms = process_nns(nns, filter_path_name, less_bound)
-    embed()
+    nns = nns_from_nndb(20)
+    rms = process_nns(nns, filter_path_name, leq_bound, less_bound)
 
 #results = pd.DataFrame([], index=pd.MultiIndex.from_product([['target'] + list(nns.keys()), target_names]))

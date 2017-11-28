@@ -93,7 +93,7 @@ class Filter(BaseModel):
 
     @classmethod
     def find_by_path_name(cls, name):
-        split = re.split('(?:gen(\d+)_|)filtered_(\d+)D_nions0_flat_filter(\d+).h5', name)
+        split = re.split('filtered_(?:gen(\d+)_|)(\d+)D_nions0_flat_filter(\d+).h5', name)
         try:
             if len(split) != 5:
                 raise
@@ -758,14 +758,14 @@ class RmspropOptimizer(BaseModel):
     decay = FloatField()
     momentum = FloatField()
 
-class Postprocessing(BaseModel):
-    network = ForeignKeyField(Network, related_name='postprocessing')
-    filtered_rms = FloatField()
-    rel_filtered_rms = FloatField()
-    l2_norm = FloatField()
-    filtered_loss = FloatField()
-    filtered_real_loss = FloatField()
-    filtered_real_loss_function = TextField()
+class Postprocess(BaseModel):
+    network         = ForeignKeyField(Network, related_name='postprocess', null=True)
+    combo_network   = ForeignKeyField(ComboNetwork, related_name='postprocess', null=True)
+    multi_network   = ForeignKeyField(MultiNetwork, related_name='postprocess', null=True)
+    filter          = ForeignKeyField(Filter, related_name='postprocess')
+    rms             = FloatField()
+    leq_bound       = FloatField()
+    less_bound      = FloatField()
 
 class PostprocessSlice(BaseModel):
     network = ForeignKeyField(Network, related_name='postprocess_slice', null=True)
@@ -787,7 +787,7 @@ def create_schema():
 
 def create_tables():
     db.execute_sql('SET ROLE developer')
-    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocessing, ComboNetwork])
+    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocess, ComboNetwork])
 
 def purge_tables():
     clsmembers = inspect.getmembers(sys.modules[__name__], lambda member: inspect.isclass(member) and member.__module__ == __name__)
