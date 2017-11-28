@@ -38,10 +38,16 @@ def prep_totflux(ds):
 
     gam = ds['gam_GB']
     gam = gam.max(dim='numsols')
-    gam_leq = gam.where(gam.kthetarhos>=2, drop=True)
+    gam_great = gam.where(gam.kthetarhos>2, drop=True)
+    ds['gam_great_GB'] = gam_great.max('kthetarhos')
+    gam_leq = gam.where(gam.kthetarhos<=2, drop=True)
     ds['gam_leq_GB'] = gam_leq.max('kthetarhos')
-    gam_less = gam.where(gam.kthetarhos<2, drop=True)
-    ds['gam_less_GB'] = gam_less.max('kthetarhos')
+
+    ome = ds['ome_GB']
+    ome = ome.where(ome.kthetarhos <= 2, drop=True)
+    ion_unstable = (gam_leq != 0)
+    ds['TEM'] = (ion_unstable & (ome > 0).any(dim='numsols')).any(dim='kthetarhos')
+    ds['ITG'] = (ion_unstable & (ome < 0).any(dim='numsols')).any(dim='kthetarhos')
 
     ds = ds.drop(['gam_GB', 'ome_GB'])
     return ds
@@ -71,12 +77,17 @@ ds = prep_totflux(ds)
 ds_sep = xr.open_dataset('Zeffcombo.sep.nc.1')
 ds_sep = prep_sepflux(ds_sep)
 ds_tot = ds.merge(ds_sep)
+del ds
+del ds_sep
 ds_tot.to_netcdf('Zeffcombo.combo.nc', format='NETCDF4', engine='netcdf4')
-ds_tot.sel(nions=0).to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
+ds_tot = ds_tot.sel(nions=0)
+ds_tot.to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
 
 # Convert to pandas
 dfs = xarray_to_pandas(ds_tot, verbose=True)
+del ds_tot
 store = pd.HDFStore('./gen2_9D_nions0_flat.h5')
+dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].reset_index(inplace=True)
 dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].index.name = 'dimx'
 store['/megarun1/input'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
 store['/megarun1/flattened'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
