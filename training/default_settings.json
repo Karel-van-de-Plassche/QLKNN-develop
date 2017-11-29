@@ -3,6 +3,7 @@
     ],
     "dataset_path": "./filtered_everything_nions0.h5",
     "drop_outlier_above": 0.999,
+    "drop_outlier_below": 0.000,
     "hidden_neurons": [
         30,
         30,
