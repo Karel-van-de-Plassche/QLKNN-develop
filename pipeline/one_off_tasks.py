@@ -1,6 +1,7 @@
 import json
 from itertools import product
-from pipeline import TrainBatch
+from pipeline import TrainBatch, training_path
+import os
 
 class TrainRegressionOneBatch(TrainBatch):
     dim = 7
@@ -14,7 +15,7 @@ class TrainRegressionOneBatch(TrainBatch):
     for filter in plan.pop('filter'):
         plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
 
-    with open(os.path.join(os.path.dirname(__file__), 'default_settings.json')) as file_:
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
         settings = json.load(file_)
         settings.pop('train_dims')
     settings['early_stop_after'] = 10
@@ -38,7 +39,7 @@ class TrainReluBatch(TrainBatch):
     for filter in plan.pop('filter'):
         plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
 
-    with open(os.path.join(os.path.dirname(__file__), 'default_settings.json')) as file_:
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
         settings = json.load(file_)
         settings.pop('train_dims')
     settings['early_stop_after'] = 10
@@ -62,7 +63,7 @@ class TrainFilterTwoBatch(TrainBatch):
     for filter in plan.pop('filter'):
         plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
 
-    with open(os.path.join(os.path.dirname(__file__), 'default_settings.json')) as file_:
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
         settings = json.load(file_)
         settings.pop('train_dims')
 

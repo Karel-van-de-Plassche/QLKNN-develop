@@ -1,14 +1,17 @@
 import luigi
 import traceback
 import luigi.contrib.postgres
-import train_NDNN
 import os
 import json
 import signal
 from IPython import embed
 import sys
+networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
 NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
+training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../training'))
+sys.path.append(networks_path)
 sys.path.append(NNDB_path)
+sys.path.append(training_path)
 import train_NDNN
 from model import TrainScript, Network
 import shutil
@@ -55,8 +58,9 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         old_dir = os.getcwd()
         self.tmpdirname = tmpdirname = tempfile.mkdtemp(prefix='trainNN_')
         print('created temporary directory', tmpdirname)
-        TrainScript.from_file('./train_NDNN.py')
-        shutil.copy(os.path.join(os.getcwd(), './train_NDNN.py'), os.path.join(tmpdirname, 'train_NDNN.py'))
+        train_script_path = os.path.join(training_path, 'train_NDNN.py')
+        TrainScript.from_file(train_script_path)
+        shutil.copy(os.path.join(train_script_path), os.path.join(tmpdirname, 'train_NDNN.py'))
         settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
         with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
             json.dump(settings, file_)
@@ -133,7 +137,7 @@ class TrainDenseBatch(TrainBatch):
     for filter in plan.pop('filter'):
         plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
 
-    with open(os.path.join(os.path.dirname(__file__), 'default_settings.json')) as file_:
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
         settings = json.load(file_)
         settings.pop('train_dims')
 
