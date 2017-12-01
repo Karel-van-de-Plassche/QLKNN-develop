@@ -249,8 +249,8 @@ def nns_from_manual():
     #dbnn = Network.by_id(135).get()
 
     dbnns = []
-    dbnns.append(MultiNetwork.by_id(119).get())
-    #dbnns.append(Network.by_id(161).get())
+    #dbnns.append(MultiNetwork.by_id(119).get())
+    dbnns.append(Network.by_id(351).get())
     #dbnns.append(MultiNetwork.by_id(102).get())
 
     for dbnn in dbnns:
@@ -260,6 +260,7 @@ def nns_from_manual():
 
     slicedim = 'Ati'
     style='duo'
+    style='mono'
     return slicedim, style, nns
 
 
@@ -496,11 +497,6 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                         popbacks[ii] = np.nan
                 else:
                     popbacks[ii] = np.nan
-        if settings['plot'] and settings['plot_threshlines']:
-            for ii, row in enumerate(popbacks):
-                ax1.axvline(row, c=lines[ii].get_color(), linestyle='dashdot')
-                if settings['debug']:
-                    print('network ', ii, 'threshold ', row)
 
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
@@ -662,6 +658,9 @@ if __name__ == '__main__':
         filter_less = 60
     df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
     unsafe = is_unsafe(df, nns)
+    for nn in nns.values():
+        # Force small values to 0
+        nn._target_min[nn._target_min < 1e-3] = 0
 
     settings = mode_to_settings(mode)
     if settings['parallel']:
