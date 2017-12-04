@@ -212,11 +212,11 @@ def train(settings, warm_start_nn=None, wdir='.'):
     # Define loss functions
     with tf.name_scope('Loss'):
         with tf.name_scope('mse'):
-            mse = (tf.reduce_mean(tf.square(tf.subtract(y_ds, y))))
-            mse_descale = (tf.reduce_mean(tf.square(tf.subtract(y_ds_descale, y_descale))))
+            mse = tf.losses.mean_squared_error(y_ds, y)
+            mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale)
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('mabse'):
-            mabse = (tf.reduce_mean(tf.abs(tf.subtract(y_ds, y))))
+            mabse = tf.losses.absolute_difference(y_ds, y)
             tf.summary.scalar('MABSE', mabse)
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(settings['cost_l2_scale'], dtype=x.dtype, trainable=False)
