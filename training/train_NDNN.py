@@ -329,7 +329,6 @@ def train(settings, warm_start_nn=None, wdir='.'):
     best_early_measure = np.inf
     early_measure = np.inf
 
-    steps_per_epoch = minibatches + 1
     max_epoch = settings.get('max_epoch') or sys.maxsize
 
     # Set debugging parameters
@@ -337,7 +336,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
     steps_per_report = setting(settings.get('steps_per_report'), np.inf)
     epochs_per_report = setting(settings.get('epochs_per_report'),np.inf)
     save_checkpoint_networks = setting(settings.get('save_checkpoint_networks'), False)
-    save_best_networks = setting(settings.get('save_best_networks'), True)
+    save_best_networks = setting(settings.get('save_best_networks'), False)
     track_training_time = setting(settings.get('track_training_time'), False)
 
     # Set up log files
@@ -397,7 +396,7 @@ def train(settings, warm_start_nn=None, wdir='.'):
                     train_writer.add_run_metadata(run_metadata, 'epoch%d step%d' % (epoch, step))
                 # Add to CSV log buffer
                 if track_training_time is True:
-                    train_log.loc[ii] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+                    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
             ########
             # After-epoch stuff
             ########
@@ -443,9 +442,9 @@ def train(settings, warm_start_nn=None, wdir='.'):
                 validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
 
                 validation_log.loc[epoch:].to_csv(validation_log_file, header=False)
-                validation_log = validation_log[0:0]
-                train_log.loc[epoch - minibatches:].to_csv(train_log_file, header=False)
-                train_log = train_log[0:0]
+                validation_log = validation_log[0:0] #Flush validation log
+                train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False)
+                train_log = train_log[0:0] #Flush train_log
 
             # Determine early-stopping criterion
             if settings['early_stop_measure'] == 'mse':
@@ -512,6 +511,10 @@ def train(settings, warm_start_nn=None, wdir='.'):
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
 
+    validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+    validation_log.loc[epoch:].to_csv(validation_log_file, header=False)
+    train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False)
     train_log_file.close()
     del train_log
     validation_log_file.close()
