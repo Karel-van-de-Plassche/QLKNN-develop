@@ -89,6 +89,6 @@ del ds_tot
 store = pd.HDFStore('./gen2_9D_nions0_flat.h5')
 dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].reset_index(inplace=True)
 dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].index.name = 'dimx'
-store['/megarun1/input'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
-store['/megarun1/flattened'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
-store ['/megarun1/constants'] = dfs['constants']
+df = store['/megarun1/input'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
+input = store['/megarun1/flattened'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
+const = store['/megarun1/constants'] = dfs['constants']

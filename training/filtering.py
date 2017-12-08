@@ -4,6 +4,7 @@ from itertools import product
 from IPython import embed
 import pandas as pd
 import numpy as np
+import gc
 
 particle_vars = [u'pf', u'df', u'vt', u'vr', u'vc']
 heat_vars = [u'ef']
@@ -50,7 +51,7 @@ def stability_filter(data):
             data[col] = data[col].loc[data['TEM']]
         elif gam_filter == 'itg':
             data[col] = data[col].loc[data['ITG']]
-        print('{:.2f}% of sane {!s:<9} points unstable at {!s:<5} scale'.format(np.sum(~data[col].isnull()) / pre * 100), col, gam_filter)
+        print('{:.2f}% of sane {!s:<9} points unstable at {!s:<5} scale'.format(np.sum(~data[col].isnull()) / pre * 100, col, gam_filter))
     return data
 
 def filter_negative(data):
@@ -66,7 +67,9 @@ def filter_negative(data):
 def filter_ck(data, bound):
     return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
 
-def filter_totsep(data, septot_factor):
+def filter_totsep(data, septot_factor, startlen=None):
+    if startlen is None:
+        startlen = len(data)
     bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
     for type, spec in product(particle_vars + heat_vars, ['i', 'e']):
         totname = type + spec + '_GB'
@@ -91,25 +94,32 @@ def filter_femtoflux(data, bound):
     absflux = data[fluxes].abs()
     return ~((absflux < bound) & (absflux != 0)).any(axis=1)
 
-def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound):
+def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, startlen=None):
+    if startlen is None:
+        startlen = len(data)
     # Throw away point if negative heat flux
     data = data.loc[filter_negative(data)]
     print('After filter {!s:<13} {:.2f}% left'.format('negative', 100*len(data)/startlen))
+    gc.collect()
 
 
     # Throw away point if cke or cki too high
     data = data.loc[filter_ck(data, ck_bound)]
     print('After filter {!s:<13} {:.2f}% left'.format('ck', 100*len(data)/startlen))
+    gc.collect()
 
     # Throw away point if sep flux is way higher than tot flux
-    data = data.loc[filter_totsep(data, septot_factor)]
+    data = data.loc[filter_totsep(data, septot_factor, startlen=startlen)]
     print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
+    gc.collect()
 
     data = data.loc[filter_ambipolar(data, ambi_bound)]
     print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
+    gc.collect()
 
     data = data.loc[filter_femtoflux(data, femto_bound)]
     print('After filter {!s:<13} {:.2f}% left'.format('femtoflux', 100*len(data)/startlen))
+    gc.collect()
 
     # Alternatively:
     #data = data.loc[filter_negative(data) & filter_ck(data, ck_bound) & filter_totsep(data, septot_factor)]
@@ -121,27 +131,99 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound):
     #        if splitted[2] != '':
     #            data.loc[]
 
-def separate_to_store(input, data, name):
-    store = pd.HDFStore(name + '.h5')
+def separate_to_store(input, data, const, storename):
+    store = pd.HDFStore(storename)
     store['input'] = input.loc[data.index]
     for col in data:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
         if splitted[0] in heat_vars + particle_vars + momentum_vars + ['gam_leq_GB', 'gam_less_GB']:
             store.put(col, data[col].dropna(), format='table')
+    store.put('constants', const)
+    store.close()
+
+#def create_divsum(store):
+#    for group in store:
+#        splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
+#        if splitted[0] in heat_vars:
+
+def split_subsets(input, data, const, frac=0.1):
+    rand_index = pd.Int64Index(np.random.permutation(input.index))
+    idx = {}
+    sep_index = int(frac * len(rand_index))
+    idx['test'] = rand_index[:sep_index]
+    idx['training'] = rand_index[sep_index:]
+    embed()
+
+    consts = {9: const.copy(),
+              7: const.copy(),
+              4: const.copy()}
+    idx[7] = input.index[(
+        np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
+        np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
+    )]
+
+    inputs = {9: input}
+    idx[9] = input.index
+    inputs[7] = input.loc[idx[7]]
+    for name in ['Zeffx', 'Nustar']:
+        consts[7][name] = inputs[7].head(1)[name]
+    inputs[7].drop(['Zeffx', 'Nustar'], axis='columns', inplace=True)
+
+    idx[4] = inputs[7].index[(
+        np.isclose(inputs[7]['Ate'], 6.5,     atol=1e-5, rtol=1e-3) &
+        np.isclose(inputs[7]['An'], 2, atol=1e-5, rtol=1e-3) &
+        np.isclose(inputs[7]['x'], 0.45, atol=1e-5, rtol=1e-3)
+    )]
+    inputs[4] = inputs[7].loc[idx[4]]
+    for name in ['Ate', 'An', 'x']:
+        consts[4][name] = inputs[4].head(1)[name]
+    inputs[4].drop(['Ate', 'An', 'x'], axis='columns', inplace=True)
+
+    for dim, set in product([9, 7, 4], ['test', 'training']):
+        print(dim, set)
+        store = pd.HDFStore(set + '_' + 'gen2_' + str(dim) + 'D_nions0_flat.h5')
+        store['/megarun1/flattened'] = data.loc[idx[dim] & idx[set]]
+        store['/megarun1/input'] = inputs[dim].loc[idx[set]]
+        store['/megarun1/constants'] = consts[dim]
+        store.close()
 
 if __name__ == '__main__':
-    dim = 7
+    dim = 9
 
     store_name = ''.join(['gen2_', str(dim), 'D_nions0_flat'])
     store = pd.HDFStore('../' + store_name + '.h5', 'r')
 
     input = store['/megarun1/input']
-    data = store['megarun1/flattened']
+    data = store['/megarun1/flattened']
 
     startlen = len(data)
-    filtered_store = pd.HDFStore('filtered_' + store_name, 'w')
-    data = sanity_filter(data, 50, 1.5, 1.5, 1e-4)
+    data = sanity_filter(data, 50, 1.5, 1.5, 1e-4, startlen=startlen)
     data = regime_filter(data, 0, 100)
+    gc.collect()
+    input = input.loc[data.index]
     print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
-    data = stability_filter(data)
-    separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
+    filter_num = 7
+    sane_store = pd.HDFStore('../sane_' + store_name + '_filter' + str(filter_num) + '.h5')
+    sane_store['/megarun1/input'] = input
+    sane_store['/megarun1/flattened'] = data
+    const = sane_store['/megarun1/constants'] = store['/megarun1/constants']
+    #input = sane_store['/megarun1/input']
+    #data = sane_store['/megarun1/flattened']
+    #const = sane_store['/megarun1/constants']
+    sane_store.close()
+    split_subsets(input, data, const, frac=0.1)
+    del data, input, const
+    gc.collect()
+
+
+    for dim, set in product([4, 7, 9], ['test', 'training']):
+        print(dim, set)
+        basename = set + '_' + 'gen2_' + str(dim) + 'D_nions0_flat.h5'
+        store = pd.HDFStore(basename)
+        data = store['/megarun1/flattened']
+        input = store['/megarun1/input']
+        const = store['/megarun1/constants']
+
+        data = stability_filter(data)
+        separate_to_store(input, data, const, 'unstable_' + basename)
+    #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
