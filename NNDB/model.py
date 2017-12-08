@@ -93,11 +93,11 @@ class Filter(BaseModel):
 
     @classmethod
     def find_by_path_name(cls, name):
-        split = re.split('filtered_(?:gen(\d+)_|)(\d+)D_nions0_flat_filter(\d+).h5', name)
+        split = re.split('(?:(unstable)_|)(sane|test|training)_(?:gen(\d+)_|)(\d+)D_nions0_flat_filter(\d+).h5', name)
         try:
-            if len(split) != 5:
+            if len(split) != 7:
                 raise
-            filter_id = int(split[3])
+            filter_id = int(split[4])
         except:
             raise Exception('Could not find filter ID from name "{!s}"'.format(name))
         return filter_id
