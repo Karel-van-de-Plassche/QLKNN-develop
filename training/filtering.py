@@ -9,6 +9,7 @@ import gc
 particle_vars = [u'pf', u'df', u'vt', u'vr', u'vc']
 heat_vars = [u'ef']
 momentum_vars = [u'vf']
+store_format = 'table'
 
 #'vti_GB', 'dfi_GB', 'vci_GB',
 #       'pfi_GB', 'efi_GB',
@@ -137,14 +138,22 @@ def separate_to_store(input, data, const, storename):
     for col in data:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
         if splitted[0] in heat_vars + particle_vars + momentum_vars + ['gam_leq_GB', 'gam_less_GB']:
-            store.put(col, data[col].dropna(), format='table')
+            store.put(col, data[col].dropna(), format=store_format)
     store.put('constants', const)
     store.close()
 
-#def create_divsum(store):
-#    for group in store:
-#        splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-#        if splitted[0] in heat_vars:
+def create_divsum(store):
+    for group in store:
+        group = group[1:]
+        splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(group)
+        if splitted[0] in heat_vars and splitted[1] == 'i' and len(splitted) == 5:
+            group2 = splitted[0] + 'e' + ''.join(splitted[2:])
+            for name, set in [('_'.join([group, 'plus', group2]),
+                              store[group] + store[group2]),
+                              ('_'.join([group, 'div', group2]),
+                               store[group] / store[group2])]:
+                set.name = name
+                store.put(set.name, set, format=store_format)
 
 def split_subsets(input, data, const, frac=0.1):
     rand_index = pd.Int64Index(np.random.permutation(input.index))
