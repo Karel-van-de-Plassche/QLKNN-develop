@@ -92,6 +92,12 @@ class QuaLiKizComboNN():
 
         self._combo_func = combo_func
         self._target_names = target_names
+        self._target_min = pd.DataFrame(
+            self._combo_func(*[nn._target_min.values for nn in nns]),
+            index=self._target_names)
+        self._target_max = pd.DataFrame(
+            self._combo_func(*[nn._target_max.values for nn in nns]),
+            index=self._target_names)
 
     def get_output(self, input, output_pandas=True, **kwargs):
         output = self._combo_func(*[nn.get_output(input, output_pandas=False, **kwargs) for nn in self._nns])
