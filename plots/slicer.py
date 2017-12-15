@@ -15,7 +15,7 @@ training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../..
 sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
-from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list
+from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, elements_in_list
 from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
@@ -104,6 +104,7 @@ def get_similar_not_in_table(table, max=20):
 
 def nns_from_NNDB(max=20):
     non_sliced = get_similar_not_in_table(PostprocessSlice, max=max)
+    non_sliced &= elements_in_list(cls, ['TEM', 'ITG', 'ETG'])
     network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
@@ -250,7 +251,7 @@ def nns_from_manual():
 
     dbnns = []
     #dbnns.append(MultiNetwork.by_id(119).get())
-    dbnns.append(Network.by_id(351).get())
+    dbnns.append(Network.by_id(549).get())
     #dbnns.append(MultiNetwork.by_id(102).get())
 
     for dbnn in dbnns:

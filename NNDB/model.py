@@ -798,6 +798,20 @@ def purge_tables():
             except ProgrammingError:
                 db.rollback()
 
+def elements_in_list(cls, tags):
+    subquery = (cls.select(cls.id.alias('id'),
+                               fn.unnest(cls.target_names).alias('unnested_tags'))
+                .alias('subquery'))
+    tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
+    tags_filter = reduce(operator.or_, tags_filters)
+    query = (cls.select()
+             .join(subquery, on=subquery.c.id == cls.id)
+             .where(tags_filter)
+             # gets rid of duplicates
+             .group_by(cls.id)
+    )
+    return query
+
 def no_elements_in_list(cls, tags):
     subquery = (cls.select(cls.id.alias('id'),
                                fn.unnest(cls.target_names).alias('unnested_tags'))
