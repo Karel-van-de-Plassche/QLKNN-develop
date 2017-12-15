@@ -100,10 +100,10 @@ def process_nns(nns, filter_path_name, leq_bound, less_bound):
 
 if __name__ == '__main__':
     #filter_path_name = '../filtered_7D_nions0_flat_filter5.h5'
-    filter_path_name = '../filtered_gen2_7D_nions0_flat_filter6.h5'
+    filter_path_name = '../unstable_test_gen2_7D_nions0_flat_filter7.h5'
     leq_bound = 0
     less_bound = 10
-    nns = nns_from_nndb(20)
+    nns = nns_from_nndb(100)
     rms = process_nns(nns, filter_path_name, leq_bound, less_bound)
 
 #results = pd.DataFrame([], index=pd.MultiIndex.from_product([['target'] + list(nns.keys()), target_names]))
