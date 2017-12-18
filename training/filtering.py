@@ -154,6 +154,16 @@ def create_divsum(store):
                                store[group] / store[group2])]:
                 set.name = name
                 store.put(set.name, set, format=store_format)
+        if splitted[0] == 'pf' and splitted[1] == 'e' and len(splitted) == 5:
+            group2 = 'efi' + ''.join(splitted[2:])
+            group3 = 'efe' + ''.join(splitted[2:])
+            for name, set in [('_'.join([group, 'plus', group2, 'plus', group3]),
+                              store[group] + store[group2] + store[group3]),
+                              ('_'.join([group, 'div', group2]),
+                               store[group] / store[group2])
+                              ]:
+                set.name = name
+                store.put(set.name, set, format=store_format)
 
 def split_subsets(input, data, const, frac=0.1):
     rand_index = pd.Int64Index(np.random.permutation(input.index))
@@ -233,6 +243,9 @@ if __name__ == '__main__':
         input = store['/megarun1/input']
         const = store['/megarun1/constants']
 
+        gam = data['gam_leq_GB']
+        gam = gam[gam != 0]
         data = stability_filter(data)
+        data.put('gam_leq_GB', gam, format=store_format)
         separate_to_store(input, data, const, 'unstable_' + basename)
     #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
