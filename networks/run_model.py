@@ -24,6 +24,10 @@ class QuaLiKizMultiNN():
                 Exception('Supplied NNs have different feature names')
         if np.any(self._feature_min > self._feature_max):
             raise Exception('Feature min > feature max')
+        self._target_min = pd.concat(
+            [nn._target_min for nn in self._nns])
+        self._target_max = pd.concat(
+            [nn._target_max for nn in self._nns])
 
     @property
     def _target_names(self):
@@ -32,21 +36,25 @@ class QuaLiKizMultiNN():
             targets.extend(list(nn._target_names))
         return targets
 
-    def get_output(self, input, output_pandas=True, **kwargs):
+    def get_output(self, input, output_pandas=True, clip_low=True, clip_high=True, low_bound=None, high_bound=None, **kwargs):
         results = pd.DataFrame()
         feature_max = -np.inf
         feature_min = np.inf
         out_tot = np.empty((input.shape[0], len(self._nns)))
         out_name = []
+        nn_input, kwargs['safe'], clip_low, clip_high, low_bound, high_bound = \
+            determine_settings(self, input, kwargs['safe'], clip_low, clip_high, low_bound, high_bound)
         for ii, nn in enumerate(self._nns):
             if len(nn._target_names) == 1:
-                out = nn.get_output(input, **kwargs)
+                out = nn.get_output(input, clip_low=False, clip_high=False, **kwargs)
                 out_tot[:, ii] = np.squeeze(out)
                 if output_pandas:
                     out_name.extend(out.columns.values)
             elif target in nn.target_names.values:
                 NotImplementedError('Multitarget not implemented yet')
 
+
+        out_tot = clip_to_bounds(out_tot, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
         if output_pandas == True:
             results = pd.DataFrame(out_tot, columns=out_name)
         else:
@@ -92,15 +100,18 @@ class QuaLiKizComboNN():
 
         self._combo_func = combo_func
         self._target_names = target_names
-        self._target_min = pd.DataFrame(
+        self._target_min = pd.Series(
             self._combo_func(*[nn._target_min.values for nn in nns]),
             index=self._target_names)
-        self._target_max = pd.DataFrame(
+        self._target_max = pd.Series(
             self._combo_func(*[nn._target_max.values for nn in nns]),
             index=self._target_names)
 
-    def get_output(self, input, output_pandas=True, **kwargs):
-        output = self._combo_func(*[nn.get_output(input, output_pandas=False, **kwargs) for nn in self._nns])
+    def get_output(self, input, output_pandas=True, clip_low=True, clip_high=True, low_bound=None, high_bound=None, **kwargs):
+        nn_input, kwargs['safe'], clip_low, clip_high, low_bound, high_bound = \
+            determine_settings(self, input, kwargs['safe'], clip_low, clip_high, low_bound, high_bound)
+        output = self._combo_func(*[nn.get_output(input, output_pandas=False, clip_low=False, clip_high=False, **kwargs) for nn in self._nns])
+        output = clip_to_bounds(output, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
         return output
@@ -292,25 +303,8 @@ class QuaLiKizNDNN():
         arrays.
         """
         #49.1 ns ± 1.53 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
-        if safe:
-            if input.__class__ == pd.DataFrame:
-                nn_input = input[self._feature_names]
-            else:
-                raise Exception('Please pass a pandas.DataFrame for safe mode')
-            if low_bound is not None:
-                low_bound = low_bound[self._feature_names].values
-            if high_bound is not None:
-                high_bound = high_bound[self._feature_names].values
-        else:
-            if input.__class__ == pd.DataFrame:
-                nn_input = input.values
-            elif input.__class__ == np.ndarray:
-                nn_input = input
-
-        if low_bound is None:
-            low_bound = self._target_min.values
-        if high_bound is None:
-            high_bound = self._target_max.values
+        nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
+            determine_settings(self, input, safe, clip_low, clip_high, low_bound, high_bound)
 
         #nn_input = self._feature_prescale_factors.values[np.newaxis, :] * nn_input + self._feature_prescale_biases.values
         #14.3 µs ± 1.08 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
@@ -325,14 +319,7 @@ class QuaLiKizNDNN():
         #for name in self._target_names:
         #    nn_output = (np.squeeze(self.apply_layers(nn_input)) - self._target_prescale_biases[name]) / self._target_prescale_factors[name]
         #    output[name] = nn_output
-
-        # 7.01 µs ± 232 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        if clip_low:
-            for ii, bound in enumerate(low_bound):
-                output[:, ii][output[:, ii] < bound] = bound
-        if clip_high:
-            for ii, bound in enumerate(high_bound):
-                output[:, ii][output[:, ii] > bound] = bound
+        output = clip_to_bounds(output, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
 
         # 118 µs ± 3.83 µs per loop (mean ± std. dev. of 7 runs, 10000 loops each)
         if output_pandas:
@@ -364,6 +351,39 @@ class QuaLiKizNDNN():
         for layer in self.layers:
             l1_norm += np.sum(np.abs(layer.weight))
         return l1_norm
+
+def clip_to_bounds(output, clip_low, clip_high, low_bound, high_bound):
+    if clip_low:
+        for ii, bound in enumerate(low_bound):
+            output[:, ii][output[:, ii] < bound] = bound
+
+    if clip_high:
+        for ii, bound in enumerate(high_bound):
+            output[:, ii][output[:, ii] > bound] = bound
+
+    return output
+
+def determine_settings(network, input, safe, clip_low, clip_high, low_bound, high_bound):
+        if safe:
+            if input.__class__ == pd.DataFrame:
+                nn_input = input[network._feature_names]
+            else:
+                raise Exception('Please pass a pandas.DataFrame for safe mode')
+            if low_bound is not None:
+                low_bound = low_bound[network._target_names].values
+            if high_bound is not None:
+                high_bound = high_bound[network._target_names].values
+        else:
+            if input.__class__ == pd.DataFrame:
+                nn_input = input.values
+            elif input.__class__ == np.ndarray:
+                nn_input = input
+
+        if clip_low is True and (low_bound is None):
+            low_bound = network._target_min.values
+        if clip_high is True and (high_bound is None):
+            high_bound = network._target_max.values
+        return nn_input, safe, clip_low, clip_high, low_bound, high_bound
 
 #@jit(float64[:,:](float64[:,:], float64[:], float64[:]), nopython=True)
 def _prescale(nn_input, factors, biases):
