@@ -79,6 +79,11 @@ ds_sep = prep_sepflux(ds_sep)
 ds_tot = ds.merge(ds_sep)
 del ds
 del ds_sep
+for value in ['vfiTEM_GB', 'vfiITG_GB', 'vriTEM_GB', 'vriITG_GB']:
+    try:
+        ds = ds.drop(value)
+    except ValueError:
+        print('{!s} already removed'.format(value))
 ds_tot.to_netcdf('Zeffcombo.combo.nc', format='NETCDF4', engine='netcdf4')
 ds_tot = ds_tot.sel(nions=0)
 ds_tot.to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
