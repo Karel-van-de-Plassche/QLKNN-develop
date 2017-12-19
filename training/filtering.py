@@ -157,11 +157,15 @@ def create_divsum(store):
         if splitted[0] == 'pf' and splitted[1] == 'e' and len(splitted) == 5:
             group2 = 'efi' + ''.join(splitted[2:])
             group3 = 'efe' + ''.join(splitted[2:])
-            for name, set in [('_'.join([group, 'plus', group2, 'plus', group3]),
-                              store[group] + store[group2] + store[group3]),
-                              ('_'.join([group, 'div', group2]),
-                               store[group] / store[group2])
-                              ]:
+            for name, set in [
+                ('_'.join([group, 'plus', group2, 'plus', group3]),
+                 store[group] + store[group2] + store[group3]),
+                ('_'.join([group, 'div', group2]),
+                 store[group] / store[group2]),
+                ('_'.join([group2, 'div', group]),
+                 store[group2] / store[group])
+            ]:
+                print(name)
                 set.name = name
                 store.put(set.name, set, format=store_format)
 
