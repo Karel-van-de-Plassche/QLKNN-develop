@@ -102,6 +102,9 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         self.set_status_message(message)
         return message
 
+    def on_success(self):
+        os.kill(os.getpid(), signal.SIGUSR1)
+
 class TrainBatch(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
     train_dims = luigi.ListParameter()
