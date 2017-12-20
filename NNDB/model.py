@@ -53,11 +53,9 @@ class TrainScript(BaseModel):
         train_script_query = TrainScript.select().where(TrainScript.script == script)
         if train_script_query.count() == 0:
             with db.atomic() as txn:
-                sp_result = subprocess.run('git rev-parse HEAD',
-                                           stdout=subprocess.PIPE,
-                                           shell=True,
-                                           check=True)
-                version = sp_result.stdout.decode('UTF-8').strip()
+                stdout = subprocess.check_output('git rev-parse HEAD',
+                                           shell=True)
+                version = stdout.decode('UTF-8').strip()
                 train_script = TrainScript(
                     script=script,
                     version=version
@@ -441,7 +439,7 @@ class Network(BaseModel):
             if os.path.isdir(path_):
                 try:
                     Network.from_folder(path_, **kwargs)
-                except FileNotFoundError:
+                except IOError:
                     print('Could not parse', path_, 'is training done?')
 
     @classmethod
@@ -738,7 +736,7 @@ class TrainMetadata(BaseModel):
                 try:
                     with open(os.path.join(pwd, name + '_log.csv')) as file_:
                         df = pd.DataFrame.from_csv(file_)
-                except FileNotFoundError:
+                except IOError:
                     pass
                 else:
                     try:
