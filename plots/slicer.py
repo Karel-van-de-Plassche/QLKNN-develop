@@ -80,13 +80,17 @@ def mode_to_settings(mode):
         settings['parallel']         = False
     return settings
 
-def get_similar_not_in_table(table, max=20):
+def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False):
     for cls, field_name in [(Network, 'network'),
                 (ComboNetwork, 'combo_network'),
                 (MultiNetwork, 'multi_network')
                 ]:
         tags = ["div", "plus"]
+        if no_particle is True:
+            tags.append('pf')
         non_sliced = no_elements_in_list(cls, tags)
+        if only_sep is True:
+            non_sliced &= elements_in_list(cls, ['TEM', 'ITG', 'ETG'])
         non_sliced &= (cls
                       .select()
                       .where(~fn.EXISTS(table.select().where(getattr(table, field_name) == cls.id)))
@@ -103,8 +107,7 @@ def get_similar_not_in_table(table, max=20):
     return non_sliced
 
 def nns_from_NNDB(max=20):
-    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max)
-    non_sliced &= elements_in_list(cls, ['TEM', 'ITG', 'ETG'])
+    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=True)
     network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
@@ -130,6 +133,7 @@ def nns_from_NNDB(max=20):
     else:
         raise Exception('Unequal stability regime. Cannot determine slicedim')
     nn_list = {network.id: str(network.id) for network in non_sliced}
+    print('Found {:d} {!s} with target {!s}'.format(non_sliced.count(), network.__class__, network.target_names))
 
     nns = OrderedDict()
     for dbnn in non_sliced:
@@ -252,6 +256,7 @@ def nns_from_manual():
     dbnns = []
     #dbnns.append(MultiNetwork.by_id(119).get())
     dbnns.append(Network.by_id(549).get())
+    #dbnns.append(ComboNetwork.by_id(1050).get())
     #dbnns.append(MultiNetwork.by_id(102).get())
 
     for dbnn in dbnns:
@@ -426,7 +431,6 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
 
 
         # Plot target points
-
         if settings['plot'] and settings['plot_slice']:
             table = ax2.table(cellText=[[nameconvert[name] for name in df.index.names],
                                         ['{:.2f}'.format(xx) for xx in index]],cellLoc='center')
@@ -441,10 +445,21 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         # Plot nn lines
         nn_preds = np.ndarray([x.shape[0], 0])
         for ii, (nn_index, nn) in enumerate(nns.items()):
-            if unsafe:
-                nn_pred = nn.get_output(np.array(slice_list).T, safe=not unsafe, output_pandas=False)
+            if all(['ef' in name for name in nn._target_names]):
+                clip_low = True
+                low_bound = np.zeros((len(nn._target_names), 1))
+
+                #high_bound = np.full((len(nn._target_names), 1), np.inf)
+                clip_high = False
+                high_bound = None
             else:
-                nn_pred = nn.get_output(pd.DataFrame(slice_dict), safe=not unsafe, output_pandas=True).values
+                raise NotImplementedError('Particle bounds')
+                low_bound = np.full((len(nn._target_names), 1), -80)
+                high_bound = np.full((len(nn._target_names), 1), 80)
+            if unsafe:
+                nn_pred = nn.get_output(np.array(slice_list).T, clip_low=clip_low, low_bound=low_bound, clip_high=clip_high, high_bound=high_bound, safe=not unsafe, output_pandas=False)
+            else:
+                nn_pred = nn.get_output(pd.DataFrame(slice_dict), clip_low=clip_low, low_bound=low_bound, clip_high=clip_high, high_bound=high_bound, safe=not unsafe, output_pandas=True).values
             nn_preds = np.concatenate([nn_preds, nn_pred], axis=1)
 
         if settings['plot'] and settings['plot_nns']:
@@ -534,8 +549,10 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                 label=''
             markers = ['x', '+']
             for column, marker in zip(target, markers):
-                ax1.scatter(feature,
-                            column, c=color, label=label, marker=marker, zorder=zorder)
+                ax1.scatter(feature[column != 0],
+                            column[column != 0], c=color, label=label, marker=marker, zorder=zorder)
+            ax1.scatter(feature[column==0],
+                        column[column==0], edgecolors=color, label=label, marker='o', facecolors='none', zorder=zorder)
 
         # Plot regression
         if settings['plot'] and settings['plot_thresh1line'] and not np.isnan(thresh1):
@@ -635,6 +652,7 @@ if __name__ == '__main__':
     submit_to_nndb = True
 
     store = pd.HDFStore('../7D_nions0_flat.h5')
+    store = pd.HDFStore('../7D_nions0_flat.h5')
     input = store['megarun1/input']
     data = store['megarun1/flattened']
     if 'megarun1/synthetic' in store:
@@ -655,13 +673,12 @@ if __name__ == '__main__':
         filter_geq = -np.inf
         filter_less = np.inf
     else:
-        filter_geq = 0
-        filter_less = 60
+        filter_geq = -120
+        filter_less = 120
     df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
     unsafe = is_unsafe(df, nns)
-    for nn in nns.values():
-        # Force small values to 0
-        nn._target_min[nn._target_min < 1e-3] = 0
+    if not unsafe:
+        print('Warning! Cannot use unsafe mode')
 
     settings = mode_to_settings(mode)
     if settings['parallel']:
