@@ -365,6 +365,7 @@ class Network(BaseModel):
 
     @classmethod
     def find_similar_networkpar_by_values(cls, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, filter_id=None, train_dim=None):
+        # TODO: Add new hyperparameters here?
         query = (Network.select()
                  .join(Hyperparameters)
                  .where(Hyperparameters.goodness ==
@@ -473,34 +474,7 @@ class Network(BaseModel):
             dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
             network = Network(**dict_)
             network.save()
-            try:
-                hyperpar = Hyperparameters(network=network,
-                                           hidden_neurons=settings['hidden_neurons'],
-                                           hidden_activation=settings['hidden_activation'],
-                                           output_activation=settings['output_activation'],
-                                           standardization=settings['standardization'],
-                                           goodness=settings['goodness'],
-                                           drop_chance=settings['drop_chance'],
-                                           optimizer=settings['optimizer'],
-                                           cost_l2_scale=settings['cost_l2_scale'],
-                                           cost_l1_scale=settings['cost_l1_scale'],
-                                           early_stop_after=settings['early_stop_after'],
-                                           early_stop_measure=settings['early_stop_measure'],
-                                           minibatches=settings['minibatches']
-                )
-            except KeyError:
-                print('Legacy file.. Fallback')
-                hyperpar = Hyperparameters(network=network,
-                                           hidden_neurons=settings['hidden_neurons'],
-                                           hidden_activation=settings['hidden_activation'],
-                                           output_activation=settings['output_activation'],
-                                           standardization=settings['standardization'],
-                                           goodness=settings['goodness'],
-                                           optimizer=settings['optimizer'],
-                                           cost_l2_scale=settings['cost_l2_scale'],
-                                           cost_l1_scale=settings['cost_l1_scale'],
-                                           early_stop_after=settings['early_stop_after'],
-                )
+            hyperpar = Hyperparameters.from_settings(network, settings)
             hyperpar.save()
             if settings['optimizer'] == 'lbfgs':
                 optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
@@ -786,6 +760,32 @@ class Hyperparameters(BaseModel):
     early_stop_after = FloatField()
     early_stop_measure = TextField()
     minibatches = IntegerField()
+    drop_outlier_above = FloatField()
+    drop_outlier_below = FloatField()
+    validation_fraction = FloatField()
+    dtype = TextField()
+
+    @classmethod
+    def from_settings(cls, network, settings):
+        hyperpar = cls(network=network,
+                       hidden_neurons=settings['hidden_neurons'],
+                       hidden_activation=settings['hidden_activation'],
+                       output_activation=settings['output_activation'],
+                       standardization=settings['standardization'],
+                       goodness=settings['goodness'],
+                       drop_chance=settings['drop_chance'],
+                       optimizer=settings['optimizer'],
+                       cost_l2_scale=settings['cost_l2_scale'],
+                       cost_l1_scale=settings['cost_l1_scale'],
+                       early_stop_after=settings['early_stop_after'],
+                       early_stop_measure=settings['early_stop_measure'],
+                       minibatches=settings['minibatches'],
+                       drop_outlier_above=settings['drop_outlier_above'],
+                       drop_outlier_below=settings['drop_outlier_below'],
+                       validation_fraction=settings['validation_fraction'],
+                       dtype=settings['dtype'])
+        return hyperpar
+
 
 class LbfgsOptimizer(BaseModel):
     hyperparameters = ForeignKeyField(Hyperparameters, related_name='lbfgs_optimizer')
