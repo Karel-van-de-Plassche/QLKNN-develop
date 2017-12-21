@@ -162,8 +162,8 @@ def create_divsum(store):
                  store[group] + store[group2] + store[group3]),
                 ('_'.join([group, 'div', group2]),
                  store[group] / store[group2]),
-                ('_'.join([group2, 'div', group]),
-                 store[group2] / store[group])
+                ('_'.join([group, 'div', group3]),
+                 store[group] / store[group3])
             ]:
                 print(name)
                 set.name = name

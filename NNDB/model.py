@@ -216,6 +216,31 @@ class ComboNetwork(BaseModel):
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
+            elif splitted[1].startswith('pfe') and splitted[3].startswith('efe'):
+                pfe = splitted[1]
+                efe = splitted[3]
+                split_efe = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(efe)
+                efi = ''.join(*[[split_efe[0]] + ['i'] + split_efe[2:]])
+                # Triplet style: efi / pfe == nn0, pfe + efi + efe == nn1, efi / efe == nn2
+                partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
+                                   [efi + '_div_' + efe]
+                                   ]
+                formulas = OrderedDict([
+                    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})'),
+                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{0:d} + nn{2:d})'),
+                    (efe, '(nn{1:d}) / (1 + nn{1:d} + nn{2:d})')
+                ])
+                partner_target_sets.append(partner_targets)
+                formula_sets.append(formulas)
+                # Heatflux style: efi / pfe == nn0, efi + efe == nn1, efi / efe == nn2
+                partner_targets = [[efi + '_plus_' + efe],
+                                   [efi + '_div_' + efe]
+                                   ]
+                formulas = OrderedDict([
+                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} * (1 + nn{2:d}))'),
+                ])
+                partner_target_sets.append(partner_targets)
+                formula_sets.append(formulas)
             else:
                 raise NotImplementedError("Div style network {:d} with target {!s} and first part '{!s}'".format(network_id, target_name, splitted[0]))
         else:
