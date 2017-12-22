@@ -126,7 +126,7 @@ class ComboNetwork(BaseModel):
         return by_id(cls, network_id)
 
     @classmethod
-    def find_partner_by_id(cls, network_id):
+    def find_partners_by_id(cls, network_id):
         nn = cls.by_id(network_id).get()
         network_names = nn.extract_nn_names()
         query = (cls.select()
@@ -135,8 +135,6 @@ class ComboNetwork(BaseModel):
                  )
         for name in network_names:
             query &= cls.select().where(ComboNetwork.recipe.contains(name))
-        if query.count() > 1:
-            raise Exception('More than one partner found. Not sure what to do..')
         return query
 
     @classmethod
@@ -298,7 +296,7 @@ class Network(BaseModel):
         return by_id(cls, network_id)
 
     @classmethod
-    def find_partner_by_id(cls, network_id):
+    def find_partners_by_id(cls, network_id):
         q1 = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
         q2 = Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
         return q1 & q2
@@ -620,7 +618,7 @@ class MultiNetwork(BaseModel):
                 print('Skipping, prefer to have ion network first')
                 continue
 
-            query = nn.__class__.find_partner_by_id(nn.id)
+            query = nn.__class__.find_partners_by_id(nn.id)
             query &= (nn.__class__.select()
                      .where(nn.__class__.target_names == Param([partner_target]))
                      )
@@ -636,11 +634,13 @@ class MultiNetwork(BaseModel):
                                         | MultiNetwork.network_partners.contains(nn.id))
                                         )
                     if duplicate_check.count() == 0:
-                        cls(network=nn,
-                            network_partners=[partner.id],
-                            target_names=nn.target_names + partner.target_names,
-                            feature_names=nn.feature_names
-                            ).save()
+                        net = cls(network=nn,
+                                  network_partners=[partner.id],
+                                  target_names=nn.target_names + partner.target_names,
+                                  feature_names=nn.feature_names
+                        )
+                        net.save()
+                        print('Created MultiNetwork with id: {:d}'.format(net.id))
                     else:
                         print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
                 else:
@@ -651,11 +651,13 @@ class MultiNetwork(BaseModel):
                                         | MultiNetwork.combo_network_partners.contains(nn.id))
                                         )
                     if duplicate_check.count() == 0:
-                        cls(combo_network=nn,
-                            combo_network_partners=[partner.id],
-                            target_names=nn.target_names + partner.target_names,
-                            feature_names=nn.feature_names
-                            ).save()
+                        net = cls(combo_network=nn,
+                                  combo_network_partners=[partner.id],
+                                  target_names=nn.target_names + partner.target_names,
+                                  feature_names=nn.feature_names
+                        )
+                        net.save()
+                        print('Created MultiNetwork with id: {:d}'.format(net.id))
                     else:
                         print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
             else:
