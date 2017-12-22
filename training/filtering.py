@@ -169,21 +169,33 @@ def create_divsum(store):
                 set.name = name
                 store.put(set.name, set, format=store_format)
 
-def split_subsets(input, data, const, frac=0.1):
-    rand_index = pd.Int64Index(np.random.permutation(input.index))
-    idx = {}
-    sep_index = int(frac * len(rand_index))
-    idx['test'] = rand_index[:sep_index]
-    idx['training'] = rand_index[sep_index:]
-    embed()
+def filter_9D_to_7D(input, Zeffx=1, Nustar=1e-3):
+    if len(input.columns) != 9:
+        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Zeffx', 'Nustar']")
 
+    idx = input.index[(
+        np.isclose(input['Zeffx'], Zeffx,     atol=1e-5, rtol=1e-3) &
+        np.isclose(input['Nustar'], Nustar, atol=1e-5, rtol=1e-3)
+    )]
+    return idx
+
+def filter_7D_to_4D(input, Ate=6.5, An=2, x=0.45):
+    if len(input.columns) != 7:
+        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te']")
+
+    idx = input.index[(
+        np.isclose(input['Ate'], Ate,     atol=1e-5, rtol=1e-3) &
+        np.isclose(input['An'], An, atol=1e-5, rtol=1e-3) &
+        np.isclose(input['x'], x, atol=1e-5, rtol=1e-3)
+    )]
+    return idx
+
+def split_input(input, const):
+    idx = {}
     consts = {9: const.copy(),
               7: const.copy(),
               4: const.copy()}
-    idx[7] = input.index[(
-        np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
-        np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
-    )]
+    idx[7] = filter_9D_to_7D(input)
 
     inputs = {9: input}
     idx[9] = input.index
@@ -192,15 +204,31 @@ def split_subsets(input, data, const, frac=0.1):
         consts[7][name] = inputs[7].head(1)[name]
     inputs[7].drop(['Zeffx', 'Nustar'], axis='columns', inplace=True)
 
-    idx[4] = inputs[7].index[(
-        np.isclose(inputs[7]['Ate'], 6.5,     atol=1e-5, rtol=1e-3) &
-        np.isclose(inputs[7]['An'], 2, atol=1e-5, rtol=1e-3) &
-        np.isclose(inputs[7]['x'], 0.45, atol=1e-5, rtol=1e-3)
-    )]
+    idx[4] = filter_7D_to_4D(inputs[7])
     inputs[4] = inputs[7].loc[idx[4]]
     for name in ['Ate', 'An', 'x']:
         consts[4][name] = inputs[4].head(1)[name]
     inputs[4].drop(['Ate', 'An', 'x'], axis='columns', inplace=True)
+
+    return idx, inputs, consts
+
+def split_sane(input, data, const):
+    idx, inputs, consts = split_input(input, const)
+    for dim in [7, 4]:
+        print('splitting', dim)
+        store = pd.HDFStore('sane_' + 'gen2_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
+        store['/megarun1/flattened'] = data.loc[idx[dim]]
+        store['/megarun1/input'] = inputs[dim]
+        store['/megarun1/constants'] = consts[dim]
+        store.close()
+
+def split_subsets(input, data, const, frac=0.1):
+    idx, inputs, consts = split_input(input, const)
+
+    rand_index = pd.Int64Index(np.random.permutation(input.index))
+    sep_index = int(frac * len(rand_index))
+    idx['test'] = rand_index[:sep_index]
+    idx['training'] = rand_index[sep_index:]
 
     for dim, set in product([9, 7, 4], ['test', 'training']):
         print(dim, set)
@@ -233,6 +261,7 @@ if __name__ == '__main__':
     #input = sane_store['/megarun1/input']
     #data = sane_store['/megarun1/flattened']
     #const = sane_store['/megarun1/constants']
+    split_sane(input, data, const)
     sane_store.close()
     split_subsets(input, data, const, frac=0.1)
     del data, input, const
