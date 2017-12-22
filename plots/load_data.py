@@ -89,6 +89,8 @@ nameconvert = {'Ate': 'Normalized electron temperature gradient $R/L_{T_e}$',
                'efeETG_GB': 'Normalized heat flux $q$',
                'pfe_GB': '$\Gamma_e\,[GB]$',
                'pfi_GB': '$\Gamma_i\,[GB]$',
+               'pfeITG_GB': '$\Gamma_{ITG, i}\,[GB]$',
+               'pfeTEM_GB': '$\Gamma_{TEM, i}\,[GB]$'
 }
 def prettify_df(input, data):
     try:

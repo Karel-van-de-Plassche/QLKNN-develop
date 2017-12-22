@@ -454,7 +454,9 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                 high_bound = None
             else:
                 raise NotImplementedError('Particle bounds')
+                clip_low = True
                 low_bound = np.full((len(nn._target_names), 1), -80)
+                clip_high = True
                 high_bound = np.full((len(nn._target_names), 1), 80)
             if unsafe:
                 nn_pred = nn.get_output(np.array(slice_list).T, clip_low=clip_low, low_bound=low_bound, clip_high=clip_high, high_bound=high_bound, safe=not unsafe, output_pandas=False)

@@ -31,7 +31,7 @@ from slicer import get_similar_not_in_table
 from filtering import regime_filter, stability_filter
 
 def nns_from_nndb(max=20):
-    non_processed = get_similar_not_in_table(Postprocess, max)
+    non_processed = get_similar_not_in_table(Postprocess, max, only_sep=False, no_particle=False)
 
     nns = OrderedDict()
     for dbnn in non_processed:
