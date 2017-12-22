@@ -679,6 +679,7 @@ class NetworkMetadata(BaseModel):
     rms_test = FloatField(null=True)
     rms_train = FloatField(null=True)
     rms_validation = FloatField()
+    rms_validation_descaled = FloatField(null=True)
     loss_test = FloatField(null=True)
     loss_train = FloatField(null=True)
     loss_validation = FloatField()
@@ -698,12 +699,17 @@ class NetworkMetadata(BaseModel):
                 rms_test = json_dict['loss_test']
             except KeyError:
                 rms_test = loss_test = None
+            try:
+                rms_validation_descaled = json_dict['rms_validation_descaled']
+            except KeyError:
+                rms_validation_descaled = None
             network_metadata = NetworkMetadata(
                 network=network,
                 epoch=json_dict['epoch'],
                 best_epoch=json_dict['best_epoch'],
                 rms_train=rms_train,
                 rms_validation=json_dict['rms_validation'],
+                rms_validation_descaled=rms_validation_descaled,
                 rms_test=rms_test,
                 loss_train=loss_train,
                 loss_validation=json_dict['loss_validation'],

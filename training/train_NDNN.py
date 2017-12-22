@@ -546,28 +546,14 @@ def train(settings, warm_start_nn=None):
     loss_val = np.round(loss.eval(feed_dict, session=sess), 4)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
     print('{:22} {:5.2f}'.format('Descaled validation RMS error: ', rms_val_descale))
+    print('{:22} {:5.2f}'.format('Validation loss: ', loss_val))
 
-    # And to be sure, test against test and train set
-    xs, ys = datasets.test.next_batch(-1, shuffle=False)
-    feed_dict = {x: xs, y_ds: ys, is_train: False}
-    rms_test = np.round(np.sqrt(mse.eval(feed_dict, session=sess)), 4)
-    loss_test = np.round(loss.eval(feed_dict, session=sess), 4)
-    print('{:22} {:5.2f}'.format('Test RMS error: ', rms_test))
-    #xs, ys = datasets.train.next_batch(-1, shuffle=False)
-    #feed_dict = {x: xs, y_ds: ys, is_train: False}
-    #rms_train = np.round(np.sqrt(mse.eval(feed_dict)), 4)
-    #loss_train = np.round(loss.eval(feed_dict), 4)
-    #print('{:22} {:5.2f}'.format('Train RMS error: ', rms_train))
 
     metadata = {'epoch':           epoch,
                 'best_epoch':      best_epoch,
                 'rms_validation':  float(rms_val),
-                #'rms_test':        float(rms_test),
-    #            'rms_train':      float(rms_train),
                 'loss_validation': float(loss_val),
-                'descaled_loss_validation': float(rms_val_descale),
-                #'loss_test':       float(loss_test),
-    #            'loss_train':     float(loss_train)
+                'rms_validation_descaled': float(rms_val_descale),
                 }
 
     # Add metadata dict to nn.json
