@@ -345,8 +345,9 @@ def calculate_thresh2(feature, target, debug=False):
         raise NotImplementedError('2D threshold not implemented yet')
     try:
         idx = np.where(target == 0)[0][-1] #Only works for 1D
+        idx2 = np.where(~np.isnan(target[idx+1:]))[0][0] + idx + 1
         #idx = np.arange(target.shape[0]),target.shape[1] - 1 - (target[:,::-1]==0).argmax(1) #Works for 2D
-        thresh2 = np.mean(feature[idx:idx+2])
+        thresh2 = (feature[idx] + feature[idx2]) / 2
     except IndexError:
         thresh2 = np.NaN
         if debug:
@@ -366,7 +367,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
     feature = slice_.index.levels[1]
     #target = slice.loc[target_names]
     target = slice_.values[:len(feature) * len(target_names)].reshape(len(target_names), len(feature))
-    if np.all(target == 0):
+    if np.all(np.logical_or(target == 0, np.isnan(target))):
         return (1,)
     else:
         # 156 µs ± 10.4 µs per loop (mean ± std. dev. of 7 runs, 10000 loops each) (no zerocolors)
@@ -654,7 +655,7 @@ if __name__ == '__main__':
     submit_to_nndb = True
 
     store = pd.HDFStore('../7D_nions0_flat.h5')
-    store = pd.HDFStore('../7D_nions0_flat.h5')
+    #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     input = store['megarun1/input']
     data = store['megarun1/flattened']
     if 'megarun1/synthetic' in store:
