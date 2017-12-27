@@ -36,7 +36,7 @@ from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
 from peewee import Param, fn
 import re
-
+import gc
 def mode_to_settings(mode):
     settings = {}
     if mode == 'debug':
@@ -107,7 +107,7 @@ def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False):
     return non_sliced
 
 def nns_from_NNDB(max=20):
-    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=True)
+    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False)
     network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
@@ -266,7 +266,7 @@ def nns_from_manual():
 
     slicedim = 'Ati'
     style='duo'
-    style='mono'
+    #style='mono'
     return slicedim, style, nns
 
 
@@ -415,7 +415,12 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             print('whyyy?')
 
         # 12.5 µs ± 970 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        thresh2 = calculate_thresh2(feature.values, target[0,:], debug=settings['debug'])
+        if all(['ef' in name for name in target_names]):
+            thresh2 = calculate_thresh2(feature.values, target[0,:], debug=settings['debug'])
+        elif all(['pf' in name for name in target_names]):
+            thresh2 = calculate_thresh2(feature.values, np.abs(target[0,:]), debug=settings['debug'])
+        else:
+            raise Exception('Weird stuff')
 
         if settings['plot'] and settings['plot_threshlines']:
             ax1.axvline(thresh2, c='black', linestyle='dashed')
@@ -453,12 +458,14 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                 #high_bound = np.full((len(nn._target_names), 1), np.inf)
                 clip_high = False
                 high_bound = None
-            else:
-                raise NotImplementedError('Particle bounds')
-                clip_low = True
+            elif all(['pf' in name for name in nn._target_names]):
+                #raise NotImplementedError('Particle bounds')
+                clip_low = False
                 low_bound = np.full((len(nn._target_names), 1), -80)
-                clip_high = True
+                clip_high = False
                 high_bound = np.full((len(nn._target_names), 1), 80)
+            else:
+                raise Exception('Weird stuff')
             if unsafe:
                 nn_pred = nn.get_output(np.array(slice_list).T, clip_low=clip_low, low_bound=low_bound, clip_high=clip_high, high_bound=high_bound, safe=not unsafe, output_pandas=False)
             else:
@@ -487,7 +494,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                     if row[-1] == 0:
                         thresh_nn[ii] = np.nan
                     else:
-                        thresh_i = thresh_nn_i[ii] = np.where(row == 0)[0][-1]
+                        thresh_i = thresh_nn_i[ii] = np.where(np.diff(np.sign(row)))[0][-1]
                         thresh_nn[ii] = x[thresh_i]
                 except IndexError:
                     thresh_nn[ii] = np.nan
@@ -519,13 +526,14 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
 
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
+        wobble = np.mean(np.abs(np.diff(nn_preds, n=2,axis=0)), axis=0)
         if settings['plot'] and settings['plot_pop']:
             thresh2_misses = thresh_nn - thresh2
             thresh2_popback = popbacks - thresh2
-            slice_stats = np.array([thresh2_misses, thresh2_popback]).T
+            slice_stats = np.array([thresh2_misses, thresh2_popback, wobble]).T
             slice_strings = np.array(['{:.1f}'.format(xx) for xx in slice_stats.reshape(slice_stats.size)])
             slice_strings = slice_strings.reshape(slice_stats.shape)
-            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis'], axis=0)
+            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis', 'wobble'], axis=0)
             table = ax3.table(cellText=slice_strings, loc='center')
             table.auto_set_font_size(False)
             ax3.axis('tight')
@@ -567,7 +575,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             ax1.plot(x[x< thresh1], np.zeros_like(x[x< thresh1]), c='gray', linestyle='dotted')
             #ax1.axvline(thresh1, c='black', linestyle='dotted')
 
-        slice_res = np.array([thresh_nn, popbacks]).T
+        slice_res = np.array([thresh_nn, popbacks, wobble]).T
         if settings['plot']:
             ax1.legend()
             ax1.set_ylim(bottom=min(ax1.get_ylim()[0], 0))
@@ -604,6 +612,7 @@ def extract_stats(totstats, style):
         results['_'.join([measure, relabs, 'mis', '95width'])] = quant.loc[quant2] - quant.loc[quant1]
 
         results['_'.join(['no', measure, 'frac'])] = mis.isnull().sum() / len(mis)
+    results['wobble'] = df['wobble'].mean()
 
     if style == 'duo':
         duo_results = pd.DataFrame()
@@ -679,6 +688,8 @@ if __name__ == '__main__':
         filter_geq = -120
         filter_less = 120
     df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
+    del input, data
+    gc.collect()
     unsafe = is_unsafe(df, nns)
     if not unsafe:
         print('Warning! Cannot use unsafe mode')
@@ -692,7 +703,9 @@ if __name__ == '__main__':
 
     print('Starting {:d} slices for {:d} networks'.format(len(df), len(nns)))
     starttime = time.time()
-
+    #n=20
+    #newind = np.hstack([np.repeat(np.array([*df.index]), n, axis=0), np.tile(np.linspace(df.columns.levels[1][0], df.columns.levels[1][-1], n), len(df))[:, None]])
+    #embed()
     if not settings['parallel']:
         results = process_chunk(target_names, df, settings=settings, unsafe=unsafe)
     else:
@@ -711,7 +724,7 @@ if __name__ == '__main__':
             totstats.append(result[2])
             qlk_thresh.append(result[1])
 
-    stats = ['thresh', 'pop']
+    stats = ['thresh', 'pop', 'wobble']
     totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, stats))))
 
     qlk_columns = list(product(['QLK'], target_names, stats))

@@ -865,6 +865,7 @@ class PostprocessSlice(BaseModel):
     dual_thresh_mismatch_median = FloatField(null=True)
     dual_thresh_mismatch_95width= FloatField(null=True)
     no_dual_thresh_frac         = FloatField(null=True)
+    wobble                      = ArrayField(FloatField, null=True)
 
 def create_schema():
     db.execute_sql('SET ROLE developer')
