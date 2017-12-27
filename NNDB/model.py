@@ -189,6 +189,13 @@ class ComboNetwork(BaseModel):
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
+                partner_targets = [[efi],
+                                   ]
+                formulas = OrderedDict([
+                    (pfe, '(nn{0:d} * nn{1:d})'),
+                ])
+                partner_target_sets.append(partner_targets)
+                formula_sets.append(formulas)
             elif splitted[1].startswith('efi') and splitted[3].startswith('pfe'):
                 efi = splitted[1]
                 pfe = splitted[3]
@@ -244,8 +251,8 @@ class ComboNetwork(BaseModel):
         else:
             raise Exception('Divsum network needs div network, not {!s}'.format(nn.target_names))
 
-        nns = [nn]
         for formulas, partner_targets in zip(formula_sets, partner_target_sets):
+            nns = [nn]
             for partner_target in partner_targets:
                 query = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
                 query &= Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
@@ -253,7 +260,7 @@ class ComboNetwork(BaseModel):
                      .select()
                      .where(Network.target_names == Param(partner_target))
                      )
-                if query.count() != 1:
+                if query.count() > 1:
                     print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
                     sort = sorted([(el.network_metadata.get().rms_validation, el.id) for el in query])
                     print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
@@ -261,6 +268,8 @@ class ComboNetwork(BaseModel):
                              .select()
                              .where(Network.id == sort[0][1])
                     )
+                elif query.count() == 0:
+                    raise Exception('No match for {!s}! Skipping..'.format(partner_target))
 
                 nns.append(query.get())
 
