@@ -173,6 +173,11 @@ class ComboNetwork(BaseModel):
                                         (splitted[3], 'nn{1:d} / (nn{0:d} + 1)')])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
+            elif splitted[1].startswith('efe') and splitted[3].startswith('efi'):
+                partner_targets = [[splitted[3]]]
+                formulas = OrderedDict([(splitted[1], '(nn{0:d} * nn{1:d})')])
+                partner_target_sets.append(partner_targets)
+                formula_sets.append(formulas)
             elif splitted[1].startswith('pfe') and splitted[3].startswith('efi'):
                 pfe = splitted[1]
                 efi = splitted[3]
@@ -262,7 +267,13 @@ class ComboNetwork(BaseModel):
                      )
                 if query.count() > 1:
                     print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
-                    sort = sorted([(el.network_metadata.get().rms_validation, el.id) for el in query])
+                    try:
+                        sort = sorted([(el.postprocess.get().rms, el.id) for el in query])
+                    except Postprocess.DoesNotExist as ee:
+                        net_id = re.search('PARAMS: \[(.*)\]', ee.args[0])[1]
+                        table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
+                        print('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
+                        continue
                     print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
                     query = (Network
                              .select()
@@ -633,44 +644,57 @@ class MultiNetwork(BaseModel):
                      )
             if query.count() == 0:
                 print('No partners found for {!s}, id {!s}, target {!s}'.format(nn, nn.id, nn.target_names))
-            elif query.count() == 1:
-                partner = query.get()
-                if isinstance(nn, Network):
-                    duplicate_check = (MultiNetwork.select()
-                                       .where((MultiNetwork.network_id == partner.id)
-                                        | (MultiNetwork.network_id == nn.id)
-                                        | MultiNetwork.network_partners.contains(partner.id)
-                                        | MultiNetwork.network_partners.contains(nn.id))
-                                        )
-                    if duplicate_check.count() == 0:
-                        net = cls(network=nn,
-                                  network_partners=[partner.id],
-                                  target_names=nn.target_names + partner.target_names,
-                                  feature_names=nn.feature_names
-                        )
-                        net.save()
-                        print('Created MultiNetwork with id: {:d}'.format(net.id))
-                    else:
-                        print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
+                continue
+            elif query.count() > 1:
+                print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
+                try:
+                    sort = sorted([(el.postprocess.get().rms, el.id) for el in query])
+                except Postprocess.DoesNotExist as ee:
+                    net_id = re.search('PARAMS: \[(.*)\]', ee.args[0])[1]
+                    table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
+                    print('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
+                    continue
+                print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
+                query = (nn.__class__
+                         .select()
+                         .where(nn.__class__.id == sort[0][1])
+                )
+            partner = query.get()
+
+            if isinstance(nn, Network):
+                duplicate_check = (MultiNetwork.select()
+                                   .where((MultiNetwork.network_id == partner.id)
+                                    | (MultiNetwork.network_id == nn.id)
+                                    | MultiNetwork.network_partners.contains(partner.id)
+                                    | MultiNetwork.network_partners.contains(nn.id))
+                                    )
+                if duplicate_check.count() == 0:
+                    net = cls(network=nn,
+                              network_partners=[partner.id],
+                              target_names=nn.target_names + partner.target_names,
+                              feature_names=nn.feature_names
+                    )
+                    net.save()
+                    print('Created MultiNetwork with id: {:d}'.format(net.id))
                 else:
-                    duplicate_check = (MultiNetwork.select()
-                                       .where((MultiNetwork.combo_network_id == partner.id)
-                                        | (MultiNetwork.combo_network_id == nn.id)
-                                        | MultiNetwork.combo_network_partners.contains(partner.id)
-                                        | MultiNetwork.combo_network_partners.contains(nn.id))
-                                        )
-                    if duplicate_check.count() == 0:
-                        net = cls(combo_network=nn,
-                                  combo_network_partners=[partner.id],
-                                  target_names=nn.target_names + partner.target_names,
-                                  feature_names=nn.feature_names
-                        )
-                        net.save()
-                        print('Created MultiNetwork with id: {:d}'.format(net.id))
-                    else:
-                        print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
+                    print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
             else:
-                raise Exception('More than one partner found. Not sure what to do..')
+                duplicate_check = (MultiNetwork.select()
+                                   .where((MultiNetwork.combo_network_id == partner.id)
+                                    | (MultiNetwork.combo_network_id == nn.id)
+                                    | MultiNetwork.combo_network_partners.contains(partner.id)
+                                    | MultiNetwork.combo_network_partners.contains(nn.id))
+                                    )
+                if duplicate_check.count() == 0:
+                    net = cls(combo_network=nn,
+                              combo_network_partners=[partner.id],
+                              target_names=nn.target_names + partner.target_names,
+                              feature_names=nn.feature_names
+                    )
+                    net.save()
+                    print('Created MultiNetwork with id: {:d}'.format(net.id))
+                else:
+                    print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
 
 class NetworkJSON(BaseModel):
     network = ForeignKeyField(Network, related_name='network_json')
