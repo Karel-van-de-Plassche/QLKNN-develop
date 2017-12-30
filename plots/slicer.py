@@ -1,10 +1,12 @@
+#!/usr/local/bin/python
+# -*- coding: utf-8 -*-
 from IPython import embed
 from multiprocessing import Pool, cpu_count
 #import mega_nn
 import numpy as np
 import scipy.stats as stats
 import pandas as pd
-from itertools import product, chain, zip_longest
+from itertools import product, chain
 import pickle
 import os
 import sys
