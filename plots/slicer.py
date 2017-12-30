@@ -15,7 +15,7 @@ training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../..
 sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
-from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, elements_in_list
+from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, elements_in_list, db
 from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
@@ -107,6 +107,7 @@ def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False):
     return non_sliced
 
 def nns_from_NNDB(max=20):
+    db.connect()
     non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False)
     network = non_sliced.get()
     style = 'mono'
@@ -140,6 +141,8 @@ def nns_from_NNDB(max=20):
         nn = dbnn.to_QuaLiKizNN()
         nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
         nns[nn.label] = nn
+
+    db.close()
     return slicedim, style, nns
 
 
@@ -632,6 +635,7 @@ def extract_stats(totstats, style):
     return results, duo_results
 
 def extract_nn_stats(results, duo_results, nns, submit_to_nndb=False):
+    db.connect()
     for network_name, res in results.unstack().iterrows():
         network_class, network_number = network_name.split('_')
         nn = nns[network_name]
@@ -653,6 +657,7 @@ def extract_nn_stats(results, duo_results, nns, submit_to_nndb=False):
         postprocess_slice = PostprocessSlice(**res_dict)
         if submit_to_nndb is True:
             postprocess_slice.save()
+    db.close()
 
 if __name__ == '__main__':
     nn_set = 'duo'
