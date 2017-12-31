@@ -233,10 +233,23 @@ class TrainDenseBatch(TrainBatch):
         settings.update(par)
         settings_list.append(settings.copy())
 
+def target_names_generator():
+    for mode in ['', 'ITG', 'TEM']:
+        type = 'ef'
+        for op in ['plus', 'div']:
+            name = type + 'i' + mode + '_GB_' + op + '_' + type + 'e' + mode + '_GB'
+            yield name
+        name = type + 'e' + mode + '_GB_' + 'div' + '_' + type + 'i' + mode + '_GB'
+        yield name
+        for species in ['e', 'i']:
+            name = type + species + mode + '_GB'
+            yield name
 
+        name = 'pf' + 'e' + mode + '_GB_' + 'div' + '_' + 'ef' + 'i' + mode + '_GB'
+        yield name
 
-        #embed()
-        #self.ex(['./train_NDNN_cli.py', '-vv'] + cli_settings + ['train'])
+    name = type + 'eETG_GB'
+    yield name
 
 if __name__ == '__main__':
     luigi.run(main_task_cls=TrainNN)
