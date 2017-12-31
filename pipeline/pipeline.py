@@ -233,7 +233,8 @@ class TrainDenseBatch(TrainBatch):
         settings.update(par)
         settings_list.append(settings.copy())
 
-class TrainNarrowBatch(TrainBatch):
+class TrainNarrow9DBatch(TrainBatch):
+    dim = 9
     gen = 2
     plan = {'cost_l2_scale': [1.2e-5, 1e-5, 8e-6],
             'hidden_neurons': [[96] * 3],
@@ -258,19 +259,14 @@ class TrainNarrowBatch(TrainBatch):
         settings.update(par)
         settings_list.append(settings.copy())
 
-class TrainAllNetworks(luigi.WrapperTask):
+class TrainAll9DNetworks(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
     #train_dims = luigi.ListParameter()
-    train_dims_list = target_names_generator
     #scan = luigi.DictParameter()
-    settings_list = luigi.ListParameter()
 
     def requires(self):
-        for train_dims in self.train_dims_list:
-            yield TrainNarrowBatch(self.submit_date, train_dims, settings_list)
-
-class TrainAll9DNetworks(TrainAllNetworks):
-    dim = 9
+        for train_dims in target_names_generator():
+            yield TrainNarrow9DBatch(self.submit_date, train_dims)
 
 def target_names_generator():
     for mode in ['', 'ITG', 'TEM']:
