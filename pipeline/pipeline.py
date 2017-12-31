@@ -233,6 +233,45 @@ class TrainDenseBatch(TrainBatch):
         settings.update(par)
         settings_list.append(settings.copy())
 
+class TrainNarrowBatch(TrainBatch):
+    gen = 2
+    plan = {'cost_l2_scale': [1.2e-5, 1e-5, 8e-6],
+            'hidden_neurons': [[96] * 3],
+            'filter': [7],
+            'early_stop_after': [15],
+            'activations': ['tanh'],
+            'drop_outlier_below': [0.000]
+            }
+
+    plan['dataset_path'] = []
+    for filter in plan.pop('filter'):
+        plan['dataset_path'].append('../unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, dim, filter))
+
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
+        settings = json.load(file_)
+        settings.pop('train_dims')
+
+    settings_list = []
+    for val in product(*plan.values()):
+        par = dict(zip(plan.keys(), val))
+        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
+        settings.update(par)
+        settings_list.append(settings.copy())
+
+class TrainAllNetworks(luigi.WrapperTask):
+    submit_date = luigi.DateHourParameter()
+    #train_dims = luigi.ListParameter()
+    train_dims_list = target_names_generator
+    #scan = luigi.DictParameter()
+    settings_list = luigi.ListParameter()
+
+    def requires(self):
+        for train_dims in self.train_dims_list:
+            yield TrainNarrowBatch(self.submit_date, train_dims, settings_list)
+
+class TrainAll9DNetworks(TrainAllNetworks):
+    dim = 9
+
 def target_names_generator():
     for mode in ['', 'ITG', 'TEM']:
         type = 'ef'
