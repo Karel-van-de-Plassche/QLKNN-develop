@@ -96,7 +96,7 @@ class Filter(BaseModel):
         try:
             if len(split) != 7:
                 raise
-            filter_id = int(split[4])
+            filter_id = int(split[5])
         except:
             raise Exception('Could not find filter ID from name "{!s}"'.format(name))
         return filter_id
