@@ -36,14 +36,35 @@ query = (Network.select(Network.id,
          .join(Postprocess, on=(Network.id == Postprocess.network_id))
          .where(Network.target_names == Param(target_names))
          .where(TrainMetadata.set == 'train')
+         .where((PostprocessSlice.dual_thresh_mismatch_median == 0) | PostprocessSlice.dual_thresh_mismatch_median.is_null())
          )
-results = list(query.dicts())
-df = pd.DataFrame(results)
-df.drop(['id', 'multi_network', 'combo_network'], inplace=True, axis='columns')
-df['network'] = df['network'].apply(lambda el: 'pure_' + str(el))
-df['l2_norm'] = df['l2_norm'].apply(np.nanmean)
-df.set_index('network', inplace=True)
-stats = df
+if query.count() > 0:
+    results = list(query.dicts())
+    df = pd.DataFrame(results)
+    df.drop(['id', 'multi_network', 'combo_network'], inplace=True, axis='columns')
+    df['network'] = df['network'].apply(lambda el: 'pure_' + str(el))
+    df['l2_norm'] = df['l2_norm'].apply(np.nanmean)
+    df.set_index('network', inplace=True)
+    stats = df
+else:
+    stats = pd.DataFrame()
+
+query = (ComboNetwork.select(ComboNetwork.id,
+                             PostprocessSlice,
+                             Postprocess.rms)
+         .join(PostprocessSlice, on=(ComboNetwork.id == PostprocessSlice.combo_network_id))
+         .join(Postprocess, on=(ComboNetwork.id == Postprocess.combo_network_id))
+         .where(ComboNetwork.target_names == Param(target_names))
+         .where((PostprocessSlice.dual_thresh_mismatch_median == 0) | PostprocessSlice.dual_thresh_mismatch_median.is_null())
+)
+if query.count() > 0:
+    results = list(query.dicts())
+    df = pd.DataFrame(results)
+    df.drop(['id', 'network', 'multi_network'], inplace=True, axis='columns')
+    df['combo_network'] = df['combo_network'].apply(lambda el: 'combo_' + str(el))
+    df.rename(columns = {'combo_network':'network'}, inplace = True)
+    df.set_index('network', inplace=True)
+    stats = pd.concat([stats, df])
 
 query = (MultiNetwork.select(MultiNetwork.id,
                              PostprocessSlice,
@@ -51,6 +72,7 @@ query = (MultiNetwork.select(MultiNetwork.id,
          .join(PostprocessSlice, on=(MultiNetwork.id == PostprocessSlice.multi_network_id))
          .join(Postprocess, on=(MultiNetwork.id == Postprocess.multi_network_id))
          .where(MultiNetwork.target_names == Param(target_names))
+         .where((PostprocessSlice.dual_thresh_mismatch_median == 0) | PostprocessSlice.dual_thresh_mismatch_median.is_null())
 )
 if query.count() > 0:
     results = list(query.dicts())
@@ -81,7 +103,9 @@ stats['thresh'] = stats.pop('thresh_rel_mis_median').abs().apply(np.max)
 stats['no_thresh_frac'] = stats.pop('no_thresh_frac').apply(np.max)
 stats['pop'] = (14 - stats.pop('pop_abs_mis_median').abs()).apply(np.max)
 stats['l2'] = stats.pop('l2_norm_weighted')
+stats['wobble'] = stats.pop('wobble').apply(np.max)
 stats['pop_frac'] = (1 - stats.pop('no_pop_frac')).apply(np.max)
+#stats.dropna(inplace=True)
 try:
     del stats['dual_thresh_mismatch_95width']
     stats['thresh_mismatch'] = stats.pop('dual_thresh_mismatch_median').abs().apply(np.max)
@@ -95,6 +119,7 @@ gs = gridspec.GridSpec(2, 1, height_ratios=[10, 2], width_ratios=[1],
 ax2 = plt.subplot(gs[1,0])
 ax1 = plt.subplot(gs[0,0])
 top = (stats).nsmallest(10, 'rms')
+top.dropna('columns', inplace=True)
 subplot = (top/top.max()).plot.bar(ax=ax1)
 text = [(col, '{:.2f}'.format(top[col].max())) for col in top]
 text = list(map(list, zip(*text))) #Transpose
@@ -105,5 +130,5 @@ table.scale(1, 1.5)
 ax2.axis('tight')
 ax2.axis('off')
 #(np.log10(stats/stats.max())).loc[stats.sum(axis='columns').nsmallest(10).index].plot.bar()
-plt.show()
+#plt.show()
 embed()
