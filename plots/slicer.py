@@ -260,7 +260,7 @@ def nns_from_manual():
 
     dbnns = []
     #dbnns.append(MultiNetwork.by_id(119).get())
-    dbnns.append(Network.by_id(549).get())
+    dbnns.append(ComboNetwork.by_id(3333).get())
     #dbnns.append(ComboNetwork.by_id(1050).get())
     #dbnns.append(MultiNetwork.by_id(102).get())
 
@@ -271,21 +271,25 @@ def nns_from_manual():
 
     slicedim = 'Ati'
     style='duo'
-    #style='mono'
+    style='mono'
     return slicedim, style, nns
 
 
-def prep_df(input, data, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
+def prep_df(store, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
+    input = store['megarun1/input']
+    try:
+        input['logNustar'] = np.log10(input['Nustar'])
+        del input['Nustar']
+    except KeyError:
+        print('No Nustar in dataset')
+
     input = input[feature_names]
-    if 'gam_less_GB' in data:
-        df = pd.DataFrame({'leq': data['gam_leq_GB'],
-                           'less': data['gam_less_GB']})
-    else:
-        df = pd.DataFrame({'leq': data['gam_leq_GB'],
-                           'great': data['gam_great_GB']})
+
+    data = store.select('megarun1/flattened', columns=target_names)
+    df = store.select('/megarun1/flattened', columns=['gam_leq_GB', 'gam_great_GB'])
 
     df = (df.max(axis=1)
           .to_frame('maxgam')
@@ -670,12 +674,8 @@ if __name__ == '__main__':
     mode = 'quick'
     submit_to_nndb = True
 
-    store = pd.HDFStore('../7D_nions0_flat.h5')
+    store = pd.HDFStore('../gen2_7D_nions0_flat.h5')
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
-    input = store['megarun1/input']
-    data = store['megarun1/flattened']
-    if 'megarun1/synthetic' in store:
-        data = data.join(store['megarun1/synthetic'])
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
     slicedim, style, nns = nns_from_NNDB()
@@ -694,8 +694,7 @@ if __name__ == '__main__':
     else:
         filter_geq = -120
         filter_less = 120
-    df, target_names = prep_df(input, data, nns, filter_less=filter_less, filter_geq=filter_geq)
-    del input, data
+    df, target_names = prep_df(store, nns, filter_less=filter_less, filter_geq=filter_geq)
     gc.collect()
     unsafe = is_unsafe(df, nns)
     if not unsafe:
