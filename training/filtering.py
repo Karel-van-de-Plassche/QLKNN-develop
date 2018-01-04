@@ -144,34 +144,39 @@ def separate_to_store(input, data, const, storename):
 
 def create_divsum(store):
     for group in store:
-        group = group[1:]
+        if isinstance(store, pd.HDFStore):
+            group = group[1:]
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(group)
         if splitted[0] in heat_vars and splitted[1] == 'i' and len(splitted) == 5:
             group2 = splitted[0] + 'e' + ''.join(splitted[2:])
-            for name, set in [('_'.join([group, 'plus', group2]),
-                              store[group] + store[group2]),
-                              ('_'.join([group, 'div', group2]),
-                               store[group] / store[group2]),
-                              ('_'.join([group2, 'div', group]),
-                               store[group2] / store[group])
-                              ]:
-                print(name)
-                set.name = name
-                store.put(set.name, set, format=store_format)
-        if splitted[0] == 'pf' and splitted[1] == 'e' and len(splitted) == 5:
+            sets = [('_'.join([group, 'plus', group2]),
+                     store[group] + store[group2]),
+                    ('_'.join([group, 'div', group2]),
+                     store[group] / store[group2]),
+                    ('_'.join([group2, 'div', group]),
+                     store[group2] / store[group])
+            ]
+        elif splitted[0] == 'pf' and splitted[1] == 'e' and len(splitted) == 5:
             group2 = 'efi' + ''.join(splitted[2:])
             group3 = 'efe' + ''.join(splitted[2:])
-            for name, set in [
+            sets = [
                 ('_'.join([group, 'plus', group2, 'plus', group3]),
                  store[group] + store[group2] + store[group3]),
                 ('_'.join([group, 'div', group2]),
                  store[group] / store[group2]),
                 ('_'.join([group, 'div', group3]),
                  store[group] / store[group3])
-            ]:
-                print(name)
-                set.name = name
+            ]
+        else:
+            continue
+
+        for name, set in sets:
+            set.name = name
+            if isinstance(store, pd.HDFStore):
                 store.put(set.name, set, format=store_format)
+            else:
+                store[set.name] = set
+    return store
 
 def filter_9D_to_7D(input, Zeffx=1, Nustar=1e-3):
     if len(input.columns) != 9:
