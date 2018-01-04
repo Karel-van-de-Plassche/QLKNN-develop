@@ -82,21 +82,24 @@ def mode_to_settings(mode):
         settings['parallel']         = False
     return settings
 
-def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False):
+def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False, no_divsum=False):
     for cls, field_name in [(Network, 'network'),
                 (ComboNetwork, 'combo_network'),
                 (MultiNetwork, 'multi_network')
                 ]:
-        tags = ["div", "plus"]
-        if no_particle is True:
-            tags.append('pf')
-        non_sliced = no_elements_in_list(cls, tags)
-        if only_sep is True:
-            non_sliced &= elements_in_list(cls, ['TEM', 'ITG', 'ETG'])
-        non_sliced &= (cls
+        non_sliced = (cls
                       .select()
                       .where(~fn.EXISTS(table.select().where(getattr(table, field_name) == cls.id)))
                      )
+        tags = []
+        if no_divsum is True:
+            tags.extend(["div", "plus"])
+        if no_particle is True:
+            tags.append('pf')
+        if len(tags) != 0:
+            non_sliced &= no_elements_in_list(cls, tags)
+        if only_sep is True:
+            non_sliced &= elements_in_list(cls, ['TEM', 'ITG', 'ETG'])
         if non_sliced.count() > 0:
             network = non_sliced.get()
             break
@@ -110,7 +113,7 @@ def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False):
 
 def nns_from_NNDB(max=20):
     db.connect()
-    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False)
+    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False, no_divsum=True)
     network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
