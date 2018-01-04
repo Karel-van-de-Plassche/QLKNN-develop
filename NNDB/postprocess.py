@@ -40,18 +40,17 @@ def nns_from_nndb(max=20):
         nns[nn.label] = nn
     return nns
 
-def process_nns(nns, filter_path_name, leq_bound, less_bound):
+def process_nns(nns, root_path, set, filter, leq_bound, less_bound):
     #store = pd.HDFStore('../filtered_gen2_7D_nions0_flat_filter6.h5')
-    filter_id = Filter.find_by_path_name(filter_path_name)
-    try:
-        filter = Filter.by_id(filter_id).get()
-    except Filter.DoesNotExist:
-        #raise
-        pass
-    store = pd.HDFStore(filter_path_name)
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
+
+    dim = len(feature_names)
+    filter_name = set + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter) + '.h5'
+    filter_path_name = os.path.join(root_path, filter_name)
+
+    store = pd.HDFStore(filter_path_name)
     regime = regime_filter(pd.concat([store['efe_GB'], store['efi_GB']], axis='columns'), leq_bound, less_bound).index
     target = store[target_names[0]].to_frame().loc[regime]
     for name in target_names[1:]:
@@ -60,6 +59,11 @@ def process_nns(nns, filter_path_name, leq_bound, less_bound):
     target.columns = pd.MultiIndex.from_product([['target'], target.columns])
 
     input = store['input']
+    try:
+        input['logNustar'] = np.log10(input['Nustar'])
+        del input['Nustar']
+    except KeyError:
+        print('No Nustar in dataset')
     input = input.loc[target.index]
     input = input[feature_names]
     input.index.name = 'dimx'
@@ -100,10 +104,12 @@ def process_nns(nns, filter_path_name, leq_bound, less_bound):
 
 if __name__ == '__main__':
     #filter_path_name = '../filtered_7D_nions0_flat_filter5.h5'
-    filter_path_name = '../unstable_test_gen2_7D_nions0_flat_filter7.h5'
+    root_path = '..'
+    set = 'unstable_test_gen2'
+    filter = 7
     leq_bound = 0
     less_bound = 10
     nns = nns_from_nndb(100)
-    rms = process_nns(nns, filter_path_name, leq_bound, less_bound)
+    rms = process_nns(nns, root_path, set, filter, leq_bound, less_bound)
 
 #results = pd.DataFrame([], index=pd.MultiIndex.from_product([['target'] + list(nns.keys()), target_names]))
