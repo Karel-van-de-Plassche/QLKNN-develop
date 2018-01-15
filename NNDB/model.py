@@ -23,6 +23,7 @@ import operator
 from functools import reduce
 from itertools import chain
 from collections import OrderedDict
+import scipy.io as io
 
 def by_id(cls, network_id):
     query = (cls
@@ -561,6 +562,13 @@ class Network(BaseModel):
         return nn
 
     to_QuaLiKizNN = to_QuaLiKizNDNN
+
+    def to_matlab(self):
+        js = self.network_json.get().network_json
+        newjs = {}
+        for key, val in js.items():
+            newjs[key.replace('/', '_').replace(':', '_')] = val
+        io.savemat('nn' + str(self.id) + '.mat', newjs)
 
     def summarize(self):
         net = self.select().get()
