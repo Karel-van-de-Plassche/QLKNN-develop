@@ -54,7 +54,7 @@ def weight_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
         initial = tf.constant(init, dtype=dtype)
     else:
         if init == 'norm_1_0':
-            initial = tf.random_normal(shape, **kwargs)
+            initial = tf.random_normal(shape, dtype=dtype, **kwargs)
     return tf.Variable(initial)
 
 def bias_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
@@ -64,7 +64,7 @@ def bias_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
         initial = tf.constant(init, dtype=dtype)
     else:
         if init == 'norm_1_0':
-            initial = tf.random_normal(shape, **kwargs)
+            initial = tf.random_normal(shape, dtype=dtype, **kwargs)
     return tf.Variable(initial)
 
 def variable_summaries(var):
