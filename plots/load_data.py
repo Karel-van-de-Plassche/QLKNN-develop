@@ -52,30 +52,18 @@ def load_nn(id):
     nn = QuaLiKizNDNN(json_dict)
     return nn
 
-nameconvert = {'Ate': '$R/L_{T_e}$',
-               'Ati': '$R/L_{T_i}$',
+shortname = {'Ate': '$R/L_{T_e}$',
+               'Ati': '$R/L_{T_i}$'}
+
+longname ={
+    'Ate': 'Normalized electron temperature gradient $R/L_{T_e}$',
+    'Ati': 'Normalized ion temperature gradient $R/L_{T_i}$'}
+
+nameconvert = {
                'An': '$R/L_n$',
                #'Nustar': '$\\nu^*$',
                'Nustar': '$log_{10}(\\nu^*)$',
-               'Ti_Te': '$T_i/T_e$',
-               'Zeffx': '$Z_{eff}$',
-               'qx': '$q$',
-               'smag': '$\hat{s}$',
-               'x': '$\\varepsilon\,(r/R)$',
-
-               'efe_GB': '$q_e\,[GB]$',
-               'efi_GB': '$q_i\,[GB]$',
-               'efiITG_GB': '$q_{ITG, i}\,[GB]$',
-               'efeETG_GB': '$q_{ETG, e}\,[GB]$',
-               'pfe_GB': '$\Gamma_e\,[GB]$',
-               'pfi_GB': '$\Gamma_i\,[GB]$',
-}
-
-nameconvert = {'Ate': 'Normalized electron temperature gradient $R/L_{T_e}$',
-               'Ati': 'Normalized ion temperature gradient $R/L_{T_i}$',
-               'An': '$R/L_n$',
-               #'Nustar': '$\\nu^*$',
-               'Nustar': '$log_{10}(\\nu^*)$',
+               'logNustar': '$log_{10}(\\nu^*)$',
                'Ti_Te': 'Relative temperature $T_i/T_e$',
                'Zeffx': '$Z_{eff}$',
                'qx': '$q$',
@@ -92,6 +80,7 @@ nameconvert = {'Ate': 'Normalized electron temperature gradient $R/L_{T_e}$',
                'pfeITG_GB': '$\Gamma_{ITG, i}\,[GB]$',
                'pfeTEM_GB': '$\Gamma_{TEM, i}\,[GB]$'
 }
+nameconvert.update(shortname)
 def prettify_df(input, data):
     try:
         del input['nions']
