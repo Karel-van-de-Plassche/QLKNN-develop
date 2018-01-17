@@ -181,12 +181,17 @@ class QuaLiKizNDNN():
         file using the supplied function in QuaLiKiz-Tensorflow
         """
         parsed = {}
-        try:
+        if layer_mode is None:
+            try:
+                import qlknn
+            except:
+                layer_mode = 'classic'
+            else:
+                layer_mode = 'intel'
+        elif layer_mode == 'intel':
             import qlknn
-        except:
-            layer_mode = 'classic'
-        else:
-            layer_mode = 'intel'
+        elif layer_mode == 'cython':
+            import cython_mkl_ndnn
 
         # Read and parse the json. E.g. put arrays in arrays and the rest in a dict
         for name, value in nn_dict.items():
@@ -224,6 +229,8 @@ class QuaLiKizNDNN():
                     self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, act))
                 elif layer_mode  == 'intel':
                     self.layers.append(qlknn.Layer(weight, bias, activation))
+                elif layer_mode  == 'cython':
+                    self.layers.append(cython_mkl_ndnn.Layer(weight, bias, activation))
             except KeyError:
                 # This name does not exist in the JSON,
                 # so our previously read layer was the output layer
@@ -451,6 +458,9 @@ if __name__ == '__main__':
 
     nn2 = QuaLiKizNDNN.from_json('nn.json', layer_mode='classic')
     fluxes2 = nn2.get_output(input.values, safe=False)
+
+    nn3 = QuaLiKizNDNN.from_json('nn.json', layer_mode='cython')
+    fluxes3 = nn3.get_output(input.values, safe=False)
 
     #print(fluxes)
 
