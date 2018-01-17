@@ -143,7 +143,7 @@ class ComboNetwork(BaseModel):
         query = (Network
                  .select()
                  .where(Network.target_names[0] % '%_div_%')
-                 .where(Network.target_names.dimensions == 1)
+                 .where(SQL('array_length(target_names, 1) = 1'))
                  )
         for network in query:
             try:
@@ -161,6 +161,7 @@ class ComboNetwork(BaseModel):
         if len(nn.target_names) != 1:
             raise Exception('Divsum network needs div network, not {!s}'.format(nn.target_names))
         target_name = nn.target_names[0]
+        print('Trying to make combine Network {:d} with target {!s}'.format(nn.id, target_name))
         splitted = re.compile('(.*)_(div|plus)_(.*)').split(target_name)
         if len(splitted) != 5:
             raise Exception('Could not split {!s} in divsum parts'.format(target_name))
@@ -169,17 +170,23 @@ class ComboNetwork(BaseModel):
         formula_sets = []
         if splitted[2] == 'div':
             if splitted[1].startswith('efi') and splitted[3].startswith('efe'):
+                # If it is efi / efe
                 partner_targets = [[splitted[1] + '_plus_' + splitted[3]]]
                 formulas = OrderedDict([(splitted[1], '(nn{0:d} * nn{1:d}) / (nn{0:d} + 1)'),
-                                        (splitted[3], 'nn{1:d} / (nn{0:d} + 1)')])
+                                        (splitted[3], '(nn{1:d}) / (nn{0:d} + 1)')])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
             elif splitted[1].startswith('efe') and splitted[3].startswith('efi'):
+                # If it is efe / efi
                 partner_targets = [[splitted[3]]]
-                formulas = OrderedDict([(splitted[1], '(nn{0:d} * nn{1:d})')])
+                formulas = OrderedDict([
+                    (splitted[3], 'nn{1:d}'),
+                    (splitted[1], '(nn{0:d} * nn{1:d})')
+                ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
             elif splitted[1].startswith('pfe') and splitted[3].startswith('efi'):
+                # If it is pfe / efi
                 pfe = splitted[1]
                 efi = splitted[3]
                 split_efi = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(efi)
@@ -189,20 +196,25 @@ class ComboNetwork(BaseModel):
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (pfe, '(nn{0:d} * nn{1:d} * nn{2:d}) / (1 + nn{2:d} + nn{0:d} * nn{2:d})'),
-                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{2:d} + nn{0:d} * nn{2:d})'),
-                    (efe, 'nn{1:d} / (1 + nn{2:d} + nn{0:d} * nn{2:d})')
+                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{0:d} + nn{2:d})'),
+                    (efe, 'nn{1:d} / (1 + nn{0:d} + nn{2:d})'),
+                    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
+                # Simple style: pfe / efi == nn0, efi == nn1, efe / efi == nn2
                 partner_targets = [[efi],
+                                   [efe + '_div_' + efi]
                                    ]
                 formulas = OrderedDict([
-                    (pfe, '(nn{0:d} * nn{1:d})'),
+                    (efi, 'nn{1:d}'),
+                    (efe, '(nn{1:d} * nn{2:d})'),
+                    (pfe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
             elif splitted[1].startswith('efi') and splitted[3].startswith('pfe'):
+                # If it is efi / pfe
                 efi = splitted[1]
                 pfe = splitted[3]
                 split_efi = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(efi)
@@ -212,9 +224,9 @@ class ComboNetwork(BaseModel):
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})'),
                     (efi, '(nn{0:d} * nn{1:d} * nn{2:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})'),
-                    (efe, '(nn{0:d} * nn{1:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})')
+                    (efe, '(nn{0:d} * nn{1:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})'),
+                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -223,32 +235,37 @@ class ComboNetwork(BaseModel):
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} * (1 + nn{2:d}))'),
+                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{2:d})'),
+                    (efe, '(nn{1:d}) / (1 + nn{2:d})'),
+                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} * (1 + nn{2:d}))')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
             elif splitted[1].startswith('pfe') and splitted[3].startswith('efe'):
+                # If it is pfe / efe
                 pfe = splitted[1]
                 efe = splitted[3]
                 split_efe = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(efe)
                 efi = ''.join(*[[split_efe[0]] + ['i'] + split_efe[2:]])
-                # Triplet style: efi / pfe == nn0, pfe + efi + efe == nn1, efi / efe == nn2
+                # Triplet style: pfe / efe == nn0, pfe + efi + efe == nn1, efi / efe == nn2
                 partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})'),
                     (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{0:d} + nn{2:d})'),
-                    (efe, '(nn{1:d}) / (1 + nn{1:d} + nn{2:d})')
+                    (efe, '(nn{1:d}) / (1 + nn{1:d} + nn{2:d})'),
+                    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
-                # Heatflux style: efi / pfe == nn0, efi + efe == nn1, efi / efe == nn2
+                # Heatflux style: pfe / efe == nn0, efi + efe == nn1, efi / efe == nn2
                 partner_targets = [[efi + '_plus_' + efe],
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} * (1 + nn{2:d}))'),
+                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{2:d})'),
+                    (efe, '(nn{1:d}) / (1 + nn{2:d})'),
+                    (pfe, '(nn{0:d} * nn{1:d} * nn{2:d}) / (1 + nn{2:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -259,7 +276,10 @@ class ComboNetwork(BaseModel):
 
         for formulas, partner_targets in zip(formula_sets, partner_target_sets):
             nns = [nn]
+            skip = False
             for partner_target in partner_targets:
+                if len(partner_target) > 1:
+                    raise Exception('Multiple partner targets!')
                 query = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
                 query &= Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
                 query &= (Network
@@ -273,28 +293,74 @@ class ComboNetwork(BaseModel):
                     except Postprocess.DoesNotExist as ee:
                         net_id = re.search('PARAMS: \[(.*)\]', ee.args[0])[1]
                         table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
-                        print('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
-                        continue
+                        raise Exception('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
                     print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
                     query = (Network
                              .select()
                              .where(Network.id == sort[0][1])
                     )
                 elif query.count() == 0:
-                    raise Exception('No match for {!s}! Skipping..'.format(partner_target))
+                    print('No match for {!s}! Skipping..'.format(partner_target))
+                    skip = True
 
-                nns.append(query.get())
+                if query.count() > 0:
+                    nns.append(query.get())
 
-            recipes = OrderedDict()
-            for target, formula in formulas.items():
-                recipes[target] = formula.format(*[nn.id for nn in nns])
 
-            for target, recipe in recipes.items():
-                if ComboNetwork.select().where(ComboNetwork.recipe == recipe).count() == 0:
-                    ComboNetwork(target_names=[target], feature_names=nn.feature_names, recipe=recipe).save()
-                    print('Created Network with recipe {!s}'.format(recipe))
+            if skip is not True:
+                recipes = OrderedDict()
+                for target, formula in formulas.items():
+                    recipes[target] = formula.format(*[nn.id for nn in nns])
+
+                combonets = []
+                purenets = []
+                for target, recipe in recipes.items():
+                    if all([el not in recipe for el in ['+', '-', '/', '*']]):
+                        net_id = int(recipe.replace('nn', ''))
+                        purenets.append(Network.by_id(net_id).get())
+                    else:
+                        query = ComboNetwork.select().where(ComboNetwork.recipe == recipe)
+                        if query.count() == 0:
+                            combonet = cls(target_names=[target], feature_names=nn.feature_names, recipe=recipe)
+                            combonet.save()
+                            print('Created ComboNetwork {:d} with recipe {!s}'.format(combonet.id, recipe))
+                        elif query.count() == 1:
+                            combonet = query.get()
+                            print('Network with recipe {!s} already exists! Skipping!'.format(recipe))
+                        else:
+                            raise NotImplementedError('Duplicate recipies! How could this happen..?')
+
+                        combonets.append(combonet)
+
+                flatten = lambda l: [item for sublist in l for item in sublist]
+
+                if len(combonets) > 1:
+                    combo_network_partners = Param([combonet.id for combonet in combonets[1:]])
                 else:
-                    print('Network with recipe {!s} already exists! Skipping!'.format(recipe))
+                    combo_network_partners = None
+
+                if len(purenets) > 0:
+                    network_partners = Param([purenet.id for purenet in purenets])
+                else:
+                    network_partners = None
+                try:
+                    net = MultiNetwork.get(MultiNetwork.combo_network          == combonets[0],
+                                           MultiNetwork.combo_network_partners == combo_network_partners,
+                                           MultiNetwork.network_partners       == network_partners,
+                                           MultiNetwork.target_names           == Param(list(recipes.keys())),
+                                           MultiNetwork.feature_names          == Param(nn.feature_names)
+                    )
+                except MultiNetwork.DoesNotExist:
+                    net = MultiNetwork(combo_network          = combonets[0],
+                                       combo_network_partners = combo_network_partners,
+                                       network_partners       = network_partners,
+                                       target_names           = Param(list(recipes.keys())),
+                                       feature_names          = Param(nn.feature_names)
+                    )
+                    net.save()
+                    print('Created MultiNetwork with id: {:d}'.format(net.id))
+                else:
+                    print('MultiNetwork with ComboNetworks {!s} already exists with id: {:d}'.format([combonet.id for combonet in combonets], net.id))
 
 
 class Network(BaseModel):
@@ -636,9 +702,10 @@ class MultiNetwork(BaseModel):
         #         # gets rid of duplicates
         #         .group_by(Network.id)
         #)
-        combo_query = (ComboNetwork.select())
+        #combo_query = (ComboNetwork.select())
 
-        for nn in chain(query, combo_query):
+        #for nn in chain(query, combo_query):
+        for nn in query:
             splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(nn.target_names[0])
             if splitted[1] == 'i':
                 partner_target = ''.join(splitted[:1] + ['e'] + splitted[2:])
@@ -686,23 +753,23 @@ class MultiNetwork(BaseModel):
                     print('Created MultiNetwork with id: {:d}'.format(net.id))
                 else:
                     print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
-            else:
-                duplicate_check = (MultiNetwork.select()
-                                   .where((MultiNetwork.combo_network_id == partner.id)
-                                    | (MultiNetwork.combo_network_id == nn.id)
-                                    | MultiNetwork.combo_network_partners.contains(partner.id)
-                                    | MultiNetwork.combo_network_partners.contains(nn.id))
-                                    )
-                if duplicate_check.count() == 0:
-                    net = cls(combo_network=nn,
-                              combo_network_partners=[partner.id],
-                              target_names=nn.target_names + partner.target_names,
-                              feature_names=nn.feature_names
-                    )
-                    net.save()
-                    print('Created MultiNetwork with id: {:d}'.format(net.id))
-                else:
-                    print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
+            #else:
+            #    duplicate_check = (MultiNetwork.select()
+            #                       .where((MultiNetwork.combo_network_id == partner.id)
+            #                        | (MultiNetwork.combo_network_id == nn.id)
+            #                        | MultiNetwork.combo_network_partners.contains(partner.id)
+            #                        | MultiNetwork.combo_network_partners.contains(nn.id))
+            #                        )
+            #    if duplicate_check.count() == 0:
+            #        net = cls(combo_network=nn,
+            #                  combo_network_partners=[partner.id],
+            #                  target_names=nn.target_names + partner.target_names,
+            #                  feature_names=nn.feature_names
+            #        )
+            #        net.save()
+            #        print('Created MultiNetwork with id: {:d}'.format(net.id))
+            #    else:
+            #        print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
 
 class NetworkJSON(BaseModel):
     network = ForeignKeyField(Network, related_name='network_json')
