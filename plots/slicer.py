@@ -4,6 +4,7 @@ from IPython import embed
 from multiprocessing import Pool, cpu_count
 #import mega_nn
 import numpy as np
+import scipy as sc
 import scipy.stats as stats
 import pandas as pd
 from itertools import product, chain
@@ -14,24 +15,22 @@ import time
 networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
 NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
 training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../training'))
+qlk4D_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../../QLK4DNN'))
 sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
+sys.path.append(qlk4D_path)
 from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, elements_in_list, db
 from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
 
 import matplotlib as mpl
-mpl.use('pdf')
+if __name__ == '__main__':
+    mpl.use('pdf')
 import matplotlib.pyplot as plt
 pretty = False
 from load_data import nameconvert
-if pretty:
-    plt.style.use('./thesis.mplstyle')
-    mpl.rcParams.update({'font.size': 16})
-else:
-    nameconvert = {name: name for name in nameconvert}
 
 from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
@@ -54,6 +53,7 @@ def mode_to_settings(mode):
         settings['hide_qualikiz']    = False
         settings['debug']            = True
         settings['parallel']         = False
+        settings['plot_threshslope'] = False
     elif mode == 'quick':
         settings['plot']             = False
         settings['plot_pop']         = False
@@ -67,6 +67,7 @@ def mode_to_settings(mode):
         settings['hide_qualikiz']    = False
         settings['debug']            = False
         settings['parallel']         = True
+        settings['plot_threshslope'] = False
     elif mode == 'pretty':
         settings['plot']             = True
         settings['plot_pop']         = False
@@ -80,6 +81,7 @@ def mode_to_settings(mode):
         settings['hide_qualikiz']    = False
         settings['debug']            = True
         settings['parallel']         = False
+        settings['plot_threshslope'] = True
     return settings
 
 def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False, no_divsum=False):
@@ -272,16 +274,21 @@ def nns_from_manual():
         nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
         nns[nn.label] = nn
 
+    #nns[nn.label] = QuaLiKizNDNN.from_json('nn.json')
     slicedim = 'Ati'
     style='duo'
     style='mono'
+    #from qlkANNk import QuaLiKiz4DNN
+    #nns['4D'] = QuaLiKiz4DNN()
+    #nns['4D'].label = '4D'
+    #nns['4D']._target_names = ['efeITG_GB', 'efiITG_GB']
     return slicedim, style, nns
 
-
-def prep_df(store, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
+def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, calc_maxgam=False, clip=False, slice=None):
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
+
     input = store['megarun1/input']
     try:
         input['logNustar'] = np.log10(input['Nustar'])
@@ -289,22 +296,50 @@ def prep_df(store, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
     except KeyError:
         print('No Nustar in dataset')
 
+    if ('Zeffx' == feature_names).any() and not ('Zeffx' in input.columns):
+        print('WARNING! creating Zeffx. You should use a 9D dataset')
+        input['Zeffx']  = np.full_like(input['Ati'], 1.)
+    if ('logNustar' == feature_names).any() and not ('logNustar' in input.columns):
+        print('WARNING! creating logNustar. You should use a 9D dataset')
+        input['logNustar']  = np.full_like(input['Ati'], np.log10(0.009995))
+
+    if len(feature_names) == 4:
+        print('WARNING! Slicing 7D to 4D dataset. You should use a 4D dataset')
+        idx = input.index[(
+            np.isclose(input['Ate'], 5.75,     atol=1e-5, rtol=1e-3) &
+            np.isclose(input['An'], 2, atol=1e-5, rtol=1e-3) &
+            np.isclose(input['x'], .45, atol=1e-5, rtol=1e-3)
+        )]
+    else:
+        idx = input.index
     input = input[feature_names]
 
     data = store.select('megarun1/flattened', columns=target_names)
-    df = store.select('/megarun1/flattened', columns=['gam_leq_GB', 'gam_great_GB'])
 
-    df = (df.max(axis=1)
-          .to_frame('maxgam')
-    )
-    df = input.join([data[target_names], df['maxgam']])
+    input = input.loc[idx]
+    data = data.loc[input.index]
+    df = input.join(data[target_names])
+
+    if calc_maxgam is True:
+        df_gam = store.select('/megarun1/flattened', columns=['gam_leq_GB', 'gam_great_GB'])
+        df_gam = (df_gam.max(axis=1)
+                  .to_frame('maxgam')
+        )
+        df = df.join(df_gam)
 
     #itor = zip(['An', 'Ate', 'Ti_Te', 'qx', 'smag', 'x'], ['0.00', '10.00', '1.00', '5.00', '0.40', '0.45'])
-    #for name, val in itor:
-    #    df = df[np.isclose(df[name], float(val),     atol=1e-5, rtol=1e-3)]
+    #itor = zip(['Zeffx', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'logNustar'], [1.0, 5.75, 2.5, 2.0, 0.10000000149011612, 0.33000001311302185, 1.0, -2.000217201545864])
 
-    df = df[(df[target_names] < filter_less).all(axis=1)]
-    df = df[(df[target_names] >= filter_geq).all(axis=1)]
+    if slice is not None:
+        for name, val in slice:
+            df = df[np.isclose(df[name], float(val),     atol=1e-5, rtol=1e-3)]
+
+    if clip is True:
+        df[target_names] = df[target_names].clip(filter_less, filter_geq, axis=1)
+    else:
+        # filter
+        df = df[(df[target_names] < filter_less).all(axis=1)]
+        df = df[(df[target_names] >= filter_geq).all(axis=1)]
     #print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
     #print(np.sum(df['target'] == 0)/len(df), ' frac == 0')
     #print(np.sum(df['target'] > 0)/len(df), ' frac > 0')
@@ -313,8 +348,8 @@ def prep_df(store, nns, filter_less=np.inf, filter_geq=-np.inf, shuffle=True):
     #input['index'] = input.index
     df.set_index([col for col in input], inplace=True)
     df = df.astype('float64')
-    df = df.sort_index(level=slicedim)
-    df = df.unstack(slicedim)
+    df = df.sort_index(level=unstack)
+    df = df.unstack(unstack)
     if shuffle:
         df = shuffle_panda(df)
     #df.sort_values('smag', inplace=True)
@@ -432,10 +467,22 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         elif all(['pf' in name for name in target_names]):
             thresh2 = calculate_thresh2(feature.values, np.abs(target[0,:]), debug=settings['debug'])
         else:
-            raise Exception('Weird stuff')
+            thresh2 = np.nan
+            print('Weird stuff')
 
         if settings['plot'] and settings['plot_threshlines']:
             ax1.axvline(thresh2, c='black', linestyle='dashed')
+
+        if settings['plot'] and settings['plot_threshslope']:
+            if ~np.isnan(thresh2):
+                pre_thresh =  x[x <= thresh2]
+                ax1.plot(pre_thresh, np.zeros_like(pre_thresh), c='gray', linestyle='dashed')
+                post_thresh =  x[x > thresh2]
+                se = slice_.loc[target_names]
+                se.index = se.index.droplevel()
+                se = se.loc[se.index > thresh2].dropna()
+                a = sc.optimize.curve_fit(lambda x, a: a * x, se.index-thresh2, se.values)[0][0]
+                ax1.plot(post_thresh, a * (post_thresh-thresh2), c='gray', linestyle='dashed')
 
         # 13.7 µs ± 1.1 µs per loop (mean ± std. dev. of 7 runs, 100000 loops each)
         if unsafe:
@@ -477,7 +524,11 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                 clip_high = False
                 high_bound = np.full((len(nn._target_names), 1), 80)
             else:
-                raise Exception('Weird stuff')
+                clip_low = False
+                low_bound = None
+                clip_high = False
+                high_bound = None
+                print('Weird stuff')
             if unsafe:
                 nn_pred = nn.get_output(np.array(slice_list).T, clip_low=clip_low, low_bound=low_bound, clip_high=clip_high, high_bound=high_bound, safe=not unsafe, output_pandas=False)
             else:
@@ -493,6 +544,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                     lines.append(ax1.plot(x, nn_preds[:, ii+1], label=labels[ii+1], c=lines[-1].get_color(), linestyle='dashed')[0])
             else:
                 for ii, (nn, row) in enumerate(zip(nns.values(), nn_preds.T)):
+                    pass
                     lines.append(ax1.plot(x, row, label=nn.label)[0])
 
         matrix_style = False
@@ -568,14 +620,15 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                 label=''
             else:
                 zorder=1000
-                label = 'Turbulence model'
-                label=''
+                label = 'QuaLiKiz'
+                #label = 'Turbulence model'
+                #label=''
             markers = ['x', '+']
             for column, marker in zip(target, markers):
                 ax1.scatter(feature[column != 0],
                             column[column != 0], c=color, label=label, marker=marker, zorder=zorder)
             ax1.scatter(feature[column==0],
-                        column[column==0], edgecolors=color, label=label, marker='o', facecolors='none', zorder=zorder)
+                        column[column==0], edgecolors=color, marker='o', facecolors='none', zorder=zorder)
 
         # Plot regression
         if settings['plot'] and settings['plot_thresh1line'] and not np.isnan(thresh1):
@@ -596,6 +649,8 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             qlk_data = pd.DataFrame(target.T, columns=target_names, index=feature)
             nn_data = pd.DataFrame(nn_preds, columns=pd.MultiIndex.from_product([[nn.label for nn in nns.values()], target_names]))
             nn_data.index.name = feature.name
+            slice_latex = ('  {!s} &' * len(df.index.names)).format(*[nameconvert[name] for name in df.index.names]).strip(' &')
+            slice_latex += ('\\\\\n' + ' {:.2f} &' * len(index)).format(*index).strip(' &')
             embed()
             plt.close(fig)
         return (0, thresh2, slice_res.flatten())
@@ -683,6 +738,7 @@ if __name__ == '__main__':
     #slicedim, style, nn_list = populate_nn_list(nn_set)
     slicedim, style, nns = nns_from_NNDB()
     #slicedim, style, nns = nns_from_manual()
+    #slicedim = 'An'
 
     #nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
 
@@ -697,13 +753,21 @@ if __name__ == '__main__':
     else:
         filter_geq = -120
         filter_less = 120
-    df, target_names = prep_df(store, nns, filter_less=filter_less, filter_geq=filter_geq)
+
+    itor = None
+    df, target_names = prep_df(store, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor)
     gc.collect()
     unsafe = is_unsafe(df, nns)
     if not unsafe:
         print('Warning! Cannot use unsafe mode')
 
     settings = mode_to_settings(mode)
+    if mode == 'pretty':
+        plt.style.use('./thesis.mplstyle')
+        mpl.rcParams.update({'font.size': 16})
+    else:
+        nameconvert = {name: name for name in nameconvert}
+
     if settings['parallel']:
         num_processes = cpu_count()
         chunk_size = int(df.shape[0]/num_processes)
