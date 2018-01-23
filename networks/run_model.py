@@ -13,6 +13,9 @@ def sigm_tf(x):
 #def sigm(x):
 #    return 2./(1 + np.exp(-2 * x)) - 1
 
+def flatten(l):
+    return [item for sublist in l for item in sublist]
+
 class QuaLiKizMultiNN():
     def __init__(self, nns):
         self._nns = nns
@@ -65,10 +68,7 @@ class QuaLiKizMultiNN():
 
     @property
     def _target_names(self):
-        target_names = []
-        for nn in self._nns:
-            target_names.extend(nn._target_names)
-        return list(set(target_names))
+        return flatten([list(nn._target_names) for nn in self._nns])
 
     @property
     def _feature_names(self):
