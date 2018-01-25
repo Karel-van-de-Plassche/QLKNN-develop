@@ -972,7 +972,7 @@ class PostprocessSlice(BaseModel):
     no_pop_frac                 = ArrayField(FloatField)
     wobble_tot                  = ArrayField(FloatField)
     wobble_unstab               = ArrayField(FloatField)
-    frac                        = FloatField
+    frac                        = FloatField()
     dual_thresh_mismatch_median = FloatField(null=True)
     dual_thresh_mismatch_95width= FloatField(null=True)
     no_dual_thresh_frac         = FloatField(null=True)
