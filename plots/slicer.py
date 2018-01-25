@@ -650,8 +650,11 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             plt.show()
             fig.savefig('slice.pdf', format='pdf', bbox_inches='tight')
             qlk_data = pd.DataFrame(target.T, columns=target_names, index=feature)
-            nn_data = pd.DataFrame(nn_preds, columns=pd.MultiIndex.from_product([[nn.label for nn in nns.values()], target_names]))
+            cols = pd.MultiIndex.from_product([[nn.label for nn in nns.values()], target_names])
+            nn_data = pd.DataFrame(nn_preds, columns=cols)
+            nn_data.index = x
             nn_data.index.name = feature.name
+            slice_data = pd.Series(dict(zip(df.index.names, index)))
             slice_latex = ('  {!s} &' * len(df.index.names)).format(*[nameconvert[name] for name in df.index.names]).strip(' &')
             slice_latex += ('\\\\\n' + ' {:.2f} &' * len(index)).format(*index).strip(' &')
             embed()
