@@ -595,7 +595,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
         wobble = np.abs(np.diff(nn_preds, n=2,axis=0))
-        wobble_unstab = np.mean([col[ind:] for ind, col in zip(thresh_nn_i + 1, wobble.T)], axis=1)
+        wobble_unstab = np.array([np.mean(col[ind:]) for ind, col in zip(thresh_nn_i + 1, wobble.T)])
         wobble_tot = np.mean(wobble, axis=0)
         if settings['plot'] and settings['plot_pop']:
             thresh2_misses = thresh_nn - thresh2
