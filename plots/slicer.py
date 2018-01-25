@@ -285,7 +285,7 @@ def nns_from_manual():
     db.close()
     return slicedim, style, nns
 
-def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, calc_maxgam=False, clip=False, slice=None):
+def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, calc_maxgam=False, clip=False, slice=None, frac=1):
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
@@ -358,6 +358,9 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
     #input = input.astype('float64')
     # Filter
 
+    if frac < 1:
+        idx = int(frac * len(df))
+        df = df.iloc[:idx, :]
     #df = df.iloc[1040:2040,:]
     print('dataset loaded!')
     return df, target_names
@@ -705,7 +708,7 @@ def extract_stats(totstats, style):
         duo_results = pd.DataFrame()
     return results, duo_results
 
-def extract_nn_stats(results, duo_results, nns, submit_to_nndb=False):
+def extract_nn_stats(results, duo_results, nns, frac, submit_to_nndb=False):
     db.connect()
     for network_name, res in results.unstack().iterrows():
         network_class, network_number = network_name.split('_')
@@ -716,6 +719,8 @@ def extract_nn_stats(results, duo_results, nns, submit_to_nndb=False):
             res_dict = {'combo_network': network_number}
         elif network_class == 'MultiNetwork':
             res_dict = {'multi_network': network_number}
+        res_dict['frac'] = frac
+
         for stat, val in res.unstack(level=0).iteritems():
             res_dict[stat] = val.loc[nn._target_names].values
 
@@ -762,7 +767,8 @@ if __name__ == '__main__':
         filter_less = 120
 
     itor = None
-    df, target_names = prep_df(store, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor)
+    frac = 0.05
+    df, target_names = prep_df(store, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor, frac=frac)
     gc.collect()
     unsafe = is_unsafe(df, nns)
     if not unsafe:
@@ -814,7 +820,7 @@ if __name__ == '__main__':
 
     totstats = totstats.join(qlk_data)
     res, duo_res = extract_stats(totstats, style)
-    extract_nn_stats(res, duo_res, nns, submit_to_nndb=submit_to_nndb)
+    extract_nn_stats(res, duo_res, nns, frac, submit_to_nndb=submit_to_nndb)
 
 
     #print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
