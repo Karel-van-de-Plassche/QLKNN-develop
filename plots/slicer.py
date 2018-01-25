@@ -282,6 +282,7 @@ def nns_from_manual():
     #nns['4D'] = QuaLiKiz4DNN()
     #nns['4D'].label = '4D'
     #nns['4D']._target_names = ['efeITG_GB', 'efiITG_GB']
+    db.close()
     return slicedim, style, nns
 
 def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, calc_maxgam=False, clip=False, slice=None):
@@ -590,14 +591,16 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
 
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
-        wobble = np.mean(np.abs(np.diff(nn_preds, n=2,axis=0)), axis=0)
+        wobble = np.abs(np.diff(nn_preds, n=2,axis=0))
+        wobble_unstab = np.mean([col[ind:] for ind, col in zip(thresh_nn_i + 1, wobble.T)], axis=1)
+        wobble_tot = np.mean(wobble, axis=0)
         if settings['plot'] and settings['plot_pop']:
             thresh2_misses = thresh_nn - thresh2
             thresh2_popback = popbacks - thresh2
-            slice_stats = np.array([thresh2_misses, thresh2_popback, wobble]).T
+            slice_stats = np.array([thresh2_misses, thresh2_popback, np.log10(wobble_tot), np.log10(wobble_unstab)]).T
             slice_strings = np.array(['{:.1f}'.format(xx) for xx in slice_stats.reshape(slice_stats.size)])
             slice_strings = slice_strings.reshape(slice_stats.shape)
-            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis', 'wobble'], axis=0)
+            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis', 'wobble_tot', 'wobble_unstb'], axis=0)
             table = ax3.table(cellText=slice_strings, loc='center')
             table.auto_set_font_size(False)
             ax3.axis('tight')
@@ -640,7 +643,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             ax1.plot(x[x< thresh1], np.zeros_like(x[x< thresh1]), c='gray', linestyle='dotted')
             #ax1.axvline(thresh1, c='black', linestyle='dotted')
 
-        slice_res = np.array([thresh_nn, popbacks, wobble]).T
+        slice_res = np.array([thresh_nn, popbacks, wobble_tot, wobble_unstab]).T
         if settings['plot']:
             ax1.legend()
             ax1.set_ylim(bottom=min(ax1.get_ylim()[0], 0))
@@ -679,7 +682,8 @@ def extract_stats(totstats, style):
         results['_'.join([measure, relabs, 'mis', '95width'])] = quant.loc[quant2] - quant.loc[quant1]
 
         results['_'.join(['no', measure, 'frac'])] = mis.isnull().sum() / len(mis)
-    results['wobble'] = df['wobble'].mean()
+    results['wobble_unstab'] = df['wobble_unstab'].mean()
+    results['wobble_tot'] = df['wobble_tot'].mean()
 
     if style == 'duo':
         duo_results = pd.DataFrame()
@@ -797,7 +801,7 @@ if __name__ == '__main__':
             totstats.append(result[2])
             qlk_thresh.append(result[1])
 
-    stats = ['thresh', 'pop', 'wobble']
+    stats = ['thresh', 'pop', 'wobble_tot', 'wobble_unstab']
     totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, stats))))
 
     qlk_columns = list(product(['QLK'], target_names, stats))
