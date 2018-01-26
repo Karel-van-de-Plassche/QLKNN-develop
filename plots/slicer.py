@@ -20,7 +20,7 @@ sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
 sys.path.append(qlk4D_path)
-from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, elements_in_list, db
+from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, any_element_in_list, db
 from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
@@ -35,7 +35,7 @@ from load_data import nameconvert
 from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
-from peewee import Param, fn
+from peewee import Param, fn, SQL
 import re
 import gc
 def mode_to_settings(mode):
@@ -84,7 +84,8 @@ def mode_to_settings(mode):
         settings['plot_threshslope'] = True
     return settings
 
-def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False, no_divsum=False):
+def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_particle=False, no_divsum=False,
+                             no_mixed=True):
     for cls, field_name in [(Network, 'network'),
                 (ComboNetwork, 'combo_network'),
                 (MultiNetwork, 'multi_network')
@@ -93,15 +94,23 @@ def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False, n
                       .select()
                       .where(~fn.EXISTS(table.select().where(getattr(table, field_name) == cls.id)))
                      )
+        if only_dim is not None:
+            non_sliced &= cls.select().where(SQL("array_length(feature_names, 1)=" + str(only_dim)))
+
+        if no_mixed:
+            non_sliced &= cls.select().where(~(SQL("(array_to_string(target_names, ',') like %s)", '%pf%') &
+                                              (SQL("(array_to_string(target_names, ',') like %s)", '%ef%')))
+                                             )
+
         tags = []
         if no_divsum is True:
             tags.extend(["div", "plus"])
         if no_particle is True:
             tags.append('pf')
         if len(tags) != 0:
-            non_sliced &= no_elements_in_list(cls, tags)
+            non_sliced &= no_elements_in_list(cls, 'target_names', tags)
         if only_sep is True:
-            non_sliced &= elements_in_list(cls, ['TEM', 'ITG', 'ETG'])
+            non_sliced &= any_element_in_list(cls, 'target_names', ['TEM', 'ITG', 'ETG'])
         if non_sliced.count() > 0:
             network = non_sliced.get()
             break
@@ -113,9 +122,9 @@ def get_similar_not_in_table(table, max=20, only_sep=False, no_particle=False, n
     non_sliced = non_sliced.limit(max)
     return non_sliced
 
-def nns_from_NNDB(max=20):
+def nns_from_NNDB(max=20, only_dim=None):
     db.connect()
-    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False, no_divsum=True)
+    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False, no_divsum=True, only_dim=only_dim)
     network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
@@ -300,6 +309,7 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
     if ('Zeffx' == feature_names).any() and not ('Zeffx' in input.columns):
         print('WARNING! creating Zeffx. You should use a 9D dataset')
         input['Zeffx']  = np.full_like(input['Ati'], 1.)
+        raise Exception
     if ('logNustar' == feature_names).any() and not ('logNustar' in input.columns):
         print('WARNING! creating logNustar. You should use a 9D dataset')
         input['logNustar']  = np.full_like(input['Ati'], np.log10(0.009995))
@@ -472,6 +482,8 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             thresh2 = calculate_thresh2(feature.values, np.abs(target[0,:]), debug=settings['debug'])
         else:
             thresh2 = np.nan
+            print('No thresh2!')
+            embed()
             print('Weird stuff')
 
         if settings['plot'] and settings['plot_threshlines']:
@@ -532,6 +544,8 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                 low_bound = None
                 clip_high = False
                 high_bound = None
+                print('Mixed target!')
+                embed()
                 print('Weird stuff')
             if unsafe:
                 nn_pred = nn.get_output(np.array(slice_list).T, clip_low=clip_low, low_bound=low_bound, clip_high=clip_high, high_bound=high_bound, safe=not unsafe, output_pandas=False)
@@ -719,6 +733,8 @@ def extract_nn_stats(results, duo_results, nns, frac, submit_to_nndb=False):
             res_dict = {'combo_network': network_number}
         elif network_class == 'MultiNetwork':
             res_dict = {'multi_network': network_number}
+        if all([name not in res_dict for name in ['network', 'combo_network', 'multi_network']]):
+            raise Exception(''.join('Error! No network found for ', network_name))
         res_dict['frac'] = frac
 
         for stat, val in res.unstack(level=0).iteritems():
@@ -748,7 +764,7 @@ if __name__ == '__main__':
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
-    slicedim, style, nns = nns_from_NNDB()
+    slicedim, style, nns = nns_from_NNDB(100, only_dim=7)
     #slicedim, style, nns = nns_from_manual()
     #slicedim = 'An'
 

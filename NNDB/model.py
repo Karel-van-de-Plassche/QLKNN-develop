@@ -684,7 +684,7 @@ class MultiNetwork(BaseModel):
         tags = ["div", "plus"]
         #tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
         #tags_filter = reduce(operator.or_, tags_filters)
-        query = no_elements_in_list(Network, tags)
+        query = no_elements_in_list(Network, 'target_names', tags)
         query &= (Network.select()
                   .where(SQL("array_length(target_names, 1) = 1"))
                   .where(Network.target_names != Param(['efeETG_GB']))
@@ -989,9 +989,9 @@ def purge_tables():
             except ProgrammingError:
                 db.rollback()
 
-def elements_in_list(cls, tags):
+def any_element_in_list(cls, column, tags):
     subquery = (cls.select(cls.id.alias('id'),
-                               fn.unnest(cls.target_names).alias('unnested_tags'))
+                               fn.unnest(getattr(cls, column)).alias('unnested_tags'))
                 .alias('subquery'))
     tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
     tags_filter = reduce(operator.or_, tags_filters)
@@ -1003,9 +1003,9 @@ def elements_in_list(cls, tags):
     )
     return query
 
-def no_elements_in_list(cls, tags):
+def no_elements_in_list(cls, column, tags):
     subquery = (cls.select(cls.id.alias('id'),
-                               fn.unnest(cls.target_names).alias('unnested_tags'))
+                               fn.unnest(getattr(cls, column)).alias('unnested_tags'))
                 .alias('subquery'))
     tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
     tags_filter = reduce(operator.or_, tags_filters)
@@ -1076,7 +1076,16 @@ CREATE VIEW
     ON A.id = C.id_C
 """
 
-
+"""
+Avg l2 multinetwork:
+SELECT multinetwork.id as multi_id, multinetwork.target_names, AVG(cost_l2_scale) AS cost_l2_scale
+FROM "multinetwork"
+JOIN combonetwork ON (combo_network_id = combonetwork.id) OR (combonetwork.id = ANY (combo_network_partners))
+JOIN network ON (network.id = ANY (combonetwork.networks))
+JOIN hyperparameters ON (network.id = hyperparameters.network_id)
+GROUP BY multinetwork.id
+ORDER BY multi_id
+"""
 
 if __name__ == '__main__':
     from IPython import embed
