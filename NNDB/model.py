@@ -102,21 +102,19 @@ class Filter(BaseModel):
             raise Exception('Could not find filter ID from name "{!s}"'.format(name))
         return filter_id
 
+
 class ComboNetwork(BaseModel):
     target_names = ArrayField(TextField)
-    recipe = TextField(unique=True)
+    recipe = TextField()
     feature_names = ArrayField(TextField)
-
-    def extract_nn_names(self):
-        return set(re.compile('(?<=nn)(\d+)').findall(self.recipe))
+    networks = ArrayField(IntegerField)
 
     def to_QuaLiKizComboNN(self):
-        network_names = self.extract_nn_names()
-        #networks = {'nn' + str(num): Network.by_id(int(num)).to_QuaLiKizNDNN() for num in networks}
-        networks = [Network.by_id(int(num)).get().to_QuaLiKizNDNN() for num in network_names]
+        network_ids = self.networks
+        networks = [Network.by_id(num).get().to_QuaLiKizNDNN() for num in network_ids]
         recipe = self.recipe
-        for ii, name in enumerate(network_names):
-            recipe = recipe.replace('nn' + name, 'args[' + str(ii) + ']')
+        for ii in range(len(network_ids)):
+            recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
         exec('def combo_func(*args): return ' + recipe, globals())
         return QuaLiKizComboNN(self.target_names, networks, combo_func)
 
@@ -125,18 +123,6 @@ class ComboNetwork(BaseModel):
     @classmethod
     def by_id(cls, network_id):
         return by_id(cls, network_id)
-
-    @classmethod
-    def find_partners_by_id(cls, network_id):
-        nn = cls.by_id(network_id).get()
-        network_names = nn.extract_nn_names()
-        query = (cls.select()
-                 .where(ComboNetwork.id != network_id)
-                 .where(ComboNetwork.recipe.contains(network_names.pop()))
-                 )
-        for name in network_names:
-            query &= cls.select().where(ComboNetwork.recipe.contains(name))
-        return query
 
     @classmethod
     def find_divsum_candidates(cls):
@@ -309,24 +295,33 @@ class ComboNetwork(BaseModel):
 
             if skip is not True:
                 recipes = OrderedDict()
+                network_ids = [nn.id for nn in nns]
                 for target, formula in formulas.items():
-                    recipes[target] = formula.format(*[nn.id for nn in nns])
+                    recipes[target] = formula.format(*list(range(len(nns))))
 
                 combonets = []
                 purenets = []
                 for target, recipe in recipes.items():
                     if all([el not in recipe for el in ['+', '-', '/', '*']]):
-                        net_id = int(recipe.replace('nn', ''))
+                        net_num = int(recipe.replace('nn', ''))
+                        net_id = network_ids[net_num]
                         purenets.append(Network.by_id(net_id).get())
                     else:
-                        query = ComboNetwork.select().where(ComboNetwork.recipe == recipe)
+                        query = (ComboNetwork.select()
+                                 .where((ComboNetwork.recipe == recipe) &
+                                        (ComboNetwork.networks == Param(network_ids)))
+                                 )
                         if query.count() == 0:
-                            combonet = cls(target_names=[target], feature_names=nn.feature_names, recipe=recipe)
+                            combonet = cls(target_names=[target],
+                                           feature_names=nn.feature_names,
+                                           recipe=recipe,
+                                           networks=network_ids)
+                            #raise Exception(combonet.recipe + ' ' + str(combonet.networks))
                             combonet.save()
-                            print('Created ComboNetwork {:d} with recipe {!s}'.format(combonet.id, recipe))
+                            print('Created ComboNetwork {:d} with recipe {!s} and networks {!s}'.format(combonet.id, recipe, network_ids))
                         elif query.count() == 1:
                             combonet = query.get()
-                            print('Network with recipe {!s} already exists! Skipping!'.format(recipe))
+                            print('Network with recipe {!s} and networks {!s} already exists! Skipping!'.format(recipe, network_ids))
                         else:
                             raise NotImplementedError('Duplicate recipies! How could this happen..?')
 
