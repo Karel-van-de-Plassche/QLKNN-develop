@@ -357,6 +357,17 @@ class ComboNetwork(BaseModel):
                 else:
                     print('MultiNetwork with ComboNetworks {!s} already exists with id: {:d}'.format([combonet.id for combonet in combonets], net.id))
 
+    @classmethod
+    def calc_op(cls):
+        query = (cls.select(ComboNetwork,
+                            ComboNetwork.id.alias('combo_id'),
+                            fn.array_agg(Hyperparameters.cost_l2_scale).alias('cost_l2_scale'))
+                 .join(Network, on=(Network.id == fn.ANY(ComboNetwork.networks)))
+                 .join(Hyperparameters, on=(Network.id == Hyperparameters.network_id))
+                 .group_by(cls.id)
+        )
+        return query
+
 
 class Network(BaseModel):
     filter = ForeignKeyField(Filter, related_name='filter', null=True)
@@ -748,6 +759,17 @@ class MultiNetwork(BaseModel):
                     print('Created MultiNetwork with id: {:d}'.format(net.id))
                 else:
                     print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
+
+    @classmethod
+    def calc_op(cls):
+        query = (MultiNetwork.select(MultiNetwork, SQL('sub1.cost_l2_scale'))
+                 .join(ComboNetwork.calc_op().alias('sub1'),
+                       on=(cls.combo_network_id == SQL('combo_id')) |
+                       (SQL('combo_id') == fn.ANY(cls.combo_network_partners))
+                 ).alias('sub2')
+        )
+        return query
+
             #else:
             #    duplicate_check = (MultiNetwork.select()
             #                       .where((MultiNetwork.combo_network_id == partner.id)
