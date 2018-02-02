@@ -26,13 +26,6 @@ from itertools import chain
 from collections import OrderedDict
 import scipy.io as io
 
-def by_id(cls, network_id):
-    query = (cls
-             .select()
-             .where(cls.id == network_id)
-    )
-    return query
-
 #class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
 #    pass
 #db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
@@ -82,10 +75,6 @@ class Filter(BaseModel):
     diffsep_max = FloatField(null=True)
 
     @classmethod
-    def by_id(cls, id):
-        return by_id(cls, id)
-
-    @classmethod
     def from_file(cls, pwd):
         with db.atomic() as txn:
             with open(pwd, 'r') as script:
@@ -113,7 +102,7 @@ class ComboNetwork(BaseModel):
 
     def to_QuaLiKizComboNN(self):
         network_ids = self.networks
-        networks = [Network.by_id(num).get().to_QuaLiKizNDNN() for num in network_ids]
+        networks = [Network.get_by_id(num).to_QuaLiKizNDNN() for num in network_ids]
         recipe = self.recipe
         for ii in range(len(network_ids)):
             recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
@@ -121,10 +110,6 @@ class ComboNetwork(BaseModel):
         return QuaLiKizComboNN(self.target_names, networks, combo_func)
 
     to_QuaLiKizNN = to_QuaLiKizComboNN
-
-    @classmethod
-    def by_id(cls, network_id):
-        return by_id(cls, network_id)
 
     @classmethod
     def find_divsum_candidates(cls):
@@ -307,7 +292,7 @@ class ComboNetwork(BaseModel):
                     if all([el not in recipe for el in ['+', '-', '/', '*']]):
                         net_num = int(recipe.replace('nn', ''))
                         net_id = network_ids[net_num]
-                        purenets.append(Network.by_id(net_id).get())
+                        purenets.append(Network.get_by_id(net_id))
                     else:
                         query = (ComboNetwork.select()
                                  .where((ComboNetwork.recipe == recipe) &
@@ -363,7 +348,7 @@ class ComboNetwork(BaseModel):
     def calc_op(cls):
         query = (cls.select(ComboNetwork,
                             ComboNetwork.id.alias('combo_id'),
-                            fn.array_agg(Hyperparameters.cost_l2_scale).alias('cost_l2_scale'))
+                            fn.ARRAY_AGG(Hyperparameters.cost_l2_scale).alias('all_cost_l2_scale'))
                  .join(Network, on=(Network.id == fn.ANY(ComboNetwork.networks)))
                  .join(Hyperparameters, on=(Network.id == Hyperparameters.network_id))
                  .group_by(cls.id)
@@ -385,10 +370,6 @@ class Network(BaseModel):
     target_min = HStoreField()
     target_max = HStoreField()
     timestamp = DateTimeField(constraints=[SQL('DEFAULT now()')])
-
-    @classmethod
-    def by_id(cls, network_id):
-        return by_id(cls, network_id)
 
     @classmethod
     def find_partners_by_id(cls, network_id):
@@ -672,22 +653,18 @@ class MultiNetwork(BaseModel):
             nns.append(self.combo_network.to_QuaLiKizComboNN())
         if self.combo_network_partners is not None:
             for nn_id in self.combo_network_partners:
-                nn = ComboNetwork.by_id(nn_id).get().to_QuaLiKizComboNN()
+                nn = ComboNetwork.get_by_id(nn_id).to_QuaLiKizComboNN()
                 nns.append(nn)
         if self.network is not None:
             nns.append(self.network.to_QuaLiKizNDNN())
         if self.network_partners is not None:
             for nn_id in self.network_partners:
-                nn = Network.by_id(nn_id).get().to_QuaLiKizNDNN()
+                nn = Network.get_by_id(nn_id).to_QuaLiKizNDNN()
                 nns.append(nn)
 
         return QuaLiKizMultiNN(nns)
 
     to_QuaLiKizNN = to_QuaLiKizMultiNN
-
-    @classmethod
-    def by_id(cls, network_id):
-        return by_id(cls, network_id)
 
     @classmethod
     def from_candidates(cls):
