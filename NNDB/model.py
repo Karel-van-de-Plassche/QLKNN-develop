@@ -1,12 +1,13 @@
 from peewee import *
 from peewee import (FloatField, FloatField, ProgrammingError, IntegerField, BooleanField,
-                    Param, Passthrough)
+                    AsIs)
+#                    Param, Passthrough)
 from peewee import fn
 import numpy as np
 import inspect
 import sys
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
-from playhouse.shortcuts import RetryOperationalError
+#from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
 from IPython import embed
 from warnings import warn
 import os
@@ -32,9 +33,10 @@ def by_id(cls, network_id):
     )
     return query
 
-class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
-    pass
-db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
+#class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
+#    pass
+#db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
+db = PostgresqlExtDatabase(database='nndb', host='gkdb.org')
 
 class BaseModel(Model):
     """A base model that will use our Postgresql database"""
@@ -270,7 +272,7 @@ class ComboNetwork(BaseModel):
                 query &= Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
                 query &= (Network
                      .select()
-                     .where(Network.target_names == Param(partner_target))
+                     .where(Network.target_names == AsIs(partner_target))
                      )
                 if query.count() > 1:
                     print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
@@ -309,7 +311,7 @@ class ComboNetwork(BaseModel):
                     else:
                         query = (ComboNetwork.select()
                                  .where((ComboNetwork.recipe == recipe) &
-                                        (ComboNetwork.networks == Param(network_ids)))
+                                        (ComboNetwork.networks == AsIs(network_ids)))
                                  )
                         if query.count() == 0:
                             combonet = cls(target_names=[target],
@@ -330,27 +332,27 @@ class ComboNetwork(BaseModel):
                 flatten = lambda l: [item for sublist in l for item in sublist]
 
                 if len(combonets) > 1:
-                    combo_network_partners = Param([combonet.id for combonet in combonets[1:]])
+                    combo_network_partners = AsIs([combonet.id for combonet in combonets[1:]])
                 else:
                     combo_network_partners = None
 
                 if len(purenets) > 0:
-                    network_partners = Param([purenet.id for purenet in purenets])
+                    network_partners = AsIs([purenet.id for purenet in purenets])
                 else:
                     network_partners = None
                 try:
                     net = MultiNetwork.get(MultiNetwork.combo_network          == combonets[0],
                                            MultiNetwork.combo_network_partners == combo_network_partners,
                                            MultiNetwork.network_partners       == network_partners,
-                                           MultiNetwork.target_names           == Param(list(recipes.keys())),
-                                           MultiNetwork.feature_names          == Param(nn.feature_names)
+                                           MultiNetwork.target_names           == AsIs(list(recipes.keys())),
+                                           MultiNetwork.feature_names          == AsIs(nn.feature_names)
                     )
                 except MultiNetwork.DoesNotExist:
                     net = MultiNetwork(combo_network          = combonets[0],
                                        combo_network_partners = combo_network_partners,
                                        network_partners       = network_partners,
-                                       target_names           = Param(list(recipes.keys())),
-                                       feature_names          = Param(nn.feature_names)
+                                       target_names           = AsIs(list(recipes.keys())),
+                                       feature_names          = AsIs(nn.feature_names)
                     )
                     net.save()
                     print('Created MultiNetwork with id: {:d}'.format(net.id))
@@ -432,15 +434,15 @@ class Network(BaseModel):
         query = (Network.select()
                  .join(Hyperparameters)
                  .where(Hyperparameters.hidden_neurons ==
-                        Param(hidden_neurons))
+                        AsIs(hidden_neurons))
                  .where(Hyperparameters.hidden_activation ==
-                        Param(hidden_activation))
+                        AsIs(hidden_activation))
                  .where(Hyperparameters.output_activation ==
-                        Param(output_activation)))
+                        AsIs(output_activation)))
 
         if train_dim is not None:
             query = query.where(Network.target_names ==
-                        Param(train_dim))
+                        AsIs(train_dim))
         return query
 
     @classmethod
@@ -486,20 +488,20 @@ class Network(BaseModel):
                  .join(Hyperparameters)
                  .where(Hyperparameters.goodness ==
                         goodness)
-                 .where(Hyperparameters.cost_l2_scale ==
-                        Passthrough(str(cost_l2_scale)))
-                 .where(Hyperparameters.cost_l1_scale ==
-                        Passthrough(str(cost_l1_scale)))
+                 .where(Hyperparameters.cost_l2_scale.cast('numeric') ==
+                        AsIs(cost_l2_scale))
+                 .where(Hyperparameters.cost_l1_scale.cast('numeric') ==
+                        AsIs(cost_l1_scale))
                  .where(Hyperparameters.early_stop_measure ==
                         early_stop_measure)
                  )
         if train_dim is not None:
             query = query.where(Network.target_names ==
-                        Param(train_dim))
+                        AsIs(train_dim))
 
         if filter_id is not None:
                  query = query.where(Network.filter_id ==
-                                     Param(filter_id))
+                                     AsIs(filter_id))
         else:
             print('Warning! Not filtering on filter_id')
         return query
@@ -539,7 +541,7 @@ class Network(BaseModel):
     @classmethod
     def find_similar_trainingpar_by_values(cls, train_dim, minibatches, optimizer, standardization, early_stop_after):
         query = (Network.select()
-                 .where(Network.target_names == Param(train_dim))
+                 .where(Network.target_names == AsIs(train_dim))
                  .join(Hyperparameters)
                  .where(Hyperparameters.minibatches == minibatches)
                  .where(Hyperparameters.optimizer == optimizer)
@@ -698,13 +700,13 @@ class MultiNetwork(BaseModel):
         query = no_elements_in_list(Network, 'target_names', tags)
         query &= (Network.select()
                   .where(SQL("array_length(target_names, 1) = 1"))
-                  .where(Network.target_names != Param(['efeETG_GB']))
+                  .where(Network.target_names != AsIs(['efeETG_GB']))
                   )
         #query = (Network.select()
         #         .join(subquery, on=subquery.c.id == Network.id)
         #         .where(SQL("array_length(target_names, 1) = 1"))
         #         .where(~tags_filter)
-        #         .where(Network.target_names != Param(['efeETG_GB']))
+        #         .where(Network.target_names != AsIs(['efeETG_GB']))
         #         # gets rid of duplicates
         #         .group_by(Network.id)
         #)
@@ -721,7 +723,7 @@ class MultiNetwork(BaseModel):
 
             query = nn.__class__.find_partners_by_id(nn.id)
             query &= (nn.__class__.select()
-                     .where(nn.__class__.target_names == Param([partner_target]))
+                     .where(nn.__class__.target_names == AsIs([partner_target]))
                      )
             if query.count() == 0:
                 print('No partners found for {!s}, id {!s}, target {!s}'.format(nn, nn.id, nn.target_names))
