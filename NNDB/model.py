@@ -348,7 +348,7 @@ class ComboNetwork(BaseModel):
     def calc_op(cls):
         query = (cls.select(ComboNetwork,
                             ComboNetwork.id.alias('combo_id'),
-                            fn.ARRAY_AGG(Hyperparameters.cost_l2_scale).alias('all_cost_l2_scale'))
+                            fn.ARRAY_AGG(getattr(Hyperparameters, 'cost_l2_scale'), coerce=False).alias('cost_l2_scale'))
                  .join(Network, on=(Network.id == fn.ANY(ComboNetwork.networks)))
                  .join(Hyperparameters, on=(Network.id == Hyperparameters.network_id))
                  .group_by(cls.id)
