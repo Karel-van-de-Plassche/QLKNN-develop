@@ -35,7 +35,7 @@ from load_data import nameconvert
 from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
-from peewee import Param, fn, SQL
+from peewee import AsIs, fn, SQL
 import re
 import gc
 def mode_to_settings(mode):
@@ -98,10 +98,9 @@ def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_pa
             non_sliced &= cls.select().where(SQL("array_length(feature_names, 1)=" + str(only_dim)))
 
         if no_mixed:
-            non_sliced &= cls.select().where(~(SQL("(array_to_string(target_names, ',') like %s)", '%pf%') &
-                                              (SQL("(array_to_string(target_names, ',') like %s)", '%ef%')))
+            non_sliced &= cls.select().where(~(SQL("(array_to_string(target_names, ',') like %s)", ['%pf%']) &
+                                              (SQL("(array_to_string(target_names, ',') like %s)", ['%ef%'])))
                                              )
-
         tags = []
         if no_divsum is True:
             tags.extend(["div", "plus"])
@@ -116,8 +115,8 @@ def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_pa
             break
 
     non_sliced &= (cls.select()
-                  .where(cls.target_names == Param(network.target_names))
-                  .where(cls.feature_names == Param(network.feature_names))
+                  .where(cls.target_names == AsIs(network.target_names))
+                  .where(cls.feature_names == AsIs(network.feature_names))
                   )
     non_sliced = non_sliced.limit(max)
     return non_sliced
@@ -375,7 +374,7 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
     print('dataset loaded!')
     return df, target_names
 
-def is_unsafe(df, nns):
+def is_unsafe(df, nns, slicedim):
     unsafe = True
     for nn in nns.values():
         slicedim_idx = nn._feature_names[nn._feature_names == slicedim].index[0]
@@ -786,7 +785,7 @@ if __name__ == '__main__':
     frac = 0.05
     df, target_names = prep_df(store, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor, frac=frac)
     gc.collect()
-    unsafe = is_unsafe(df, nns)
+    unsafe = is_unsafe(df, nns, slicedim)
     if not unsafe:
         print('Warning! Cannot use unsafe mode')
 
