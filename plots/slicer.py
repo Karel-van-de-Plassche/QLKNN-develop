@@ -25,14 +25,15 @@ from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
 from train_NDNN import shuffle_panda
 from functools import partial
 
-import matplotlib as mpl
 if __name__ == '__main__':
+    import matplotlib as mpl
     mpl.use('pdf')
-import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
+    from matplotlib import gridspec, cycler
+
 pretty = False
 from load_data import nameconvert
 
-from matplotlib import gridspec, cycler
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
 from peewee import AsIs, fn, SQL

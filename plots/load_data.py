@@ -12,8 +12,6 @@ sys.path.append(NNDB_path)
 from model import Network, NetworkJSON
 from run_model import QuaLiKizNDNN
 
-import matplotlib.pyplot as plt
-
 def load_data(id):
     store = pd.HDFStore('../7D_nions0_flat.h5')
     input = store['megarun1/input']
