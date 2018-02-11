@@ -345,10 +345,10 @@ class ComboNetwork(BaseModel):
                     print('MultiNetwork with ComboNetworks {!s} already exists with id: {:d}'.format([combonet.id for combonet in combonets], net.id))
 
     @classmethod
-    def calc_op(cls):
+    def calc_op(cls, column):
         query = (cls.select(ComboNetwork,
                             ComboNetwork.id.alias('combo_id'),
-                            fn.ARRAY_AGG(getattr(Hyperparameters, 'cost_l2_scale'), coerce=False).alias('cost_l2_scale'))
+                            fn.ARRAY_AGG(getattr(Hyperparameters, column), coerce=False).alias(column))
                  .join(Network, on=(Network.id == fn.ANY(ComboNetwork.networks)))
                  .join(Hyperparameters, on=(Network.id == Hyperparameters.network_id))
                  .group_by(cls.id)
@@ -740,9 +740,9 @@ class MultiNetwork(BaseModel):
                     print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
 
     @classmethod
-    def calc_op(cls):
-        query = (MultiNetwork.select(MultiNetwork, SQL('sub1.cost_l2_scale'))
-                 .join(ComboNetwork.calc_op().alias('sub1'),
+    def calc_op(cls, column):
+        query = (MultiNetwork.select(MultiNetwork, SQL('sub1' + column))
+                 .join(ComboNetwork.calc_op(column).alias('sub1'),
                        on=(cls.combo_network_id == SQL('combo_id')) |
                        (SQL('combo_id') == fn.ANY(cls.combo_network_partners))
                  ).alias('sub2')
@@ -1004,13 +1004,13 @@ def any_element_in_list(cls, column, tags):
     )
     return query
 
-def no_elements_in_list(cls, column, tags):
+def no_elements_in_list(cls, column, tags, fields=None):
     subquery = (cls.select(cls.id.alias('id'),
                                fn.unnest(getattr(cls, column)).alias('unnested_tags'))
                 .alias('subquery'))
     tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
     tags_filter = reduce(operator.or_, tags_filters)
-    query = (cls.select()
+    query = (cls.select(fields)
              .join(subquery, on=subquery.c.id == cls.id)
              .where(~tags_filter)
              # gets rid of duplicates
