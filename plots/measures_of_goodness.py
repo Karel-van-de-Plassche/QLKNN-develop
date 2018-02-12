@@ -12,11 +12,11 @@ sys.path.append(networks_path)
 sys.path.append(NNDB_path)
 sys.path.append(training_path)
 import model
-from model import Network, NetworkJSON, Hyperparameters, PostprocessSlice, NetworkMetadata, TrainMetadata, ComboNetwork, MultiNetwork, Postprocess
+from model import Network, NetworkJSON, Hyperparameters, PostprocessSlice, NetworkMetadata, TrainMetadata, ComboNetwork, MultiNetwork, Postprocess, db
 from run_model import QuaLiKizNDNN
 #from train_NDNN import shuffle_panda
 
-from peewee import Param, Passthrough, JOIN, prefetch
+from peewee import AsIs, JOIN, prefetch, SQL
 
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
@@ -34,7 +34,7 @@ query = (Network.select(Network.id,
          .join(TrainMetadata,    on=(Network.id == TrainMetadata.network_id))
          .join(PostprocessSlice, on=(Network.id == PostprocessSlice.network_id))
          .join(Postprocess, on=(Network.id == Postprocess.network_id))
-         .where(Network.target_names == Param(target_names))
+         .where(Network.target_names == target_names)
          .where(TrainMetadata.set == 'train')
          .where((PostprocessSlice.dual_thresh_mismatch_median == 0) | PostprocessSlice.dual_thresh_mismatch_median.is_null())
          )
@@ -51,19 +51,30 @@ else:
 
 query = (ComboNetwork.select(ComboNetwork.id,
                              PostprocessSlice,
-                             Postprocess.rms)
+                             Postprocess.rms,
+                             #SQL("'hidden_neurons'")
+                             )
          .join(PostprocessSlice, on=(ComboNetwork.id == PostprocessSlice.combo_network_id))
          .join(Postprocess, on=(ComboNetwork.id == Postprocess.combo_network_id))
-         .where(ComboNetwork.target_names == Param(target_names))
+         .where(ComboNetwork.target_names == target_names)
          .where((PostprocessSlice.dual_thresh_mismatch_median == 0) | PostprocessSlice.dual_thresh_mismatch_median.is_null())
 )
+compound_stats = ['hidden_neurons', 'cost_l2_scale']
+for compound_stat in compound_stats:
+    subquery = ComboNetwork.calc_op(compound_stat).alias(compound_stat)
+    query = query.select(SQL('*')).join(subquery, on=(ComboNetwork.id == subquery.c.combo_id))
+#query3 = ComboNetwork.calc_op('hidden_neurons').alias('hidden_neurons')
+
+ignore_list = ['network_id', 'multi_network_id', 'leq_bound', 'less_bound', 'id', 'frac', 'filter_id', 'feature_names', 'combo_network_id', 'target_names']
 if query.count() > 0:
     results = list(query.dicts())
     df = pd.DataFrame(results)
-    df.drop(['id', 'network', 'multi_network'], inplace=True, axis='columns')
-    df['combo_network'] = df['combo_network'].apply(lambda el: 'combo_' + str(el))
-    df.rename(columns = {'combo_network':'network'}, inplace = True)
+    df.drop(ignore_list + ['recipe', 'networks'] , inplace=True, axis='columns')
+    df['combo_id'] = df['combo_id'].apply(lambda el: 'combo_' + str(el))
+    df.rename(columns = {'combo_id':'network'}, inplace = True)
     df.set_index('network', inplace=True)
+    for compound_stat in compound_stats:
+        df[compound_stat] = df[compound_stat].apply(lambda el: el[0] if el[1:] == el[:-1] else None)
     stats = pd.concat([stats, df])
 
 query = (MultiNetwork.select(MultiNetwork.id,
@@ -71,23 +82,34 @@ query = (MultiNetwork.select(MultiNetwork.id,
                              Postprocess.rms)
          .join(PostprocessSlice, on=(MultiNetwork.id == PostprocessSlice.multi_network_id))
          .join(Postprocess, on=(MultiNetwork.id == Postprocess.multi_network_id))
-         .where(MultiNetwork.target_names == Param(target_names))
+         .where(MultiNetwork.target_names == target_names)
          .where((PostprocessSlice.dual_thresh_mismatch_median == 0) | PostprocessSlice.dual_thresh_mismatch_median.is_null())
 )
+for compound_stat in compound_stats:
+    subquery = MultiNetwork.calc_op(compound_stat).alias(compound_stat)
+    query = query.select(SQL('*')).join(subquery, on=(MultiNetwork.id == subquery.c.multi_id))
+
 if query.count() > 0:
     results = list(query.dicts())
     df = pd.DataFrame(results)
-    df.drop(['id', 'network', 'combo_network'], inplace=True, axis='columns')
-    df['multi_network'] = df['multi_network'].apply(lambda el: 'multi_' + str(el))
-    df.rename(columns = {'multi_network':'network'}, inplace = True)
+    df.drop(ignore_list + ['network_partners', 'combo_network_partners'], inplace=True, axis='columns')
+    df['multi_id'] = df['multi_id'].apply(lambda el: 'multi_' + str(el))
+    df.rename(columns = {'multi_id':'network'}, inplace = True)
+    for compound_stat in compound_stats:
+        df[compound_stat] = df[compound_stat].apply(lambda el: el[0] if el[1:] == el[:-1] else None)
+        df[compound_stat] = df[compound_stat].apply(lambda el: el[0] if el[1:] == el[:-1] else None)
     df.set_index('network', inplace=True)
     stats = pd.concat([stats, df])
 
 stats = stats.applymap(np.array)
 #stats[stats.isnull()] = np.NaN
 stats.sort_index(inplace=True)
-stats['hidden_neurons_total'] = stats.pop('hidden_neurons').to_frame().applymap(np.sum)
-stats['l2_norm_weighted'] = stats.pop('l2_norm') / stats.pop('hidden_neurons_total')
+try:
+    stats['hidden_neurons_total'] = stats.pop('hidden_neurons').to_frame().applymap(np.sum)
+    stats['l2_norm_weighted'] = stats.pop('l2_norm') / stats.pop('hidden_neurons_total')
+    stats['l2'] = stats.pop('l2_norm_weighted')
+except KeyError:
+    pass
 stats.dropna(axis='columns', how='all', inplace=True)
 #'no_pop_frac', 'no_thresh_frac', 'pop_abs_mis_95width',
 #       'pop_abs_mis_median', 'rms_test', 'thresh_rel_mis_95width',
@@ -102,8 +124,9 @@ stats['rms'] = stats.pop('rms')
 stats['thresh'] = stats.pop('thresh_rel_mis_median').abs().apply(np.max)
 stats['no_thresh_frac'] = stats.pop('no_thresh_frac').apply(np.max)
 stats['pop'] = (14 - stats.pop('pop_abs_mis_median').abs()).apply(np.max)
-stats['l2'] = stats.pop('l2_norm_weighted')
-stats['wobble'] = stats.pop('wobble').apply(np.max)
+if 'wobble_tot' in stats.keys():
+    stats['wobble_tot'] = stats.pop('wobble_tot').apply(np.max)
+    stats['wobble_unstab'] = stats.pop('wobble_unstab').apply(np.max)
 stats['pop_frac'] = (1 - stats.pop('no_pop_frac')).apply(np.max)
 #stats.dropna(inplace=True)
 try:
