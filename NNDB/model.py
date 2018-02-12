@@ -7,6 +7,7 @@ import numpy as np
 import inspect
 import sys
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
+from playhouse.hybrid  import hybrid_property
 #from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
 from IPython import embed
 from warnings import warn
@@ -99,6 +100,14 @@ class ComboNetwork(BaseModel):
     recipe = TextField()
     feature_names = ArrayField(TextField)
     networks = ArrayField(IntegerField)
+
+    @hybrid_property
+    def hidden_neurons(self):
+        return [Network.get_by_id(nn).hyperparameters.get().hidden_neurons for nn in self.networks]
+
+    @hidden_neurons.expression
+    def hidden_neurons(cls):
+        raise NotImplementedError('Cannot use in SQL query')
 
     def to_QuaLiKizComboNN(self):
         network_ids = self.networks
@@ -346,7 +355,8 @@ class ComboNetwork(BaseModel):
 
     @classmethod
     def calc_op(cls, column):
-        query = (cls.select(ComboNetwork,
+        query = (cls.select(
+                            ComboNetwork,
                             ComboNetwork.id.alias('combo_id'),
                             fn.ARRAY_AGG(getattr(Hyperparameters, column), coerce=False).alias(column))
                  .join(Network, on=(Network.id == fn.ANY(ComboNetwork.networks)))
@@ -741,11 +751,14 @@ class MultiNetwork(BaseModel):
 
     @classmethod
     def calc_op(cls, column):
-        query = (MultiNetwork.select(MultiNetwork, SQL('sub1' + column))
-                 .join(ComboNetwork.calc_op(column).alias('sub1'),
-                       on=(cls.combo_network_id == SQL('combo_id')) |
-                       (SQL('combo_id') == fn.ANY(cls.combo_network_partners))
+        subquery = ComboNetwork.calc_op(column).alias('sub1')
+        query = (MultiNetwork.select(MultiNetwork.id.alias('multi_id'),
+                                     fn.ARRAY_AGG(getattr(subquery.c, column), coerce=False).alias(column))
+                 .join(subquery,
+                       on=(cls.combo_network_id == subquery.c.combo_id) |
+                       (subquery.c.combo_id == fn.ANY(cls.combo_network_partners))
                  ).alias('sub2')
+                 .group_by(cls.id)
         )
         return query
 
