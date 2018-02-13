@@ -22,7 +22,7 @@ from functools import partial
 import matplotlib as mpl
 #mpl.use('pdf')
 from matplotlib.backends.backend_pdf import PdfPages
-from mpl_toolkits.axes_grid.inset_locator import inset_axes
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import matplotlib.pyplot as plt
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
@@ -65,7 +65,7 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
         fig = plt.figure()
         ax = sns.distplot(df.loc[(df.quantile(cutoff) < df) &
                                  (df < df.quantile(1 - cutoff))],
-                          hist_kws={'log': False}, kde=False)
+                          hist_kws={'log': False}, kde=True)
 
         sns.despine(ax=ax)
         loc = determine_subax_loc(ax)
@@ -73,18 +73,27 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
                            width="30%",
                            height="30%",
                            loc=loc)
-        sns.distplot(df.loc[(-1 < df) & (df < 1)],
-                     kde=False, ax=subax)
+        if 'pf' in df.name:
+            quant_bound = .15
+            low_bound = max(-1, df.quantile(quant_bound))
+            high_bound = min(1, df.quantile(1 - quant_bound))
+        else:
+            low_bound = -1
+            high_bound = 1
+        sns.distplot(df.loc[(low_bound < df) & (df < high_bound)],
+                     kde=True, kde_kws={'gridsize': 200},
+                     ax=subax)
         if loc == 2:
             subax.yaxis.set_label_position("right")
             subax.yaxis.tick_right()
             sns.despine(ax=subax, left=True, right=False)
         else:
             sns.despine(ax=subax)
+        subax.set_xlabel('')
     return fig
 
 def generate_store_name(unstable=True, gen=2, filter_id=7, dim=7):
-    store_name = 'training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, filter_id, dim)
+    store_name = 'training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, dim, filter_id)
     if unstable:
         store_name = '_'.join(['unstable', store_name])
     return store_name
@@ -98,22 +107,37 @@ def plot_pure_network_dataset_dist(self):
     embed()
     for train_dim in net.target_names:
         plot_dataset_dist(store, train_dim)
-        deconstruct = re.split('_div_|_add_', train_dim)
+        deconstruct = re.split('_div_|_plus_', train_dim)
         if len(deconstruct) > 1:
             for sub_dim in deconstruct:
                 plot_dataset_dist(store, sub_dim)
 Network.plot_dataset_dist = plot_pure_network_dataset_dist
 
-def generate_dataset_report(store, plot_rot=False, plot_full=False):
+def generate_dataset_report(store, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False):
     is_full = lambda name: all(sub not in name for sub in ['TEM', 'ITG', 'ETG'])
     is_rot = lambda name: any(sub in name for sub in ['vr', 'vf'])
+    is_diffusion = lambda name: any(sub in name for sub in ['df', 'vc', 'vt'])
+    def is_leading(name):
+        leading = True
+        if not is_full(name):
+            if any(sub in name for sub in ['div', 'plus']):
+                if 'ITG' in name:
+                    if name not in ['efeITG_GB_div_efiITG_GB', 'pfeITG_GB_div_efiITG_GB']:
+                        leading = False
+                elif 'TEM' in name:
+                    if name not in ['efiTEM_GB_div_efeTEM_GB', 'pfeTEM_GB_div_efeTEM_GB']:
+                        leading = False
+        return leading
+
     with PdfPages('multipage_pdf.pdf') as pdf:
         for varname in store:
             varname = varname.lstrip('/')
             if ((varname not in ['input', 'constants']) and
                 ((plot_rot and is_rot(varname)) or
                  (plot_full and is_full(varname)) or
-                 (not is_rot(varname) and not is_full(varname)))):
+                 (plot_diffusion and is_diffusion(varname)) or
+                 (plot_nonleading and not is_leading(varname)) or
+                 (not is_rot(varname) and not is_full(varname) and not is_diffusion(varname) and is_leading(varname)))):
                 print(varname)
                 fig = plot_dataset_dist(store, varname)
                 pdf.savefig(fig)
@@ -121,6 +145,6 @@ def generate_dataset_report(store, plot_rot=False, plot_full=False):
 
 #net = Network.get_by_id(1409)
 
-store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name()))
+store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name(dim=7)))
 generate_dataset_report(store)
 embed()
