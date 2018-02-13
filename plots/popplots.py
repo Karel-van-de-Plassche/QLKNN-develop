@@ -22,6 +22,7 @@ from functools import partial
 import matplotlib as mpl
 mpl.use('pdf')
 from matplotlib.backends.backend_pdf import PdfPages
+from mpl_toolkits.axes_grid.inset_locator import inset_axes
 import matplotlib.pyplot as plt
 from load_data import load_data, load_nn, prettify_df
 from collections import OrderedDict
@@ -36,11 +37,13 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
         df = store[varname]
         df.dropna(inplace=True)
         fig = plt.figure()
-        sns.distplot(df, hist_kws={'range': df.quantile([.01, 1 - cutoff]), 'log': False}, kde=False)
+        ax = sns.distplot(df, hist_kws={'range': df.quantile([.01, 1 - cutoff]), 'log': False}, kde=False)
         sns.despine()
+        subax = inset_axes(ax,
+                           width="30%",
+                           height="30%")
+        sns.distplot(df,  hist_kws={'range': [-1, 1]}, kde=False, ax=subax)
     return fig
-
-net = Network.get_by_id(1409)
 
 def generate_store_name(unstable=True, gen=2, filter_id=7, dim=7):
     store_name = 'training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, filter_id, dim)
@@ -64,12 +67,12 @@ def plot_pure_network_dataset_dist(self):
 Network.plot_dataset_dist = plot_pure_network_dataset_dist
 
 def generate_dataset_report(store, plot_rot=False, plot_full=False):
-    skiplist = ['/input', '/constants']
-    is_rot = lambda name: name.startswith('vf') or name.startswith('vt')
     is_full = lambda name: all(sub not in name for sub in ['TEM', 'ITG', 'ETG'])
+    is_rot = lambda name: any(sub in name for sub in ['vr', 'vf'])
     with PdfPages('multipage_pdf.pdf') as pdf:
         for varname in store:
-            if ((varname not in ['/input', '/constants']) and
+            varname = varname.lstrip('/')
+            if ((varname not in ['input', 'constants']) and
                 ((plot_rot and is_rot(varname)) or
                  (plot_full and is_full(varname)) or
                  (not is_rot(varname) and not is_full(varname)))):
@@ -77,6 +80,8 @@ def generate_dataset_report(store, plot_rot=False, plot_full=False):
                 fig = plot_dataset_dist(store, varname)
                 pdf.savefig(fig)
                 plt.close(fig)
+
+#net = Network.get_by_id(1409)
 
 store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name()))
 generate_dataset_report(store)
