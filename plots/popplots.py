@@ -20,7 +20,7 @@ from train_NDNN import shuffle_panda, normab, normsm
 from functools import partial
 
 import matplotlib as mpl
-mpl.use('pdf')
+#mpl.use('pdf')
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 import matplotlib.pyplot as plt
@@ -31,18 +31,56 @@ import re
 
 import seaborn as sns
 
+def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
+    cover_left = False
+    cover_right = False
+    xlim = ax.get_xlim()
+    full = np.sum(np.abs(xlim))
+    left_bound = xlim[0] + width_perc * full
+    right_bound = xlim[1] - width_perc * full
+    top_bound = (1 - height_perc) * ax.get_ylim()[1]
+    for child in ax.get_children():
+        if isinstance(child, mpl.patches.Rectangle):
+            xx = child.get_x()
+            too_high = child.get_height() > 0.5 * ax.get_ylim()[1]
+            if child.get_height() > top_bound:
+                if xx < left_bound:
+                    cover_left = True
+                elif xx > right_bound:
+                    cover_right = True
+
+    if not cover_right:
+        loc = 1
+    elif not cover_left:
+        loc = 2
+    else:
+        loc = 9
+    return loc
+
 def plot_dataset_dist(store, varname, cutoff=0.01):
     with sns.axes_style("white"):
         start = time.time()
         df = store[varname]
         df.dropna(inplace=True)
         fig = plt.figure()
-        ax = sns.distplot(df, hist_kws={'range': df.quantile([.01, 1 - cutoff]), 'log': False}, kde=False)
-        sns.despine()
+        ax = sns.distplot(df.loc[(df.quantile(cutoff) < df) &
+                                 (df < df.quantile(1 - cutoff))],
+                          hist_kws={'log': False}, kde=False)
+
+        sns.despine(ax=ax)
+        loc = determine_subax_loc(ax)
         subax = inset_axes(ax,
                            width="30%",
-                           height="30%")
-        sns.distplot(df,  hist_kws={'range': [-1, 1]}, kde=False, ax=subax)
+                           height="30%",
+                           loc=loc)
+        sns.distplot(df.loc[(-1 < df) & (df < 1)],
+                     kde=False, ax=subax)
+        if loc == 2:
+            subax.yaxis.set_label_position("right")
+            subax.yaxis.tick_right()
+            sns.despine(ax=subax, left=True, right=False)
+        else:
+            sns.despine(ax=subax)
     return fig
 
 def generate_store_name(unstable=True, gen=2, filter_id=7, dim=7):
