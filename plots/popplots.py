@@ -57,9 +57,19 @@ def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
         loc = 9
     return loc
 
+def plot_dataset_zoomin(store, varname, bound=0.1):
+    with sns.axes_style("white"):
+        df = store[varname]
+        df.dropna(inplace=True)
+        fig = plt.figure()
+        ax = sns.distplot(df.loc[df.abs() < bound],
+                          hist_kws={'log': False}, kde=True)
+
+        sns.despine(ax=ax)
+    return fig
+
 def plot_dataset_dist(store, varname, cutoff=0.01):
     with sns.axes_style("white"):
-        start = time.time()
         df = store[varname]
         df.dropna(inplace=True)
         fig = plt.figure()
@@ -140,6 +150,9 @@ def generate_dataset_report(store, plot_rot=False, plot_full=False, plot_diffusi
                  (not is_rot(varname) and not is_full(varname) and not is_diffusion(varname) and is_leading(varname)))):
                 print(varname)
                 fig = plot_dataset_dist(store, varname)
+                pdf.savefig(fig)
+                plt.close(fig)
+                fig = plot_dataset_zoomin(store, varname)
                 pdf.savefig(fig)
                 plt.close(fig)
 
