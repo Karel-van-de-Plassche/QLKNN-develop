@@ -23,7 +23,7 @@ from playhouse.hybrid import hybrid_property
 #from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
 from IPython import embed
 
-from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN, QuaLiKizMultiNN
+from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN
 
 #class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
 #    pass
@@ -93,51 +93,47 @@ class Filter(BaseModel):
         return filter_id
 
 
-class ComboNetwork(BaseModel):
-    target_names = ArrayField(TextField)
-    recipe = TextField()
+class Network(BaseModel):
     feature_names = ArrayField(TextField)
-    networks = ArrayField(IntegerField)
+    target_names = ArrayField(TextField)
+    recipe = TextField(null=True)
+    networks = ArrayField(IntegerField, null=True)
 
-    @hybrid_property
-    def hidden_neurons(self):
-        return [Network.get_by_id(nn).hyperparameters.get().hidden_neurons for nn in self.networks]
+    #@hybrid_property
+    #def hidden_neurons(self):
+    #    return [Network.get_by_id(nn).hyperparameters.get().hidden_neurons for nn in self.networks]
 
-    @hidden_neurons.expression
-    def hidden_neurons(cls):
-        raise NotImplementedError('Cannot use in SQL query')
+    #@hidden_neurons.expression
+    #def hidden_neurons(cls):
+    #    raise NotImplementedError('Cannot use in SQL query')
 
-    def to_QuaLiKizComboNN(self):
-        network_ids = self.networks
-        networks = [Network.get_by_id(num).to_QuaLiKizNDNN() for num in network_ids]
-        recipe = self.recipe
-        for ii in range(len(network_ids)):
-            recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
-        exec('def combo_func(*args): return ' + recipe, globals())
-        return QuaLiKizComboNN(self.target_names, networks, combo_func)
+    #def to_QuaLiKizComboNN(self):
+    #    network_ids = self.networks
+    #    networks = [Network.get_by_id(num).to_QuaLiKizNDNN() for num in network_ids]
+    #    recipe = self.recipe
+    #    for ii in range(len(network_ids)):
+    #        recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
+    #    exec('def combo_func(*args): return ' + recipe, globals())
+    #    return QuaLiKizComboNN(self.target_names, networks, combo_func)
 
-    to_QuaLiKizNN = to_QuaLiKizComboNN
+    #to_QuaLiKizNN = to_QuaLiKizComboNN
 
     @classmethod
     def find_divsum_candidates(cls):
-        query = (Network
+        query = (PureNetworkParams
                  .select()
-                 .where(Network.target_names[0] % '%_div_%')
+                 .where(PureNetworkParams.target_names[0] % '%_div_%')
                  .where(SQL('array_length(target_names, 1) = 1'))
                  )
-        for network in query:
+        for pure_network_params in query:
             try:
-                cls.divsum_from_div_id(network.id)
+                cls.divsum_from_div_id(pure_network_params.id)
             except Exception:
                 traceback.print_exc()
 
     @classmethod
-    def divsum_from_div_id(cls, network_id):
-        query = (Network
-                 .select()
-                 .where(Network.id == network_id)
-                 )
-        nn = query.get()
+    def divsum_from_div_id(cls, pure_network_params_id):
+        nn = PureNetworkParams.get_by_id(pure_network_params_id)
         if len(nn.target_names) != 1:
             raise Exception('Divsum network needs div network, not {!s}'.format(nn.target_names))
         target_name = nn.target_names[0]
@@ -171,17 +167,17 @@ class ComboNetwork(BaseModel):
                 efi = splitted[3]
                 split_efi = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(efi)
                 efe = ''.join(*[[split_efi[0]] + ['e'] + split_efi[2:]])
-                # Triplet style: pfe / efi == nn0, pfe + efi + efe == nn1, efi / efe == nn2
-                partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
-                                   [efi + '_div_' + efe]
-                                   ]
-                formulas = OrderedDict([
-                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{0:d} + nn{2:d})'),
-                    (efe, 'nn{1:d} / (1 + nn{0:d} + nn{2:d})'),
-                    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})')
-                ])
-                partner_target_sets.append(partner_targets)
-                formula_sets.append(formulas)
+                ## Triplet style: pfe / efi == nn0, pfe + efi + efe == nn1, efi / efe == nn2
+                #partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
+                #                   [efi + '_div_' + efe]
+                #                   ]
+                #formulas = OrderedDict([
+                #    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{0:d} + nn{2:d})'),
+                #    (efe, 'nn{1:d} / (1 + nn{0:d} + nn{2:d})'),
+                #    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})')
+                #])
+                #partner_target_sets.append(partner_targets)
+                #formula_sets.append(formulas)
                 # Simple style: pfe / efi == nn0, efi == nn1, efe / efi == nn2
                 partner_targets = [[efi],
                                    [efe + '_div_' + efi]
@@ -227,17 +223,17 @@ class ComboNetwork(BaseModel):
                 efe = splitted[3]
                 split_efe = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(efe)
                 efi = ''.join(*[[split_efe[0]] + ['i'] + split_efe[2:]])
-                # Triplet style: pfe / efe == nn0, pfe + efi + efe == nn1, efi / efe == nn2
-                partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
-                                   [efi + '_div_' + efe]
-                                   ]
-                formulas = OrderedDict([
-                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{0:d} + nn{2:d})'),
-                    (efe, '(nn{1:d}) / (1 + nn{1:d} + nn{2:d})'),
-                    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})')
-                ])
-                partner_target_sets.append(partner_targets)
-                formula_sets.append(formulas)
+                ## Triplet style: pfe / efe == nn0, pfe + efi + efe == nn1, efi / efe == nn2
+                #partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
+                #                   [efi + '_div_' + efe]
+                #                   ]
+                #formulas = OrderedDict([
+                #    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{0:d} + nn{2:d})'),
+                #    (efe, '(nn{1:d}) / (1 + nn{1:d} + nn{2:d})'),
+                #    (pfe, '(nn{0:d} * nn{1:d}) / (1 + nn{0:d} + nn{2:d})')
+                #])
+                #partner_target_sets.append(partner_targets)
+                #formula_sets.append(formulas)
                 # Heatflux style: pfe / efe == nn0, efi + efe == nn1, efi / efe == nn2
                 partner_targets = [[efi + '_plus_' + efe],
                                    [efi + '_div_' + efe]
@@ -260,15 +256,17 @@ class ComboNetwork(BaseModel):
             for partner_target in partner_targets:
                 if len(partner_target) > 1:
                     raise Exception('Multiple partner targets!')
-                query = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
-                query &= Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
-                query &= (Network
+                query = PureNetworkParams.find_similar_topology_by_id(network_id, match_train_dim=False)
+                query &= PureNetworkParams.find_similar_networkpar_by_id(network_id, match_train_dim=False)
+                query &= (PureNetworkParams
                      .select()
                      .where(Network.target_names == AsIs(partner_target))
+                     .join(Network)
                      )
                 if query.count() > 1:
                     print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
                     try:
+                        # TODO: change after PureNetworkParams split
                         sort = sorted([(el.postprocess.get().rms, el.id) for el in query])
                     except Postprocess.DoesNotExist as ee:
                         net_id = re.search('PARAMS: \[(.*)\]', ee.args[0])[1]
@@ -286,7 +284,7 @@ class ComboNetwork(BaseModel):
                 if query.count() > 0:
                     nns.append(query.get())
 
-
+            # TODO: change after PureNetworkParams split
             if skip is not True:
                 recipes = OrderedDict()
                 network_ids = [nn.id for nn in nns]
@@ -364,25 +362,24 @@ class ComboNetwork(BaseModel):
         return query
 
 
-class Network(BaseModel):
-    filter = ForeignKeyField(Filter, related_name='filter', null=True)
+class PureNetworkParams(BaseModel):
+    network = ForeignKeyField(Network, related_name='network', unique=True)
+    filter = ForeignKeyField(Filter, related_name='filter')
     train_script = ForeignKeyField(TrainScript, related_name='train_script')
     feature_prescale_bias = HStoreField()
     feature_prescale_factor = HStoreField()
     target_prescale_bias = HStoreField()
     target_prescale_factor = HStoreField()
-    feature_names = ArrayField(TextField)
     feature_min = HStoreField()
     feature_max = HStoreField()
-    target_names = ArrayField(TextField)
     target_min = HStoreField()
     target_max = HStoreField()
     timestamp = DateTimeField(constraints=[SQL('DEFAULT now()')])
 
     @classmethod
-    def find_partners_by_id(cls, network_id):
-        q1 = Network.find_similar_topology_by_id(network_id, match_train_dim=False)
-        q2 = Network.find_similar_networkpar_by_id(network_id, match_train_dim=False)
+    def find_partners_by_id(cls, pure_network_params_id):
+        q1 = cls.find_similar_topology_by_id(pure_network_params_id, match_train_dim=False)
+        q2 = cls.find_similar_networkpar_by_id(pure_network_params_id, match_train_dim=False)
         return q1 & q2
 
     @classmethod
@@ -397,30 +394,31 @@ class Network(BaseModel):
         return query
 
     @classmethod
-    def find_similar_topology_by_id(cls, network_id, match_train_dim=True):
-        query = (Network
+    def find_similar_topology_by_id(cls, pure_network_params_id, match_train_dim=True):
+        query = (cls
                  .select(
                          Hyperparameters.hidden_neurons,
                          Hyperparameters.hidden_activation,
                          Hyperparameters.output_activation)
-                 .where(Network.id == network_id)
+                 .where(cls.id == pure_network_params_id)
                  .join(Hyperparameters)
         )
 
-        train_dim, = (Network
+        train_dim, = (cls
                  .select(
                          Network.target_names)
-                 .where(Network.id == network_id)
+                 .where(cls.id == pure_network_params_id)
+                 .join(Network)
                  ).tuples().get()
         if match_train_dim is not True:
             train_dim = None
         query = cls.find_similar_topology_by_values(*query.tuples().get(), train_dim=train_dim)
-        query = query.where(Network.id != network_id)
+        query = query.where(cls.id != pure_network_params_id)
         return query
 
     @classmethod
     def find_similar_topology_by_values(cls, hidden_neurons, hidden_activation, output_activation, train_dim=None):
-        query = (Network.select()
+        query = (cls.select()
                  .join(Hyperparameters)
                  .where(Hyperparameters.hidden_neurons ==
                         AsIs(hidden_neurons))
@@ -430,8 +428,8 @@ class Network(BaseModel):
                         AsIs(output_activation)))
 
         if train_dim is not None:
-            query = query.where(Network.target_names ==
-                        AsIs(train_dim))
+            query = (query.where(Network.target_names == AsIs(train_dim))
+                          .join(Network))
         return query
 
     @classmethod
@@ -447,33 +445,34 @@ class Network(BaseModel):
         return query
 
     @classmethod
-    def find_similar_networkpar_by_id(cls, network_id, match_train_dim=True):
-        query = (Network
+    def find_similar_networkpar_by_id(cls, pure_network_params_id, match_train_dim=True):
+        query = (cls
                  .select(
                          Hyperparameters.goodness,
                          Hyperparameters.cost_l2_scale,
                          Hyperparameters.cost_l1_scale,
                          Hyperparameters.early_stop_measure)
-                 .where(Network.id == network_id)
+                 .where(cls.id == pure_network_params_id)
                  .join(Hyperparameters)
         )
 
-        filter_id, train_dim = (Network
-                 .select(Network.filter_id,
+        filter_id, train_dim = (cls
+                 .select(cls.filter_id,
                          Network.target_names)
-                 .where(Network.id == network_id)
+                 .where(cls.id == pure_network_params_id)
+                 .join(Network)
                  ).tuples().get()
         if match_train_dim is not True:
             train_dim = None
 
         query = cls.find_similar_networkpar_by_values(*query.tuples().get(), filter_id=filter_id, train_dim=train_dim)
-        query = query.where(Network.id != network_id)
+        query = query.where(cls.id != pure_network_params_id)
         return query
 
     @classmethod
     def find_similar_networkpar_by_values(cls, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, filter_id=None, train_dim=None):
         # TODO: Add new hyperparameters here?
-        query = (Network.select()
+        query = (cls.select()
                  .join(Hyperparameters)
                  .where(Hyperparameters.goodness ==
                         goodness)
@@ -485,11 +484,13 @@ class Network(BaseModel):
                         early_stop_measure)
                  )
         if train_dim is not None:
-            query = query.where(Network.target_names ==
+            query = (query.where(Network.target_names ==
                         AsIs(train_dim))
+                          .join(Network)
+                     )
 
         if filter_id is not None:
-                 query = query.where(Network.filter_id ==
+                 query = query.where(cls.filter_id ==
                                      AsIs(filter_id))
         else:
             print('Warning! Not filtering on filter_id')
@@ -508,28 +509,29 @@ class Network(BaseModel):
     #    return query
 
     @classmethod
-    def find_similar_trainingpar_by_id(cls, network_id):
-        query = (Network
+    def find_similar_trainingpar_by_id(cls, pure_network_params_id):
+        query = (cls
                  .select(Network.target_names,
                          Hyperparameters.minibatches,
                          Hyperparameters.optimizer,
                          Hyperparameters.standardization,
                          Hyperparameters.early_stop_after)
-                 .where(Network.id == network_id)
+                 .where(cls.id == pure_network_params_id)
                  .join(Hyperparameters)
+                 .join(Network)
         )
 
-        filter_id = (Network
-                 .select(Network.filter_id)
-                 .where(Network.id == network_id)
+        filter_id = (cls
+                 .select(cls.filter_id)
+                 .where(cls.id == cls.network_id)
                  ).tuples().get()[0]
         query = cls.find_similar_trainingpar_by_values(*query.tuples().get())
-        query = query.where(Network.id != network_id)
+        query = query.where(cls.id != pure_network_params_id)
         return query
 
     @classmethod
     def find_similar_trainingpar_by_values(cls, train_dim, minibatches, optimizer, standardization, early_stop_after):
-        query = (Network.select()
+        query = (cls.select()
                  .where(Network.target_names == AsIs(train_dim))
                  .join(Hyperparameters)
                  .where(Hyperparameters.minibatches == minibatches)
@@ -574,14 +576,18 @@ class Network(BaseModel):
                         dict_[name] = {str(key): str(val) for key, val in attr.items()}
 
             dict_['train_script'] = train_script
+            net_dict = {'feature_names': dict_.pop('feature_names'),
+                        'target_names': dict_.pop('target_names')}
 
             with open(os.path.join(pwd, 'settings.json')) as file_:
                 settings = json.load(file_)
 
             dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
-            network = Network(**dict_)
+            network = Network(**net_dict)
             network.save()
-            hyperpar = Hyperparameters.from_settings(network, settings)
+            pure_network_params = PureNetworkParams(**dict_)
+            pure_network_params.save()
+            hyperpar = Hyperparameters.from_settings(pure_network_params, settings)
             hyperpar.save()
             if settings['optimizer'] == 'lbfgs':
                 optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
@@ -647,150 +653,20 @@ class Network(BaseModel):
                'early_stop_after': net.hyperparameters.get().early_stop_after}
         )
 
-class MultiNetwork(BaseModel):
-    network                     = ForeignKeyField(Network, related_name='pair_network', null=True)
-    combo_network               = ForeignKeyField(ComboNetwork, related_name='pair_network', null=True)
-    network_partners            = ArrayField(IntegerField, null=True)
-    combo_network_partners      = ArrayField(IntegerField, null=True)
-    target_names                = ArrayField(TextField)
-    feature_names               = ArrayField(TextField)
-
-    def to_QuaLiKizMultiNN(self):
-        nns = []
-        if self.combo_network is not None:
-            nns.append(self.combo_network.to_QuaLiKizComboNN())
-        if self.combo_network_partners is not None:
-            for nn_id in self.combo_network_partners:
-                nn = ComboNetwork.get_by_id(nn_id).to_QuaLiKizComboNN()
-                nns.append(nn)
-        if self.network is not None:
-            nns.append(self.network.to_QuaLiKizNDNN())
-        if self.network_partners is not None:
-            for nn_id in self.network_partners:
-                nn = Network.get_by_id(nn_id).to_QuaLiKizNDNN()
-                nns.append(nn)
-
-        return QuaLiKizMultiNN(nns)
-
-    to_QuaLiKizNN = to_QuaLiKizMultiNN
-
-    @classmethod
-    def from_candidates(cls):
-        #subquery = (Network.select(Network.id.alias('id'),
-        #                           fn.unnest(Network.target_names).alias('unnested_tags'))
-        #            .alias('subquery'))
-        tags = ["div", "plus"]
-        #tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
-        #tags_filter = reduce(operator.or_, tags_filters)
-        query = no_elements_in_list(Network, 'target_names', tags)
-        query &= (Network.select()
-                  .where(SQL("array_length(target_names, 1) = 1"))
-                  .where(Network.target_names != AsIs(['efeETG_GB']))
-                  )
-        #query = (Network.select()
-        #         .join(subquery, on=subquery.c.id == Network.id)
-        #         .where(SQL("array_length(target_names, 1) = 1"))
-        #         .where(~tags_filter)
-        #         .where(Network.target_names != AsIs(['efeETG_GB']))
-        #         # gets rid of duplicates
-        #         .group_by(Network.id)
-        #)
-        #combo_query = (ComboNetwork.select())
-
-        #for nn in chain(query, combo_query):
-        for nn in query:
-            splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(nn.target_names[0])
-            if splitted[1] == 'i':
-                partner_target = ''.join(splitted[:1] + ['e'] + splitted[2:])
-            else:
-                print('Skipping, prefer to have ion network first')
-                continue
-
-            query = nn.__class__.find_partners_by_id(nn.id)
-            query &= (nn.__class__.select()
-                     .where(nn.__class__.target_names == AsIs([partner_target]))
-                     )
-            if query.count() == 0:
-                print('No partners found for {!s}, id {!s}, target {!s}'.format(nn, nn.id, nn.target_names))
-                continue
-            elif query.count() > 1:
-                print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
-                try:
-                    sort = sorted([(el.postprocess.get().rms, el.id) for el in query])
-                except Postprocess.DoesNotExist as ee:
-                    net_id = re.search('PARAMS: \[(.*)\]', ee.args[0])[1]
-                    table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
-                    print('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
-                    continue
-                print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
-                query = (nn.__class__
-                         .select()
-                         .where(nn.__class__.id == sort[0][1])
-                )
-            partner = query.get()
-
-            if isinstance(nn, Network):
-                duplicate_check = (MultiNetwork.select()
-                                   .where((MultiNetwork.network_id == partner.id)
-                                    | (MultiNetwork.network_id == nn.id)
-                                    | MultiNetwork.network_partners.contains(partner.id)
-                                    | MultiNetwork.network_partners.contains(nn.id))
-                                    )
-                if duplicate_check.count() == 0:
-                    net = cls(network=nn,
-                              network_partners=[partner.id],
-                              target_names=nn.target_names + partner.target_names,
-                              feature_names=nn.feature_names
-                    )
-                    net.save()
-                    print('Created MultiNetwork with id: {:d}'.format(net.id))
-                else:
-                    print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
-
-    @classmethod
-    def calc_op(cls, column):
-        subquery = ComboNetwork.calc_op(column).alias('sub1')
-        query = (MultiNetwork.select(MultiNetwork.id.alias('multi_id'),
-                                     fn.ARRAY_AGG(getattr(subquery.c, column), coerce=False).alias(column))
-                 .join(subquery,
-                       on=(cls.combo_network_id == subquery.c.combo_id) |
-                       (subquery.c.combo_id == fn.ANY(cls.combo_network_partners))
-                 ).alias('sub2')
-                 .group_by(cls.id)
-        )
-        return query
-
-            #else:
-            #    duplicate_check = (MultiNetwork.select()
-            #                       .where((MultiNetwork.combo_network_id == partner.id)
-            #                        | (MultiNetwork.combo_network_id == nn.id)
-            #                        | MultiNetwork.combo_network_partners.contains(partner.id)
-            #                        | MultiNetwork.combo_network_partners.contains(nn.id))
-            #                        )
-            #    if duplicate_check.count() == 0:
-            #        net = cls(combo_network=nn,
-            #                  combo_network_partners=[partner.id],
-            #                  target_names=nn.target_names + partner.target_names,
-            #                  feature_names=nn.feature_names
-            #        )
-            #        net.save()
-            #        print('Created MultiNetwork with id: {:d}'.format(net.id))
-            #    else:
-            #        print('{!s}, id {!s} already in {!s}'.format(nn, nn.id, cls))
 
 class NetworkJSON(BaseModel):
-    network = ForeignKeyField(Network, related_name='network_json')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_json', unique=True)
     network_json = JSONField()
     settings_json = JSONField()
 
 class NetworkLayer(BaseModel):
-    network = ForeignKeyField(Network, related_name='network_layer')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_layer')
     weights = ArrayField(FloatField)
     biases = ArrayField(FloatField)
     activation = TextField()
 
 class NetworkMetadata(BaseModel):
-    network = ForeignKeyField(Network, related_name='network_metadata')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_metadata', unique=True)
     epoch = IntegerField()
     best_epoch = IntegerField()
     rms_test = FloatField(null=True)
@@ -803,7 +679,7 @@ class NetworkMetadata(BaseModel):
     metadata = HStoreField()
 
     @classmethod
-    def from_dict(cls, json_dict, network):
+    def from_dict(cls, json_dict, pure_network_params):
         with db.atomic() as txn:
             stringified = {str(key): str(val) for key, val in json_dict.items()}
             try:
@@ -821,7 +697,7 @@ class NetworkMetadata(BaseModel):
             except KeyError:
                 rms_validation_descaled = None
             network_metadata = NetworkMetadata(
-                network=network,
+                pure_network_params=pure_network_params,
                 epoch=json_dict['epoch'],
                 best_epoch=json_dict['best_epoch'],
                 rms_train=rms_train,
@@ -837,7 +713,7 @@ class NetworkMetadata(BaseModel):
             return network_metadata
 
 class TrainMetadata(BaseModel):
-    network = ForeignKeyField(Network, related_name='train_metadata')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='train_metadata')
     set = TextField(choices=['train', 'test', 'validation'])
     step =         ArrayField(IntegerField)
     epoch =        ArrayField(IntegerField)
@@ -850,7 +726,7 @@ class TrainMetadata(BaseModel):
     hostname = TextField()
 
     @classmethod
-    def from_folder(cls, pwd, network):
+    def from_folder(cls, pwd, pure_network_params):
         train_metadatas = None
         with db.atomic() as txn:
             for name in cls.set.choices:
@@ -861,41 +737,27 @@ class TrainMetadata(BaseModel):
                 except IOError:
                     pass
                 else:
-                    try:
-                        # TODO: Only works on debian-like
-                        train_metadata = TrainMetadata(
-                            network=network,
-                            set=name,
-                            step=[int(x) for x in df.index],
-                            epoch=[int(x) for x in df['epoch']],
-                            walltime=df['walltime'],
-                            loss=df['loss'],
-                            mse=df['mse'],
-                            mabse=df['mabse'],
-                            l1_norm=df['l1_norm'],
-                            l2_norm=df['l2_norm'],
-                            hostname=socket.gethostname()
-                        )
-                    except KeyError:
-                        print('Legacy file.. Fallback')
-                        # TODO: Only works on debian-like
-                        train_metadata = TrainMetadata(
-                            network=network,
-                            set=name,
-                            step=[int(x) for x in df.index],
-                            epoch=[int(x) for x in df['epoch']],
-                            walltime=df['walltime'],
-                            loss=df['loss'],
-                            mse=df['mse'],
-                            hostname=socket.gethostname()
-                        )
+                    # TODO: Only works on debian-like
+                    train_metadata = TrainMetadata(
+                        pure_network_params=pure_network_params,
+                        set=name,
+                        step=[int(x) for x in df.index],
+                        epoch=[int(x) for x in df['epoch']],
+                        walltime=df['walltime'],
+                        loss=df['loss'],
+                        mse=df['mse'],
+                        mabse=df['mabse'],
+                        l1_norm=df['l1_norm'],
+                        l2_norm=df['l2_norm'],
+                        hostname=socket.gethostname()
+                    )
                     train_metadata.save()
                     train_metadatas.append(train_metadata)
         return train_metadatas
 
 
 class Hyperparameters(BaseModel):
-    network = ForeignKeyField(Network, related_name='hyperparameters')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='hyperparameters')
     hidden_neurons = ArrayField(IntegerField)
     hidden_activation = ArrayField(TextField)
     output_activation = TextField()
@@ -936,32 +798,30 @@ class Hyperparameters(BaseModel):
 
 
 class LbfgsOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters, related_name='lbfgs_optimizer')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='lbfgs_optimizer', unique=True)
     maxfun = IntegerField()
     maxiter = IntegerField()
     maxls = IntegerField()
 
 class AdamOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters, related_name='adam_optimizer')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='adam_optimizer', unique=True)
     learning_rate = FloatField()
     beta1 = FloatField()
     beta2 = FloatField()
 
 class AdadeltaOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters, related_name='adadelta_optimizer')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='adadelta_optimizer', unique=True)
     learning_rate = FloatField()
     rho = FloatField()
 
 class RmspropOptimizer(BaseModel):
-    hyperparameters = ForeignKeyField(Hyperparameters, related_name='rmsprop_optimizer')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='rmsprop_optimizer', unique=True)
     learning_rate = FloatField()
     decay = FloatField()
     momentum = FloatField()
 
 class Postprocess(BaseModel):
-    network         = ForeignKeyField(Network, related_name='postprocess', null=True)
-    combo_network   = ForeignKeyField(ComboNetwork, related_name='postprocess', null=True)
-    multi_network   = ForeignKeyField(MultiNetwork, related_name='postprocess', null=True)
+    network         = ForeignKeyField(Network, related_name='postprocess')
     filter          = ForeignKeyField(Filter, related_name='postprocess')
     rms             = FloatField()
     leq_bound       = FloatField()
@@ -969,8 +829,6 @@ class Postprocess(BaseModel):
 
 class PostprocessSlice(BaseModel):
     network = ForeignKeyField(Network, related_name='postprocess_slice', null=True)
-    combo_network = ForeignKeyField(ComboNetwork, related_name='postprocess_slice', null=True)
-    multi_network = ForeignKeyField(MultiNetwork, related_name='postprocess_slice', null=True)
     thresh_rel_mis_median       = ArrayField(FloatField)
     thresh_rel_mis_95width      = ArrayField(FloatField)
     no_thresh_frac              = ArrayField(FloatField)
@@ -990,7 +848,7 @@ def create_schema():
 
 def create_tables():
     db.execute_sql('SET ROLE developer')
-    db.create_tables([Filter, Network, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocess, ComboNetwork])
+    db.create_tables([Filter, Network, PureNetworkParams, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocess])
 
 def purge_tables():
     clsmembers = inspect.getmembers(sys.modules[__name__], lambda member: inspect.isclass(member) and member.__module__ == __name__)
