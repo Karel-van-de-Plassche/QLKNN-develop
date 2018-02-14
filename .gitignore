@@ -3,3 +3,6 @@ nn*json
 *.nc
 checkpoints
 __pycache__
+*.egg-info
+.coverage
+.cache

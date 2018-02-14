@@ -1,31 +1,29 @@
-from peewee import *
-from peewee import (FloatField, FloatField, ProgrammingError, IntegerField, BooleanField,
-                    AsIs)
-#                    Param, Passthrough)
-from peewee import fn
-import numpy as np
 import inspect
-import sys
-from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
-from playhouse.hybrid  import hybrid_property
-#from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
-from IPython import embed
-from warnings import warn
 import os
-networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
-sys.path.append(networks_path)
-from run_model import QuaLiKizNDNN, QuaLiKizComboNN, QuaLiKizMultiNN
+import sys
 import json
-import pandas as pd
 import subprocess
 import socket
 import re
 import traceback
 import operator
+from warnings import warn
 from functools import reduce
 from itertools import chain
 from collections import OrderedDict
+
+import numpy as np
 import scipy.io as io
+import pandas as pd
+from peewee import (Model,
+                    FloatField, FloatField, IntegerField, BooleanField, TextField, ForeignKeyField, DateTimeField,
+                    ProgrammingError, AsIs, fn, SQL)
+from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
+from playhouse.hybrid import hybrid_property
+#from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
+from IPython import embed
+
+from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN, QuaLiKizMultiNN
 
 #class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
 #    pass
