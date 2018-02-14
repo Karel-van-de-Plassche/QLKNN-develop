@@ -24,6 +24,33 @@ def regime_filter(data, leq, less):
     data = data.loc[bool]
     return data
 
+div_bounds = {
+        'efeITG_GB_div_efiITG_GB': (0.05, 1.5),
+        'pfeITG_GB_div_efiITG_GB': (0.05, 2),
+        'efeTEM_GB_div_efiTEM_GB': (0.02, 0.5),
+        'pfeTEM_GB_div_efiTEM_GB': (0.01, 0.8)
+}
+def div_filter(store):
+    # This is hand-picked:
+    # 0.05 <   efeITG/efiITG    < 1.5
+    # 0.05 <   efiTEM/efeTEM    < 2
+    # 0.02 < abs(pfeITG/efiITG) < 0.5
+    # 0.01 < abs(pfeTEM/efiTEM) < 0.8
+    for group in store:
+        if isinstance(store, pd.HDFStore):
+            group = group[1:]
+        pre = len(store[group])
+        se = store[group]
+        if group in div_bounds:
+            low, high = div_bounds[group]
+            embed()
+        else:
+            continue
+
+        store[group] = se.loc[(low < se) & (se < high)]
+        print('{:.2f}% of sane {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
+
+
 def stability_filter(data):
     for col in data.columns:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
