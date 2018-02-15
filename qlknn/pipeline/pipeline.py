@@ -1,27 +1,24 @@
-import luigi
-import traceback
-import luigi.contrib.postgres
 import os
+import shutil
 import json
 import signal
-from IPython import embed
+import traceback
 import sys
-networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
-NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
-training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../training'))
-sys.path.append(networks_path)
-sys.path.append(NNDB_path)
-sys.path.append(training_path)
-import train_NDNN
-from model import TrainScript, Network
-import shutil
-from itertools import product
 import time
 import tempfile
 import socket
+import re
 import subprocess
 from subprocess import Popen
-import re
+from itertools import product
+
+import luigi
+import luigi.contrib.postgres
+from IPython import embed
+
+from qlknn.NNDB.model import TrainScript, PureNetworkParams
+import qlknn.training.train_NDNN as train_NDNN
+training_path = os.path.dirname(train_NDNN.__file__)
 
 #class TrainNNWorkflow():
 #    def workflow(self):
@@ -43,6 +40,7 @@ def check_settings_dict(settings):
     for var in ['train_dims']:
         if var in settings:
             raise Exception(var, 'should be set seperately, not in the settings dict')
+
 class DummyTask(luigi.Task):
     pass
 
@@ -51,6 +49,8 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
     train_dims = luigi.ListParameter()
     uid = luigi.Parameter()
     master_pid = os.getpid()
+    sleep_time = 10
+    interact_with_nndb = True
 
     if socket.gethostname().startswith('r0'):
         machine_type = 'marconi'
@@ -87,7 +87,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
                 for line in self.run_async_io_cmd(cmd):
                     if re.match('(\d{6,6}\.\w\d\d\d\w\d\d\w\d\d$)', line) is not None:
                         self.job_id = line
-                        self.set_status_message('Submitted job {!s}'.format(self.job_id))
+                        self.set_status_message_wrapper('Submitted job {!s}'.format(self.job_id))
                     print(line)
             except subprocess.CalledProcessError as err:
                 import time
@@ -121,7 +121,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
             train_NDNN.train_NDNN_from_folder()
 
     def run(self):
-        self.set_status_message('Starting job')
+        self.set_status_message_wrapper('Starting job')
         os.chdir(os.path.dirname(__file__))
         check_settings_dict(self.settings)
         settings = dict(self.settings)
@@ -134,33 +134,35 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         self.tmpdirname = tmpdirname = tempfile.mkdtemp(prefix='trainNN_', dir=tmproot)
         print('created temporary directory', tmpdirname)
         train_script_path = os.path.join(training_path, 'train_NDNN.py')
-        TrainScript.from_file(train_script_path)
+        if self.interact_with_nndb:
+            TrainScript.from_file(train_script_path)
         #shutil.copy(os.path.join(train_script_path), os.path.join(tmpdirname, 'train_NDNN.py'))
         os.symlink(os.path.join(train_script_path), os.path.join(tmpdirname, 'train_NDNN.py'))
         settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
         with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
             json.dump(settings, file_)
         os.chdir(tmpdirname)
-        self.set_status_message('Started training on {!s}'.format(socket.gethostname()))
+        self.set_status_message_wrapper('Started training on {!s}'.format(socket.gethostname()))
         self.launch_train_NDNN()
         print('Training done!')
-        for ii in range(10):
-            self.set_status_message('Trying to submit to NNDB, try: {!s} / 10 on {!s}'.format(ii+1, socket.gethostname()))
-            try:
-                self.NNDB_nn = Network.from_folder(tmpdirname)
-            except Exception as ee:
-                exception = ee
-                time.sleep(5*60)
+        if self.interact_with_nndb:
+            for ii in range(10):
+                self.set_status_message_wrapper('Trying to submit to NNDB, try: {!s} / 10 on {!s}'.format(ii+1, socket.gethostname()))
+                try:
+                    self.NNDB_nn = PureNetworkParams.from_folder(tmpdirname)
+                except Exception as ee:
+                    exception = ee
+                    time.sleep(self.sleep_time)
+                else:
+                    break
+            if not hasattr(self, 'NNDB_nn'):
+                raise reraise(type(exception), exception, sys.exc_info()[2])
             else:
-                break
-        if not hasattr(self, 'NNDB_nn'):
-            raise reraise(type(exception), exception, sys.exc_info()[2])
-        else:
-            os.chdir(old_dir)
-            shutil.rmtree(tmpdirname)
-            super(TrainNN, self).run()
-            self.set_status_message('Done! NNDB id: {!s}'.format(self.NNDB_nn.id))
-            print("train_job done")
+                os.chdir(old_dir)
+                shutil.rmtree(tmpdirname)
+                super(TrainNN, self).run()
+                self.set_status_message_wrapper('Done! NNDB id: {!s}'.format(self.NNDB_nn.id))
+                print("train_job done")
 
     def rows(self):
         yield [self.NNDB_nn.id]
@@ -176,7 +178,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         message = 'Host: {!s}\nDir: {!s}\nRuntime error:\n{!s}'.format(socket.gethostname(),
                                                                         self.tmpdirname,
                                                                         traceback_string)
-        self.set_status_message(message)
+        self.set_status_message_wrapper(message)
         return message
 
     def on_success(self):
@@ -184,6 +186,12 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         #print('Killing master {!s} of worker {!s}'.format(self.master_pid, os.getpid()))
         #os.kill(os.getpid(), signal.SIGUSR1)
         #os.kill(self.master_pid, signal.SIGUSR1)
+
+    def set_status_message_wrapper(self, message):
+        if self.set_status_message is None:
+            print(message)
+        else:
+            self.set_status_message(message)
 
 class TrainBatch(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()

@@ -1,10 +1,11 @@
 from __future__ import division
 import re
 from itertools import product
+import gc
+
 from IPython import embed
 import pandas as pd
 import numpy as np
-import gc
 
 particle_vars = [u'pf', u'df', u'vt', u'vr', u'vc']
 heat_vars = [u'ef']
@@ -82,7 +83,7 @@ def stability_filter(data):
         print('{:.2f}% of sane {!s:<9} points unstable at {!s:<5} scale'.format(np.sum(~data[col].isnull()) / pre * 100, col, gam_filter))
     return data
 
-def filter_negative(data):
+def negative_filter(data):
     bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
     for col in data.columns:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
@@ -92,10 +93,10 @@ def filter_negative(data):
             pass
     return bool
 
-def filter_ck(data, bound):
+def ck_filter(data, bound):
     return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
 
-def filter_totsep(data, septot_factor, startlen=None):
+def totsep_filter(data, septot_factor, startlen=None):
     if startlen is None:
         startlen = len(data)
     bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
@@ -114,10 +115,10 @@ def filter_totsep(data, septot_factor, startlen=None):
             print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*np.sum(bool)/startlen))
     return bool
 
-def filter_ambipolar(data, bound):
+def ambipolar_filter(data, bound):
     return (data['absambi'] < bound) & (data['absambi'] > 1/bound)
 
-def filter_femtoflux(data, bound):
+def femtoflux_filter(data, bound):
     fluxes = [col for col in data if len(re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)) > 1 if re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)[0] in particle_vars + heat_vars + momentum_vars]
     absflux = data[fluxes].abs()
     return ~((absflux < bound) & (absflux != 0)).any(axis=1)
@@ -126,26 +127,26 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, startl
     if startlen is None:
         startlen = len(data)
     # Throw away point if negative heat flux
-    data = data.loc[filter_negative(data)]
+    data = data.loc[negative_filter(data)]
     print('After filter {!s:<13} {:.2f}% left'.format('negative', 100*len(data)/startlen))
     gc.collect()
 
 
     # Throw away point if cke or cki too high
-    data = data.loc[filter_ck(data, ck_bound)]
+    data = data.loc[ck_filter(data, ck_bound)]
     print('After filter {!s:<13} {:.2f}% left'.format('ck', 100*len(data)/startlen))
     gc.collect()
 
     # Throw away point if sep flux is way higher than tot flux
-    data = data.loc[filter_totsep(data, septot_factor, startlen=startlen)]
+    data = data.loc[totsep_filter(data, septot_factor, startlen=startlen)]
     print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
     gc.collect()
 
-    data = data.loc[filter_ambipolar(data, ambi_bound)]
+    data = data.loc[ambipolar_filter(data, ambi_bound)]
     print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
     gc.collect()
 
-    data = data.loc[filter_femtoflux(data, femto_bound)]
+    data = data.loc[femtoflux_filter(data, femto_bound)]
     print('After filter {!s:<13} {:.2f}% left'.format('femtoflux', 100*len(data)/startlen))
     gc.collect()
 

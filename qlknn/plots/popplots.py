@@ -1,35 +1,23 @@
+import pickle
+import os
+from itertools import product, chain, zip_longest
+from collections import OrderedDict
+from functools import partial
+import re
+
 from IPython import embed
 import numpy as np
 import pandas as pd
-from itertools import product, chain, zip_longest
-import pickle
-import os
-import sys
-import time
-qlknn_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
-networks_path = os.path.join(qlknn_root, 'networks')
-NNDB_path = os.path.join(qlknn_root, 'NNDB')
-training_path = os.path.join(qlknn_root, 'training')
-plot_path = os.path.join(qlknn_root, 'plots')
-sys.path.append(networks_path)
-sys.path.append(NNDB_path)
-sys.path.append(training_path)
-from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork
-from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
-from train_NDNN import shuffle_panda, normab, normsm
-from functools import partial
-
+from peewee import AsIs, fn
 import matplotlib as mpl
 #mpl.use('pdf')
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import matplotlib.pyplot as plt
-from load_data import load_data, load_nn, prettify_df
-from collections import OrderedDict
-from peewee import AsIs, fn
-import re
-
 import seaborn as sns
+
+from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice
+from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizDuoNN
 
 def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
     cover_left = False
@@ -137,6 +125,8 @@ def generate_dataset_report(store, plot_rot=False, plot_full=False, plot_diffusi
                 elif 'TEM' in name:
                     if name not in ['efiTEM_GB_div_efeTEM_GB', 'pfeTEM_GB_div_efeTEM_GB']:
                         leading = False
+            if 'pfi' in name:
+                leading = False
         return leading
 
     with PdfPages('multipage_pdf.pdf') as pdf:
@@ -158,6 +148,7 @@ def generate_dataset_report(store, plot_rot=False, plot_full=False, plot_diffusi
 
 #net = Network.get_by_id(1409)
 
-store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name(dim=7)))
-generate_dataset_report(store)
-embed()
+if __name__ == '__main__':
+    store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name(dim=7)))
+    generate_dataset_report(store)
+    embed()

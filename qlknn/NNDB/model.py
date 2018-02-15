@@ -28,7 +28,8 @@ from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN
 #class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
 #    pass
 #db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
-db = PostgresqlExtDatabase(database='nndb', host='gkdb.org')
+db = PostgresqlExtDatabase(database='nndb', host='gkdb.org', register_hstore=True)
+db.execute_sql('CREATE SCHEMA IF NOT EXISTS develop;')
 
 class BaseModel(Model):
     """A base model that will use our Postgresql database"""
@@ -86,7 +87,7 @@ class Filter(BaseModel):
         split = re.split('(?:(unstable)_|)(sane|test|training)_(?:gen(\d+)_|)(\d+)D_nions0_flat_filter(\d+).h5', name)
         try:
             if len(split) != 7:
-                raise
+                raise Exception
             filter_id = int(split[5])
         except:
             raise Exception('Could not find filter ID from name "{!s}"'.format(name))
@@ -363,9 +364,9 @@ class Network(BaseModel):
 
 
 class PureNetworkParams(BaseModel):
-    network = ForeignKeyField(Network, related_name='network', unique=True)
-    filter = ForeignKeyField(Filter, related_name='filter')
-    train_script = ForeignKeyField(TrainScript, related_name='train_script')
+    network = ForeignKeyField(Network, related_name='pure_network_params', unique=True)
+    filter = ForeignKeyField(Filter, related_name='pure_network_params')
+    train_script = ForeignKeyField(TrainScript, related_name='pure_network_params')
     feature_prescale_bias = HStoreField()
     feature_prescale_factor = HStoreField()
     target_prescale_bias = HStoreField()
@@ -583,46 +584,52 @@ class PureNetworkParams(BaseModel):
                 settings = json.load(file_)
 
             dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
-            network = Network(**net_dict)
-            network.save()
-            pure_network_params = PureNetworkParams(**dict_)
+            network = Network.create(**net_dict)
+            dict_['network'] = network
+            pure_network_params = PureNetworkParams.create(**dict_)
             pure_network_params.save()
             hyperpar = Hyperparameters.from_settings(pure_network_params, settings)
             hyperpar.save()
             if settings['optimizer'] == 'lbfgs':
-                optimizer = LbfgsOptimizer(hyperparameters=hyperpar,
-                                           maxfun=settings['lbfgs_maxfun'],
-                                           maxiter=settings['lbfgs_maxiter'],
-                                           maxls=settings['lbfgs_maxls'])
+                optimizer = LbfgsOptimizer(
+                    pure_network_params=pure_network_params,
+                    maxfun=settings['lbfgs_maxfun'],
+                    maxiter=settings['lbfgs_maxiter'],
+                    maxls=settings['lbfgs_maxls'])
             elif settings['optimizer'] == 'adam':
-                optimizer = AdamOptimizer(hyperparameters=hyperpar,
-                                          learning_rate=settings['learning_rate'],
-                                          beta1=settings['adam_beta1'],
-                                          beta2=settings['adam_beta2'])
+                optimizer = AdamOptimizer(
+                    pure_network_params=pure_network_params,
+                    learning_rate=settings['learning_rate'],
+                    beta1=settings['adam_beta1'],
+                    beta2=settings['adam_beta2'])
             elif settings['optimizer'] == 'adadelta':
-                optimizer = AdadeltaOptimizer(hyperparameters=hyperpar,
-                                              learning_rate=settings['learning_rate'],
-                                              rho=settings['adadelta_rho'])
+                optimizer = AdadeltaOptimizer(
+                    pure_network_params=pure_network_params,
+                    learning_rate=settings['learning_rate'],
+                    rho=settings['adadelta_rho'])
             elif settings['optimizer'] == 'rmsprop':
-                optimizer = RmspropOptimizer(hyperparameters=hyperpar,
-                                              learning_rate=settings['learning_rate'],
-                                              decay=settings['rmsprop_decay'],
-                                              momentum=settings['rmsprop_momentum'])
+                optimizer = RmspropOptimizer(
+                    pure_network_params=pure_network_params,
+                    learning_rate=settings['learning_rate'],
+                    decay=settings['rmsprop_decay'],
+                    momentum=settings['rmsprop_momentum'])
             optimizer.save()
 
             activations = settings['hidden_activation'] + [settings['output_activation']]
             for ii, layer in enumerate(nn.layers):
-                nwlayer = NetworkLayer(network = network,
-                                       weights = np.float32(layer._weights).tolist(),
-                                       biases = np.float32(layer._biases).tolist(),
-                                       activation = activations[ii])
-                nwlayer.save()
+                nwlayer = NetworkLayer.create(
+                    pure_network_params=pure_network_params,
+                    weights = np.float32(layer._weights).tolist(),
+                    biases = np.float32(layer._biases).tolist(),
+                    activation = activations[ii])
 
-            NetworkMetadata.from_dict(json_dict['_metadata'], network)
-            TrainMetadata.from_folder(pwd, network)
+            NetworkMetadata.from_dict(json_dict['_metadata'], pure_network_params)
+            TrainMetadata.from_folder(pwd, pure_network_params)
 
-            network_json = NetworkJSON(network=network, network_json=json_dict, settings_json=settings)
-            network_json.save()
+            network_json = NetworkJSON.create(
+                pure_network_params=pure_network_params,
+                network_json=json_dict,
+                settings_json=settings)
             return network
 
     def to_QuaLiKizNDNN(self):
@@ -757,7 +764,7 @@ class TrainMetadata(BaseModel):
 
 
 class Hyperparameters(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='hyperparameters')
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='pure_network_params', unique=True)
     hidden_neurons = ArrayField(IntegerField)
     hidden_activation = ArrayField(TextField)
     output_activation = TextField()
@@ -776,8 +783,8 @@ class Hyperparameters(BaseModel):
     dtype = TextField()
 
     @classmethod
-    def from_settings(cls, network, settings):
-        hyperpar = cls(network=network,
+    def from_settings(cls, pure_network_params, settings):
+        hyperpar = cls(pure_network_params=pure_network_params,
                        hidden_neurons=settings['hidden_neurons'],
                        hidden_activation=settings['hidden_activation'],
                        output_activation=settings['output_activation'],

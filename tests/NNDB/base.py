@@ -1,8 +1,13 @@
+#from functools import wraps
 from unittest import TestCase
 from IPython import embed
 from peewee import *
+from playhouse.postgres_ext import *
 
-db = PostgresqlDatabase(name='qlknn_test', database='qlknn_test')
+db = PostgresqlExtDatabase(database='qlknn_test', register_hstore=True)
+db.execute_sql('CREATE SCHEMA IF NOT EXISTS develop;')
+db.execute_sql('CREATE EXTENSION IF NOT EXISTS hstore;')
+
 class DatabaseTestCase(TestCase):
     database = db
 
@@ -54,6 +59,7 @@ class ModelTestCase(ModelDatabaseTestCase):
 
     def tearDown(self):
         # Restore the model's previous database object.
+        db.rollback()
         try:
             if self.requires:
                 self.database.drop_tables(self.requires, safe=True)

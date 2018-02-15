@@ -1,12 +1,14 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 import json
-import numpy as np
-from IPython import embed
 import os
-from collections import OrderedDict
-import pandas as pd
 from warnings import warn
+from collections import OrderedDict
+
+import numpy as np
+import pandas as pd
+from IPython import embed
+
 def sigm_tf(x):
     return 1./(1 + np.exp(-1 * x))
 
@@ -109,13 +111,13 @@ class QuaLiKizNDNN():
         parsed = {}
         if layer_mode is None:
             try:
-                import qlknn
+                import qlknn_intel
             except:
                 layer_mode = 'classic'
             else:
                 layer_mode = 'intel'
         elif layer_mode == 'intel':
-            import qlknn
+            import qlknn_intel
         elif layer_mode == 'cython':
             import cython_mkl_ndnn
 
@@ -154,7 +156,7 @@ class QuaLiKizNDNN():
                         act = _act_none
                     self.layers.append(QuaLiKizNDNN.NNLayer(weight, bias, act))
                 elif layer_mode  == 'intel':
-                    self.layers.append(qlknn.Layer(weight, bias, activation))
+                    self.layers.append(qlknn_intel.Layer(weight, bias, activation))
                 elif layer_mode  == 'cython':
                     self.layers.append(cython_mkl_ndnn.Layer(weight, bias, activation))
             except KeyError:
