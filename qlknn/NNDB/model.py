@@ -17,7 +17,7 @@ import scipy.io as io
 import pandas as pd
 from peewee import (Model,
                     FloatField, FloatField, IntegerField, BooleanField, TextField, ForeignKeyField, DateTimeField,
-                    ProgrammingError, AsIs, fn, SQL)
+                    ProgrammingError, AsIs, fn, SQL, DoesNotExist)
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
 from playhouse.hybrid import hybrid_property
 #from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
@@ -121,10 +121,10 @@ class Network(BaseModel):
 
     @classmethod
     def find_divsum_candidates(cls):
-        query = (PureNetworkParams
+        query = (cls
                  .select()
-                 .where(PureNetworkParams.target_names[0] % '%_div_%')
-                 .where(SQL('array_length(target_names, 1) = 1'))
+                 .where(cls.target_names[0] % '%_div_%')
+                 .where(fn.array_length(cls.target_names, 1) == 1)
                  )
         for pure_network_params in query:
             try:
@@ -133,15 +133,15 @@ class Network(BaseModel):
                 traceback.print_exc()
 
     @classmethod
-    def divsum_from_div_id(cls, pure_network_params_id):
-        nn = PureNetworkParams.get_by_id(pure_network_params_id)
+    def divsum_from_div_id(cls, network_id, stop_on_missing=False):
+        nn = cls.get_by_id(network_id)
         if len(nn.target_names) != 1:
-            raise Exception('Divsum network needs div network, not {!s}'.format(nn.target_names))
+            raise ValueError('Divsum network needs div network, not {!s}'.format(nn.target_names))
         target_name = nn.target_names[0]
         print('Trying to make combine Network {:d} with target {!s}'.format(nn.id, target_name))
         splitted = re.compile('(.*)_(div|plus)_(.*)').split(target_name)
         if len(splitted) != 5:
-            raise Exception('Could not split {!s} in divsum parts'.format(target_name))
+            raise ValueError('Could not split {!s} in divsum parts'.format(target_name))
 
         partner_target_sets = []
         formula_sets = []
@@ -261,7 +261,7 @@ class Network(BaseModel):
                 query &= PureNetworkParams.find_similar_networkpar_by_id(network_id, match_train_dim=False)
                 query &= (PureNetworkParams
                      .select()
-                     .where(Network.target_names == AsIs(partner_target))
+                     .where(Network.target_names == partner_target)
                      .join(Network)
                      )
                 if query.count() > 1:
@@ -279,7 +279,9 @@ class Network(BaseModel):
                              .where(Network.id == sort[0][1])
                     )
                 elif query.count() == 0:
-                    print('No match for {!s}! Skipping..'.format(partner_target))
+                    if stop_on_missing:
+                        raise DoesNotExist('No {!s} with target {!s}!'.format(cls, partner_target))
+                    print('No {!s} with target {!s}! Skipping..'.format(cls, partner_target))
                     skip = True
 
                 if query.count() > 0:
@@ -292,17 +294,16 @@ class Network(BaseModel):
                 for target, formula in formulas.items():
                     recipes[target] = formula.format(*list(range(len(nns))))
 
-                combonets = []
-                purenets = []
+                nets = []
                 for target, recipe in recipes.items():
                     if all([el not in recipe for el in ['+', '-', '/', '*']]):
                         net_num = int(recipe.replace('nn', ''))
                         net_id = network_ids[net_num]
-                        purenets.append(Network.get_by_id(net_id))
+                        nets.append(Network.get_by_id(net_id))
                     else:
-                        query = (ComboNetwork.select()
-                                 .where((ComboNetwork.recipe == recipe) &
-                                        (ComboNetwork.networks == AsIs(network_ids)))
+                        query = (Network.select()
+                                 .where((Network.recipe == recipe) &
+                                        (Network.networks == network_ids))
                                  )
                         if query.count() == 0:
                             combonet = cls(target_names=[target],
@@ -318,34 +319,24 @@ class Network(BaseModel):
                         else:
                             raise NotImplementedError('Duplicate recipies! How could this happen..?')
 
-                        combonets.append(combonet)
+                        nets.append(combonet)
 
                 flatten = lambda l: [item for sublist in l for item in sublist]
 
-                if len(combonets) > 1:
-                    combo_network_partners = AsIs([combonet.id for combonet in combonets[1:]])
-                else:
-                    combo_network_partners = None
-
-                if len(purenets) > 0:
-                    network_partners = AsIs([purenet.id for purenet in purenets])
-                else:
-                    network_partners = None
                 try:
-                    net = MultiNetwork.get(MultiNetwork.combo_network          == combonets[0],
-                                           MultiNetwork.combo_network_partners == combo_network_partners,
-                                           MultiNetwork.network_partners       == network_partners,
-                                           MultiNetwork.target_names           == AsIs(list(recipes.keys())),
-                                           MultiNetwork.feature_names          == AsIs(nn.feature_names)
+                    net = cls.get(
+                        cls.recipe == 'np.concat(*args)',
+                        cls.networks == [net.id for net in nets],
+                        cls.target_names == list(recipes.keys()),
+                        cls.feature_names == nn.feature_names
                     )
-                except MultiNetwork.DoesNotExist:
-                    net = MultiNetwork(combo_network          = combonets[0],
-                                       combo_network_partners = combo_network_partners,
-                                       network_partners       = network_partners,
-                                       target_names           = AsIs(list(recipes.keys())),
-                                       feature_names          = AsIs(nn.feature_names)
+                except Network.DoesNotExist:
+                    net = cls.create(
+                        recipe = 'np.concat(*args)',
+                        networks = [net.id for net in nets],
+                        target_names = list(recipes.keys()),
+                        feature_names = nn.feature_names
                     )
-                    net.save()
                     print('Created MultiNetwork with id: {:d}'.format(net.id))
                 else:
                     print('MultiNetwork with ComboNetworks {!s} already exists with id: {:d}'.format([combonet.id for combonet in combonets], net.id))
@@ -422,15 +413,16 @@ class PureNetworkParams(BaseModel):
         query = (cls.select()
                  .join(Hyperparameters)
                  .where(Hyperparameters.hidden_neurons ==
-                        AsIs(hidden_neurons))
+                        hidden_neurons)
                  .where(Hyperparameters.hidden_activation ==
-                        AsIs(hidden_activation))
+                        hidden_activation)
                  .where(Hyperparameters.output_activation ==
-                        AsIs(output_activation)))
+                        output_activation))
 
         if train_dim is not None:
-            query = (query.where(Network.target_names == AsIs(train_dim))
-                          .join(Network))
+            query = (query.where(Network.target_names == train_dim)
+                     .switch(cls)
+                     .join(Network))
         return query
 
     @classmethod
@@ -442,6 +434,7 @@ class PureNetworkParams(BaseModel):
                                                     json_dict['goodness'],
                                                     json_dict['cost_l2_scale'],
                                                     json_dict['cost_l1_scale'],
+                                                    json_dict['early_stop_after'],
                                                     json_dict['early_stop_measure'])
         return query
 
@@ -452,7 +445,8 @@ class PureNetworkParams(BaseModel):
                          Hyperparameters.goodness,
                          Hyperparameters.cost_l2_scale,
                          Hyperparameters.cost_l1_scale,
-                         Hyperparameters.early_stop_measure)
+                         Hyperparameters.early_stop_measure,
+                         Hyperparameters.early_stop_after)
                  .where(cls.id == pure_network_params_id)
                  .join(Hyperparameters)
         )
@@ -471,28 +465,31 @@ class PureNetworkParams(BaseModel):
         return query
 
     @classmethod
-    def find_similar_networkpar_by_values(cls, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, filter_id=None, train_dim=None):
+    def find_similar_networkpar_by_values(cls, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, early_stop_after, filter_id=None, train_dim=None):
         # TODO: Add new hyperparameters here?
         query = (cls.select()
                  .join(Hyperparameters)
                  .where(Hyperparameters.goodness ==
                         goodness)
                  .where(Hyperparameters.cost_l2_scale.cast('numeric') ==
-                        AsIs(cost_l2_scale))
+                        cost_l2_scale)
                  .where(Hyperparameters.cost_l1_scale.cast('numeric') ==
-                        AsIs(cost_l1_scale))
+                        cost_l1_scale)
                  .where(Hyperparameters.early_stop_measure ==
                         early_stop_measure)
+                 .where(Hyperparameters.early_stop_after ==
+                        early_stop_after)
                  )
         if train_dim is not None:
             query = (query.where(Network.target_names ==
-                        AsIs(train_dim))
-                          .join(Network)
-                     )
+                                 train_dim)
+                     .switch(cls)
+                     .join(Network)
+            )
 
         if filter_id is not None:
-                 query = query.where(cls.filter_id ==
-                                     AsIs(filter_id))
+            query = query.where(cls.filter_id ==
+                                filter_id)
         else:
             print('Warning! Not filtering on filter_id')
         return query
@@ -764,7 +761,7 @@ class TrainMetadata(BaseModel):
 
 
 class Hyperparameters(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='pure_network_params', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='hyperparameters', unique=True)
     hidden_neurons = ArrayField(IntegerField)
     hidden_activation = ArrayField(TextField)
     output_activation = TextField()
