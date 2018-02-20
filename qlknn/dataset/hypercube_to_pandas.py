@@ -1,9 +1,12 @@
 import time
 from itertools import product
+import gc
+
 import xarray as xr
 import numpy as np
 import pandas as pd
 from IPython import embed
+
 from qualikiz_tools.qualikiz_io.outputfiles import xarray_to_pandas
 
 def metadatize(ds):
@@ -70,7 +73,7 @@ def prep_sepflux(ds):
     return ds
 
 
-
+starttime = time.time()
 # Calculate synthetic and sanity-check variables
 ds = xr.open_dataset('Zeffcombo.nc.1')
 ds = prep_totflux(ds)
@@ -79,21 +82,32 @@ ds_sep = prep_sepflux(ds_sep)
 ds_tot = ds.merge(ds_sep)
 del ds
 del ds_sep
+gc.collect()
+print('Datasets merged after', time.time() - starttime)
 for value in ['vfiTEM_GB', 'vfiITG_GB', 'vriTEM_GB', 'vriITG_GB']:
     try:
-        ds = ds.drop(value)
+        ds_tot = ds_tot.drop(value)
     except ValueError:
         print('{!s} already removed'.format(value))
 ds_tot.to_netcdf('Zeffcombo.combo.nc', format='NETCDF4', engine='netcdf4')
+print('Checkpoint ds_tot saved after', time.time() - starttime)
 ds_tot = ds_tot.sel(nions=0)
 ds_tot.to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
+print('Checkpoint ds_tot nions0 saved after', time.time() - starttime)
+#ds_tot = xr.open_dataset('Zeffcombo.combo.nions0.nc')
 
 # Convert to pandas
-dfs = xarray_to_pandas(ds_tot, verbose=True)
+print('Starting pandaization after', time.time() - starttime)
+dfs = xarray_to_pandas(ds_tot)
+print('Xarray pandaized after', time.time() - starttime)
 del ds_tot
-store = pd.HDFStore('./gen2_9D_nions0_flat.h5')
+gc.collect()
+store = pd.HDFStore('./gen3_9D_nions0_flat.h5')
 dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].reset_index(inplace=True)
 dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].index.name = 'dimx'
-df = store['/megarun1/input'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
-input = store['/megarun1/flattened'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
-const = store['/megarun1/constants'] = dfs['constants']
+print('Index reset after', time.time() - starttime)
+store['/megarun1/input'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
+print('Input stored after', time.time() - starttime)
+store['/megarun1/flattened'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
+store['/megarun1/constants'] = dfs['constants']
+print('Done after', time.time() - starttime)
