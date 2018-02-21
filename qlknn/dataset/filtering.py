@@ -2,6 +2,7 @@ from __future__ import division
 import re
 from itertools import product
 import gc
+import os
 
 from IPython import embed
 import pandas as pd
@@ -38,7 +39,7 @@ def div_filter(store):
     for group in store:
         if isinstance(store, pd.HDFStore):
             group = group[1:]
-        pre = len(store[group])
+        pre = np.sum(~store[group].isnull())
         se = store[group]
         if group in div_bounds:
             low, high = div_bounds[group]
@@ -49,7 +50,8 @@ def div_filter(store):
             se = se.abs()
 
         store[group] = store[group].loc[(low < se) & (se < high)]
-        print('{:.2f}% of sane {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
+        print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
+    return store
 
 
 def stability_filter(data):
@@ -69,7 +71,7 @@ def stability_filter(data):
         else:
             gam_filter = 'ion'
 
-        pre = len(data[col])
+        pre = np.sum(~data[col].isnull())
         if gam_filter == 'ion':
             data[col] = data[col].loc[data['gam_leq_GB'] != 0]
         elif gam_filter == 'elec':
@@ -80,7 +82,7 @@ def stability_filter(data):
             data[col] = data[col].loc[data['TEM']]
         elif gam_filter == 'itg':
             data[col] = data[col].loc[data['ITG']]
-        print('{:.2f}% of sane {!s:<9} points unstable at {!s:<5} scale'.format(np.sum(~data[col].isnull()) / pre * 100, col, gam_filter))
+        print('{:5.2f}% of sane {!s:<9} points unstable at {!s:<5} scale'.format(np.sum(~data[col].isnull()) / pre * 100, col, gam_filter))
     return data
 
 def negative_filter(data):
@@ -249,17 +251,17 @@ def split_input(input, const):
 
     return idx, inputs, consts
 
-def split_sane(input, data, const):
+def split_dims(input, data, const, gen, prefix=''):
     idx, inputs, consts = split_input(input, const)
     for dim in [7, 4]:
         print('splitting', dim)
-        store = pd.HDFStore('sane_' + 'gen2_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
+        store = pd.HDFStore(prefix + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
         store['/megarun1/flattened'] = data.loc[idx[dim]]
         store['/megarun1/input'] = inputs[dim]
         store['/megarun1/constants'] = consts[dim]
         store.close()
 
-def split_subsets(input, data, const, frac=0.1):
+def split_subsets(input, data, const, gen, frac=0.1):
     idx, inputs, consts = split_input(input, const)
 
     rand_index = pd.Int64Index(np.random.permutation(input.index))
@@ -267,9 +269,10 @@ def split_subsets(input, data, const, frac=0.1):
     idx['test'] = rand_index[:sep_index]
     idx['training'] = rand_index[sep_index:]
 
-    for dim, set in product([9, 7, 4], ['test', 'training']):
+    print('Splitting subsets')
+    for dim, set in product([4, 7, 9], ['test', 'training']):
         print(dim, set)
-        store = pd.HDFStore(set + '_' + 'gen2_' + str(dim) + 'D_nions0_flat.h5')
+        store = pd.HDFStore(set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
         store['/megarun1/flattened'] = data.loc[idx[dim] & idx[set]]
         store['/megarun1/input'] = inputs[dim].loc[idx[set]]
         store['/megarun1/constants'] = consts[dim]
@@ -277,12 +280,17 @@ def split_subsets(input, data, const, frac=0.1):
 
 if __name__ == '__main__':
     dim = 9
+    gen = 3
+    filter_num = 8
 
-    store_name = ''.join(['gen2_', str(dim), 'D_nions0_flat'])
-    store = pd.HDFStore('../' + store_name + '.h5', 'r')
+    root_dir = '.'
+    store_name = ''.join(['gen', str(gen), '_', str(dim), 'D_nions0_flat'])
+    store = pd.HDFStore(os.path.join(root_dir, store_name + '.h5.1'), 'r')
 
     input = store['/megarun1/input']
     data = store['/megarun1/flattened']
+    const = store['/megarun1/constants']
+    split_dims(input, data, const, gen)
 
     startlen = len(data)
     data = sanity_filter(data, 50, 1.5, 1.5, 1e-4, startlen=startlen)
@@ -290,32 +298,30 @@ if __name__ == '__main__':
     gc.collect()
     input = input.loc[data.index]
     print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
-    filter_num = 7
-    sane_store = pd.HDFStore('../sane_' + store_name + '_filter' + str(filter_num) + '.h5')
+    sane_store = pd.HDFStore(os.path.join(root_dir, 'sane_' + store_name + '_filter' + str(filter_num) + '.h5'))
     sane_store['/megarun1/input'] = input
     sane_store['/megarun1/flattened'] = data
-    const = sane_store['/megarun1/constants'] = store['/megarun1/constants']
+    sane_store['/megarun1/constants'] = const
     #input = sane_store['/megarun1/input']
     #data = sane_store['/megarun1/flattened']
     #const = sane_store['/megarun1/constants']
-    split_sane(input, data, const)
+    split_dims(input, data, const, gen, prefix='sane_')
     sane_store.close()
-    split_subsets(input, data, const, frac=0.1)
+    split_subsets(input, data, const, gen, frac=0.1)
     del data, input, const
     gc.collect()
 
 
     for dim, set in product([4, 7, 9], ['test', 'training']):
         print(dim, set)
-        basename = set + '_' + 'gen2_' + str(dim) + 'D_nions0_flat.h5'
-        store = pd.HDFStore(basename)
+        basename = set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter_num) + '.h5'
+        store = pd.HDFStore(basename, 'r')
         data = store['/megarun1/flattened']
         input = store['/megarun1/input']
         const = store['/megarun1/constants']
 
-        gam = data['gam_leq_GB']
-        gam = gam[gam != 0]
         data = stability_filter(data)
-        data.put('gam_leq_GB', gam, format=store_format)
+        data = create_divsum(data)
+        data = div_filter(data)
         separate_to_store(input, data, const, 'unstable_' + basename)
     #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
