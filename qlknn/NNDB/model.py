@@ -341,6 +341,25 @@ class Network(BaseModel):
                 else:
                     print('MultiNetwork with ComboNetworks {!s} already exists with id: {:d}'.format([combonet.id for combonet in combonets], net.id))
 
+    def to_QuaLiKizNDNN(self):
+        return self.pure_network_params.get().to_QuaLiKizNDNN()
+
+    def to_QuaLiKizComboNN(self):
+        network_ids = self.networks
+        networks = [Network.get_by_id(num).to_QuaLiKizNDNN() for num in network_ids]
+        recipe = self.recipe
+        for ii in range(len(network_ids)):
+            recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
+        exec('def combo_func(*args): return ' + recipe, globals())
+        return QuaLiKizComboNN(self.target_names, networks, combo_func)
+
+    def to_QuaLiKizNN(self):
+        if self.networks is None:
+            net = self.to_QuaLiKizNDNN()
+        else:
+            net = self.to_QuaLiKizComboNN()
+        return net
+
     @classmethod
     def calc_op(cls, column):
         query = (cls.select(
