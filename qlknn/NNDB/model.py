@@ -65,6 +65,7 @@ class TrainScript(BaseModel):
 
 class Filter(BaseModel):
     script = TextField()
+    hypercube_script = TextField(null=True)
     description = TextField(null=True)
     min = FloatField(null=True)
     max = FloatField(null=True)
@@ -866,11 +867,12 @@ class PostprocessSlice(BaseModel):
     no_dual_thresh_frac         = FloatField(null=True)
 
 def create_schema():
-    db.execute_sql('SET ROLE developer')
-    db.execute_sql('CREATE SCHEMA develop AUTHORIZATION developer')
+    db.execute_sql('SET ROLE developer;')
+    db.execute_sql('CREATE SCHEMA develop AUTHORIZATION developer;')
+    db.execute_sql('ALTER DEFAULT PRIVILEGES IN SCHEMA develop GRANT ALL ON TABLES TO developer;')
 
 def create_tables():
-    db.execute_sql('SET ROLE developer')
+    db.execute_sql('SET ROLE developer;')
     db.create_tables([Filter, Network, PureNetworkParams, NetworkJSON, NetworkLayer, NetworkMetadata, TrainMetadata, Hyperparameters, LbfgsOptimizer, AdamOptimizer, AdadeltaOptimizer, RmspropOptimizer, TrainScript, PostprocessSlice, Postprocess])
 
 def purge_tables():
