@@ -42,21 +42,21 @@ class TrainScript(BaseModel):
     version = TextField()
 
     @classmethod
+    @db.atomic()
     def from_file(cls, pwd):
         with open(pwd, 'r') as script:
             script = script.read()
 
         train_script_query = TrainScript.select().where(TrainScript.script == script)
         if train_script_query.count() == 0:
-            with db.atomic() as txn:
-                stdout = subprocess.check_output('git rev-parse HEAD',
-                                           shell=True)
-                version = stdout.decode('UTF-8').strip()
-                train_script = TrainScript(
-                    script=script,
-                    version=version
-                )
-                train_script.save()
+            stdout = subprocess.check_output('git rev-parse HEAD',
+                                       shell=True)
+            version = stdout.decode('UTF-8').strip()
+            train_script = TrainScript(
+                script=script,
+                version=version
+            )
+            train_script.save()
         elif train_script_query.count() == 1:
             train_script = train_script_query.get()
         else:
@@ -76,12 +76,12 @@ class Filter(BaseModel):
     diffsep_max = FloatField(null=True)
 
     @classmethod
+    @db.atomic()
     def from_file(cls, pwd):
-        with db.atomic() as txn:
-            with open(pwd, 'r') as script:
-                script = script.read()
-            filter = Filter(script=script)
-            filter.save()
+        with open(pwd, 'r') as script:
+            script = script.read()
+        filter = Filter(script=script)
+        filter.save()
 
     @classmethod
     def find_by_path_name(cls, name):
@@ -571,83 +571,83 @@ class PureNetworkParams(BaseModel):
                     print('Could not parse', path_, 'is training done?')
 
     @classmethod
+    @db.atomic()
     def from_folder(cls, pwd):
-        with db.atomic() as txn:
-            script_file = os.path.join(pwd, 'train_NDNN.py')
-            #with open(script_file, 'r') as script:
-            #    script = script.read()
-            train_script = TrainScript.from_file(script_file)
+        script_file = os.path.join(pwd, 'train_NDNN.py')
+        #with open(script_file, 'r') as script:
+        #    script = script.read()
+        train_script = TrainScript.from_file(script_file)
 
-            json_path = os.path.join(pwd, 'nn.json')
-            nn = QuaLiKizNDNN.from_json(json_path)
-            with open(json_path) as file_:
-                json_dict = json.load(file_)
-                dict_ = {}
-                for name in ['feature_prescale_bias', 'feature_prescale_factor',
-                             'target_prescale_bias', 'target_prescale_factor',
-                             'feature_names', 'feature_min', 'feature_max',
-                             'target_names', 'target_min', 'target_max']:
-                    attr = getattr(nn, '_' + name)
-                    if 'names' in name:
-                        dict_[name] = list(attr)
-                    else:
-                        dict_[name] = {str(key): str(val) for key, val in attr.items()}
+        json_path = os.path.join(pwd, 'nn.json')
+        nn = QuaLiKizNDNN.from_json(json_path)
+        with open(json_path) as file_:
+            json_dict = json.load(file_)
+            dict_ = {}
+            for name in ['feature_prescale_bias', 'feature_prescale_factor',
+                         'target_prescale_bias', 'target_prescale_factor',
+                         'feature_names', 'feature_min', 'feature_max',
+                         'target_names', 'target_min', 'target_max']:
+                attr = getattr(nn, '_' + name)
+                if 'names' in name:
+                    dict_[name] = list(attr)
+                else:
+                    dict_[name] = {str(key): str(val) for key, val in attr.items()}
 
-            dict_['train_script'] = train_script
-            net_dict = {'feature_names': dict_.pop('feature_names'),
-                        'target_names': dict_.pop('target_names')}
+        dict_['train_script'] = train_script
+        net_dict = {'feature_names': dict_.pop('feature_names'),
+                    'target_names': dict_.pop('target_names')}
 
-            with open(os.path.join(pwd, 'settings.json')) as file_:
-                settings = json.load(file_)
+        with open(os.path.join(pwd, 'settings.json')) as file_:
+            settings = json.load(file_)
 
-            dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
-            network = Network.create(**net_dict)
-            dict_['network'] = network
-            pure_network_params = PureNetworkParams.create(**dict_)
-            pure_network_params.save()
-            hyperpar = Hyperparameters.from_settings(pure_network_params, settings)
-            hyperpar.save()
-            if settings['optimizer'] == 'lbfgs':
-                optimizer = LbfgsOptimizer(
-                    pure_network_params=pure_network_params,
-                    maxfun=settings['lbfgs_maxfun'],
-                    maxiter=settings['lbfgs_maxiter'],
-                    maxls=settings['lbfgs_maxls'])
-            elif settings['optimizer'] == 'adam':
-                optimizer = AdamOptimizer(
-                    pure_network_params=pure_network_params,
-                    learning_rate=settings['learning_rate'],
-                    beta1=settings['adam_beta1'],
-                    beta2=settings['adam_beta2'])
-            elif settings['optimizer'] == 'adadelta':
-                optimizer = AdadeltaOptimizer(
-                    pure_network_params=pure_network_params,
-                    learning_rate=settings['learning_rate'],
-                    rho=settings['adadelta_rho'])
-            elif settings['optimizer'] == 'rmsprop':
-                optimizer = RmspropOptimizer(
-                    pure_network_params=pure_network_params,
-                    learning_rate=settings['learning_rate'],
-                    decay=settings['rmsprop_decay'],
-                    momentum=settings['rmsprop_momentum'])
-            optimizer.save()
-
-            activations = settings['hidden_activation'] + [settings['output_activation']]
-            for ii, layer in enumerate(nn.layers):
-                nwlayer = NetworkLayer.create(
-                    pure_network_params=pure_network_params,
-                    weights = np.float32(layer._weights).tolist(),
-                    biases = np.float32(layer._biases).tolist(),
-                    activation = activations[ii])
-
-            NetworkMetadata.from_dict(json_dict['_metadata'], pure_network_params)
-            TrainMetadata.from_folder(pwd, pure_network_params)
-
-            network_json = NetworkJSON.create(
+        dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
+        network = Network.create(**net_dict)
+        dict_['network'] = network
+        pure_network_params = PureNetworkParams.create(**dict_)
+        pure_network_params.save()
+        hyperpar = Hyperparameters.from_settings(pure_network_params, settings)
+        hyperpar.save()
+        if settings['optimizer'] == 'lbfgs':
+            optimizer = LbfgsOptimizer(
                 pure_network_params=pure_network_params,
-                network_json=json_dict,
-                settings_json=settings)
-            return network
+                maxfun=settings['lbfgs_maxfun'],
+                maxiter=settings['lbfgs_maxiter'],
+                maxls=settings['lbfgs_maxls'])
+        elif settings['optimizer'] == 'adam':
+            optimizer = AdamOptimizer(
+                pure_network_params=pure_network_params,
+                learning_rate=settings['learning_rate'],
+                beta1=settings['adam_beta1'],
+                beta2=settings['adam_beta2'])
+        elif settings['optimizer'] == 'adadelta':
+            optimizer = AdadeltaOptimizer(
+                pure_network_params=pure_network_params,
+                learning_rate=settings['learning_rate'],
+                rho=settings['adadelta_rho'])
+        elif settings['optimizer'] == 'rmsprop':
+            optimizer = RmspropOptimizer(
+                pure_network_params=pure_network_params,
+                learning_rate=settings['learning_rate'],
+                decay=settings['rmsprop_decay'],
+                momentum=settings['rmsprop_momentum'])
+        optimizer.save()
+
+        activations = settings['hidden_activation'] + [settings['output_activation']]
+        for ii, layer in enumerate(nn.layers):
+            nwlayer = NetworkLayer.create(
+                pure_network_params=pure_network_params,
+                weights = np.float32(layer._weights).tolist(),
+                biases = np.float32(layer._biases).tolist(),
+                activation = activations[ii])
+
+        NetworkMetadata.from_dict(json_dict['_metadata'], pure_network_params)
+        TrainMetadata.from_folder(pwd, pure_network_params)
+
+        network_json = NetworkJSON.create(
+            pure_network_params=pure_network_params,
+            network_json=json_dict,
+            settings_json=settings)
+        return network
 
     def to_QuaLiKizNDNN(self):
         json_dict = self.network_json.get().network_json
@@ -703,38 +703,38 @@ class NetworkMetadata(BaseModel):
     metadata = HStoreField()
 
     @classmethod
+    @db.atomic()
     def from_dict(cls, json_dict, pure_network_params):
-        with db.atomic() as txn:
-            stringified = {str(key): str(val) for key, val in json_dict.items()}
-            try:
-                rms_train = json_dict['rms_train']
-                loss_train = json_dict['loss_train']
-            except KeyError:
-                loss_train = rms_train = None
-            try:
-                loss_test = json_dict['loss_test']
-                rms_test = json_dict['loss_test']
-            except KeyError:
-                rms_test = loss_test = None
-            try:
-                rms_validation_descaled = json_dict['rms_validation_descaled']
-            except KeyError:
-                rms_validation_descaled = None
-            network_metadata = NetworkMetadata(
-                pure_network_params=pure_network_params,
-                epoch=json_dict['epoch'],
-                best_epoch=json_dict['best_epoch'],
-                rms_train=rms_train,
-                rms_validation=json_dict['rms_validation'],
-                rms_validation_descaled=rms_validation_descaled,
-                rms_test=rms_test,
-                loss_train=loss_train,
-                loss_validation=json_dict['loss_validation'],
-                loss_test=loss_test,
-                metadata=stringified
-            )
-            network_metadata.save()
-            return network_metadata
+        stringified = {str(key): str(val) for key, val in json_dict.items()}
+        try:
+            rms_train = json_dict['rms_train']
+            loss_train = json_dict['loss_train']
+        except KeyError:
+            loss_train = rms_train = None
+        try:
+            loss_test = json_dict['loss_test']
+            rms_test = json_dict['loss_test']
+        except KeyError:
+            rms_test = loss_test = None
+        try:
+            rms_validation_descaled = json_dict['rms_validation_descaled']
+        except KeyError:
+            rms_validation_descaled = None
+        network_metadata = NetworkMetadata(
+            pure_network_params=pure_network_params,
+            epoch=json_dict['epoch'],
+            best_epoch=json_dict['best_epoch'],
+            rms_train=rms_train,
+            rms_validation=json_dict['rms_validation'],
+            rms_validation_descaled=rms_validation_descaled,
+            rms_test=rms_test,
+            loss_train=loss_train,
+            loss_validation=json_dict['loss_validation'],
+            loss_test=loss_test,
+            metadata=stringified
+        )
+        network_metadata.save()
+        return network_metadata
 
 class TrainMetadata(BaseModel):
     pure_network_params = ForeignKeyField(PureNetworkParams, related_name='train_metadata')
@@ -750,33 +750,33 @@ class TrainMetadata(BaseModel):
     hostname = TextField()
 
     @classmethod
+    @db.atomic()
     def from_folder(cls, pwd, pure_network_params):
         train_metadatas = None
-        with db.atomic() as txn:
-            for name in cls.set.choices:
-                train_metadatas = []
-                try:
-                    with open(os.path.join(pwd, name + '_log.csv')) as file_:
-                        df = pd.DataFrame.from_csv(file_)
-                except IOError:
-                    pass
-                else:
-                    # TODO: Only works on debian-like
-                    train_metadata = TrainMetadata(
-                        pure_network_params=pure_network_params,
-                        set=name,
-                        step=[int(x) for x in df.index],
-                        epoch=[int(x) for x in df['epoch']],
-                        walltime=df['walltime'],
-                        loss=df['loss'],
-                        mse=df['mse'],
-                        mabse=df['mabse'],
-                        l1_norm=df['l1_norm'],
-                        l2_norm=df['l2_norm'],
-                        hostname=socket.gethostname()
-                    )
-                    train_metadata.save()
-                    train_metadatas.append(train_metadata)
+        for name in cls.set.choices:
+            train_metadatas = []
+            try:
+                with open(os.path.join(pwd, name + '_log.csv')) as file_:
+                    df = pd.DataFrame.from_csv(file_)
+            except IOError:
+                pass
+            else:
+                # TODO: Only works on debian-like
+                train_metadata = TrainMetadata(
+                    pure_network_params=pure_network_params,
+                    set=name,
+                    step=[int(x) for x in df.index],
+                    epoch=[int(x) for x in df['epoch']],
+                    walltime=df['walltime'],
+                    loss=df['loss'],
+                    mse=df['mse'],
+                    mabse=df['mabse'],
+                    l1_norm=df['l1_norm'],
+                    l2_norm=df['l2_norm'],
+                    hostname=socket.gethostname()
+                )
+                train_metadata.save()
+                train_metadatas.append(train_metadata)
         return train_metadatas
 
 
