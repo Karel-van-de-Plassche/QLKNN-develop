@@ -1,16 +1,13 @@
-from IPython import embed
-#import mega_nn
+import os
+import sys
+
 import numpy as np
 import scipy.stats as stats
 import pandas as pd
-import os
-import sys
-networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
-NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
-sys.path.append(networks_path)
-sys.path.append(NNDB_path)
-from model import Network, NetworkJSON
-from run_model import QuaLiKizNDNN
+from IPython import embed
+
+from qlknn.NNDB.model import Network, NetworkJSON
+from qlknn.models.ffnn import QuaLiKizNDNN
 
 def load_data(id):
     store = pd.HDFStore('../7D_nions0_flat.h5')
