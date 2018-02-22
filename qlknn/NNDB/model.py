@@ -888,33 +888,35 @@ def purge_tables():
             except ProgrammingError:
                 db.rollback()
 
-def any_element_in_list(cls, column, tags):
-    subquery = (cls.select(cls.id.alias('id'),
-                               fn.unnest(getattr(cls, column)).alias('unnested_tags'))
-                .alias('subquery'))
-    tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
-    tags_filter = reduce(operator.or_, tags_filters)
-    query = (cls.select()
-             .join(subquery, on=subquery.c.id == cls.id)
-             .where(tags_filter)
-             # gets rid of duplicates
-             .group_by(cls.id)
-    )
-    return query
-
-def no_elements_in_list(cls, column, tags, fields=None):
-    subquery = (cls.select(cls.id.alias('id'),
-                               fn.unnest(getattr(cls, column)).alias('unnested_tags'))
-                .alias('subquery'))
-    tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
-    tags_filter = reduce(operator.or_, tags_filters)
-    query = (cls.select(fields)
-             .join(subquery, on=subquery.c.id == cls.id)
-             .where(~tags_filter)
-             # gets rid of duplicates
-             .group_by(cls.id)
-    )
-    return query
+#def any_element_in_list(cls, column, tags):
+#    subquery = (cls.select(cls.id.alias('id'),
+#                               fn.unnest(getattr(cls, column)).alias('unnested_tags'))
+#                .alias('subquery'))
+#    tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
+#    tags_filter = reduce(operator.or_, tags_filters)
+#    query = (cls.select()
+#             .join(subquery, on=subquery.c.id == cls.id)
+#             .where(tags_filter)
+#             # gets rid of duplicates
+#             .group_by(cls.id)
+#    )
+#    return query
+#
+#def no_elements_in_list(cls, column, tags, fields=None):
+#    subquery = (cls.select(cls.id.alias('id'),
+#                               fn.unnest(getattr(cls, column)).alias('unnested_tags'))
+#                .alias('subquery'))
+#    tags_filters = [subquery.c.unnested_tags.contains(tag) for tag in tags]
+#    tags_filter = reduce(operator.or_, tags_filters)
+#    if not fields:
+#        fields = Network._meta.sorted_fields
+#    query = (cls.select(fields)
+#             .join(subquery, on=subquery.c.id == cls.id)
+#             .where(~tags_filter)
+#             # gets rid of duplicates
+#             .group_by(cls.id)
+#    )
+#    return query
 
 def create_views():
     """
