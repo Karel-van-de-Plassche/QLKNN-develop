@@ -29,7 +29,7 @@ from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN
 #    pass
 #db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
 db = PostgresqlExtDatabase(database='nndb', host='gkdb.org', register_hstore=True)
-db.execute_sql('CREATE SCHEMA IF NOT EXISTS develop;')
+#db.execute_sql('CREATE SCHEMA IF NOT EXISTS develop;')
 
 class BaseModel(Model):
     """A base model that will use our Postgresql database"""
