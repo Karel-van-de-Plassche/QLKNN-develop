@@ -16,7 +16,7 @@ import luigi
 import luigi.contrib.postgres
 from IPython import embed
 
-from qlknn.NNDB.model import TrainScript, PureNetworkParams
+from qlknn.NNDB.model import TrainScript, PureNetworkParams, db
 import qlknn.training.train_NDNN as train_NDNN
 training_path = os.path.dirname(train_NDNN.__file__)
 
@@ -135,7 +135,9 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         print('created temporary directory', tmpdirname)
         train_script_path = os.path.join(training_path, 'train_NDNN.py')
         if self.interact_with_nndb:
+            db.connect(reuse_if_open=True)
             TrainScript.from_file(train_script_path)
+            db.close()
         #shutil.copy(os.path.join(train_script_path), os.path.join(tmpdirname, 'train_NDNN.py'))
         os.symlink(os.path.join(train_script_path), os.path.join(tmpdirname, 'train_NDNN.py'))
         settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
@@ -149,7 +151,9 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
             for ii in range(10):
                 self.set_status_message_wrapper('Trying to submit to NNDB, try: {!s} / 10 on {!s}'.format(ii+1, socket.gethostname()))
                 try:
+                    db.connect(reuse_if_open=True)
                     self.NNDB_nn = PureNetworkParams.from_folder(tmpdirname)
+                    db.close()
                 except Exception as ee:
                     exception = ee
                     time.sleep(self.sleep_time)
