@@ -345,7 +345,7 @@ class TestPureNetworkPartnerFinding(ModelTestCase):
             self.assertNotEqual(net1.pure_network_params.get().id, nn.id)
             self.assertNotEqual(net1.id, nn.id)
 
-class DivsumCreation(ModelTestCase):
+class TestDivsumCreation(ModelTestCase):
     requires = require_lists['pure_network_params'] + [Hyperparameters]
 
     def setUp(self):
@@ -414,6 +414,62 @@ class DivsumCreation(ModelTestCase):
 
         Network.find_divsum_candidates()
         self.assertEqual(Network.select().count(), 4)
+
+
+input = pd.DataFrame()
+scann = 100
+input['Ati'] = np.array(np.linspace(2,13, scann))
+input['Ti_Te']  = np.full_like(input['Ati'], 1.)
+input['An']  = np.full_like(input['Ati'], 2.)
+input['Ate']  = np.full_like(input['Ati'], 5.)
+input['qx'] = np.full_like(input['Ati'], 0.660156)
+input['smag']  = np.full_like(input['Ati'], 0.399902)
+input['x']  = np.full_like(input['Ati'], 0.449951)
+
+
+class TestComboNetworks(ModelTestCase):
+    requires = require_lists['pure_network_params'] + [Hyperparameters, AdamOptimizer, LbfgsOptimizer, AdadeltaOptimizer, RmspropOptimizer, NetworkLayer, NetworkMetadata, TrainMetadata, NetworkJSON]
+
+    def setUp(self):
+        super().setUp()
+        self.filter = Filter.create(**default_dicts['filter'])
+        self.train_script = TrainScript.create(**default_dicts['train_script'])
+
+    def test_multiply_create(self):
+        net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'network': {'target_names': ['efe_GB_div_efi_GB']}})
+        net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'network': {'target_names': ['efi_GB']}})
+        combo_nn = Network.create(target_names=['efe_GB'],
+                                  feature_names=['Ati'],
+                                  filter=self.filter,
+                                  train_script=self.train_script,
+                                  networks=[net1.id, net2.id],
+                                  recipe='nn0 * nn1')
+
+    def test_multiply_to_QuaLiKizNN(self):
+        net1 = PureNetworkParams.from_folder(efi_network_path)
+        net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        combo_nn = Network.create(target_names=['efe_GB'],
+                                  feature_names=['Ati'],
+                                  filter=self.filter,
+                                  train_script=self.train_script,
+                                  networks=[net1.id, net2.id],
+                                  recipe='nn0 * nn1')
+        nn = combo_nn.to_QuaLiKizNN()
+
+    def test_multiply_get_output(self):
+        net1 = PureNetworkParams.from_folder(efi_network_path)
+        net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        combo_nn = Network.create(target_names=['efe_GB'],
+                                  feature_names=['Ati'],
+                                  filter=self.filter,
+                                  train_script=self.train_script,
+                                  networks=[net1.id, net2.id],
+                                  recipe='nn0 * nn1')
+        nn = combo_nn.to_QuaLiKizNN()
+        nn.get_output(input)
+
 
 if __name__ == '__main__':
     embed()
