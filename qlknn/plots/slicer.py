@@ -1,29 +1,27 @@
 #!/usr/local/bin/python
 # -*- coding: utf-8 -*-
-from IPython import embed
-from multiprocessing import Pool, cpu_count
-#import mega_nn
-import numpy as np
-import scipy as sc
-import scipy.stats as stats
-import pandas as pd
-from itertools import product, chain
 import pickle
 import os
 import sys
 import time
-networks_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../networks'))
-NNDB_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../NNDB'))
-training_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../training'))
-qlk4D_path = os.path.abspath(os.path.join((os.path.abspath(__file__)), '../../../QLK4DNN'))
-sys.path.append(networks_path)
-sys.path.append(NNDB_path)
-sys.path.append(training_path)
-sys.path.append(qlk4D_path)
-from model import Network, NetworkJSON, PostprocessSlice, ComboNetwork, MultiNetwork, no_elements_in_list, any_element_in_list, db
-from run_model import QuaLiKizNDNN, QuaLiKizDuoNN
-from train_NDNN import shuffle_panda
+import re
+import gc
+from itertools import product, chain
 from functools import partial
+from collections import OrderedDict
+from multiprocessing import Pool, cpu_count
+
+import numpy as np
+import scipy as sc
+import scipy.stats as stats
+import pandas as pd
+from peewee import AsIs, fn, SQL
+from IPython import embed
+
+from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, db
+from qlknn.models.ffnn import QuaLiKizNDNN
+from qlknn.training.train_NDNN import shuffle_panda
+from qlknn.plots.load_data import load_nn, prettify_df, nameconvert
 
 if __name__ == '__main__':
     import matplotlib as mpl
@@ -32,13 +30,7 @@ if __name__ == '__main__':
     from matplotlib import gridspec, cycler
 
 pretty = False
-from load_data import nameconvert
 
-from load_data import load_data, load_nn, prettify_df
-from collections import OrderedDict
-from peewee import AsIs, fn, SQL
-import re
-import gc
 def mode_to_settings(mode):
     settings = {}
     if mode == 'debug':
@@ -87,37 +79,46 @@ def mode_to_settings(mode):
 
 def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_particle=False, no_divsum=False,
                              no_mixed=True):
-    for cls, field_name in [(Network, 'network'),
-                (ComboNetwork, 'combo_network'),
-                (MultiNetwork, 'multi_network')
-                ]:
-        non_sliced = (cls
-                      .select()
-                      .where(~fn.EXISTS(table.select().where(getattr(table, field_name) == cls.id)))
-                     )
-        if only_dim is not None:
-            non_sliced &= cls.select().where(SQL("array_length(feature_names, 1)=" + str(only_dim)))
+    non_sliced = (Network
+                  .select()
+                  .where(~fn.EXISTS(table.select().where(getattr(table, 'network') == Network.id)))
+                 )
+    if only_dim is not None:
+        non_sliced &= (Network.select()
+                       .where(fn.array_length(Network.feature_names, 1) == only_dim)
+                      )
 
-        if no_mixed:
-            non_sliced &= cls.select().where(~(SQL("(array_to_string(target_names, ',') like %s)", ['%pf%']) &
-                                              (SQL("(array_to_string(target_names, ',') like %s)", ['%ef%'])))
-                                             )
-        tags = []
-        if no_divsum is True:
-            tags.extend(["div", "plus"])
-        if no_particle is True:
-            tags.append('pf')
-        if len(tags) != 0:
-            non_sliced &= no_elements_in_list(cls, 'target_names', tags)
-        if only_sep is True:
-            non_sliced &= any_element_in_list(cls, 'target_names', ['TEM', 'ITG', 'ETG'])
-        if non_sliced.count() > 0:
-            network = non_sliced.get()
-            break
+    if no_mixed:
+        non_sliced &= (Network.select()
+                       .where(~(fn.array_to_string(Network.target_names, ',') % '%pf%' &
+                                fn.array_to_string(Network.target_names, ',') % '%ef%'))
+                       )
+    tags = []
+    if no_divsum:
+        tags.extend(["div", "plus"])
+    if no_particle:
+        tags.append('pf')
+    if len(tags) != 0:
+        filter = fn.array_to_string(Network.target_names, ',') % ('%' + tags[0] + '%')
+        for tag in tags[1:]:
+            filter &= fn.array_to_string(Network.target_names, ',') % ('%' + tag + '%')
+        non_sliced &= (Network.select()
+                       .where(~filter)
+                      )
+    if only_sep:
+        tags = ['TEM', 'ITG', 'ETG']
+        filter = fn.array_to_string(Network.target_names, ',') % ('%' + tags[0] + '%')
+        for tag in tags[1:]:
+            filter |= fn.array_to_string(Network.target_names, ',') % ('%' + tag + '%')
 
-    non_sliced &= (cls.select()
-                  .where(cls.target_names == AsIs(network.target_names))
-                  .where(cls.feature_names == AsIs(network.feature_names))
+    if non_sliced.count() > 0:
+        network = non_sliced.get()
+    else:
+        raise Exception('No candidates found for slicing!')
+
+    non_sliced &= (Network.select()
+                  .where(Network.target_names == network.target_names)
+                  .where(Network.feature_names == network.feature_names)
                   )
     non_sliced = non_sliced.limit(max)
     return non_sliced
@@ -150,7 +151,7 @@ def nns_from_NNDB(max=20, only_dim=None):
     else:
         raise Exception('Unequal stability regime. Cannot determine slicedim')
     nn_list = {network.id: str(network.id) for network in non_sliced}
-    print('Found {:d} {!s} with target {!s}'.format(non_sliced.count(), network.__class__, network.target_names))
+    print('Found {:d} {!s} with target {!s}'.format(len(non_sliced), network.__class__, network.target_names))
 
     nns = OrderedDict()
     for dbnn in non_sliced:
@@ -727,14 +728,7 @@ def extract_nn_stats(results, duo_results, nns, frac, submit_to_nndb=False):
     for network_name, res in results.unstack().iterrows():
         network_class, network_number = network_name.split('_')
         nn = nns[network_name]
-        if network_class == 'Network':
-            res_dict = {'network': network_number}
-        elif network_class == 'ComboNetwork':
-            res_dict = {'combo_network': network_number}
-        elif network_class == 'MultiNetwork':
-            res_dict = {'multi_network': network_number}
-        if all([name not in res_dict for name in ['network', 'combo_network', 'multi_network']]):
-            raise Exception(''.join('Error! No network found for ', network_name))
+        res_dict = {'network': network_number}
         res_dict['frac'] = frac
 
         for stat, val in res.unstack(level=0).iteritems():
@@ -760,7 +754,7 @@ if __name__ == '__main__':
     mode = 'quick'
     submit_to_nndb = True
 
-    store = pd.HDFStore('../gen2_7D_nions0_flat.h5')
+    store = pd.HDFStore('../../gen3_7D_nions0_flat_filter8.h5', 'r')
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
