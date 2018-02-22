@@ -6,6 +6,7 @@ import sys
 import time
 import re
 import gc
+import socket
 from itertools import product, chain
 from functools import partial
 from collections import OrderedDict
@@ -25,7 +26,11 @@ from qlknn.plots.load_data import load_nn, prettify_df, nameconvert
 
 if __name__ == '__main__':
     import matplotlib as mpl
-    mpl.use('pdf')
+    if socket.gethostname().startswith('rs'):
+        mpl.use('GTK3Cairo')
+        mpl.rc('font', size=10)
+    else:
+        mpl.use('pdf')
     import matplotlib.pyplot as plt
     from matplotlib import gridspec, cycler
 
@@ -751,8 +756,10 @@ if __name__ == '__main__':
     mode = 'pretty'
     mode = 'debug'
     submit_to_nndb = False
-    mode = 'quick'
-    submit_to_nndb = True
+    if not socket.gethostname().startswith('rs'):
+        pass
+        mode = 'quick'
+        submit_to_nndb = True
 
     store = pd.HDFStore('../../gen3_7D_nions0_flat_filter8.h5', 'r')
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
