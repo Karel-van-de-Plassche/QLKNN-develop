@@ -55,25 +55,28 @@ longname ={
     'Ati': 'Normalized ion temperature gradient $R/L_{T_i}$'}
 
 nameconvert = {
-               'An': '$R/L_n$',
-               #'Nustar': '$\\nu^*$',
-               'Nustar': '$log_{10}(\\nu^*)$',
-               'logNustar': '$log_{10}(\\nu^*)$',
-               'Ti_Te': 'Relative temperature $T_i/T_e$',
-               'Zeffx': '$Z_{eff}$',
-               'qx': '$q$',
-               'smag': 'Magnetic shear $\hat{s}$',
-               'x': '$\\varepsilon\,(r/R)$',
+    'An': '$R/L_n$',
+    #'Nustar': '$\\nu^*$',
+    'Nustar': '$log_{10}(\\nu^*)$',
+    'logNustar': '$log_{10}(\\nu^*)$',
+    'Ti_Te': 'Relative temperature $T_i/T_e$',
+    'Zeffx': '$Z_{eff}$',
+    'qx': '$q$',
+    'smag': 'Magnetic shear $\hat{s}$',
+    'x': '$\\varepsilon\,(r/R)$',
 
-               'efe_GB': '$q_e\,[GB]$',
-               'efi_GB': '$q_i\,[GB]$',
-               'efiITG_GB': '$q_{ITG, i}\,[GB]$',
-               'efeITG_GB': '$q_{ITG, e}\,[GB]$',
-               'efeETG_GB': 'Normalized heat flux $q$',
-               'pfe_GB': '$\Gamma_e\,[GB]$',
-               'pfi_GB': '$\Gamma_i\,[GB]$',
-               'pfeITG_GB': '$\Gamma_{ITG, i}\,[GB]$',
-               'pfeTEM_GB': '$\Gamma_{TEM, i}\,[GB]$'
+    'efe_GB': '$q_e\,[GB]$',
+    'efi_GB': '$q_i\,[GB]$',
+    'efiITG_GB': '$q_{ITG, i}\,[GB]$',
+    'efeITG_GB': '$q_{ITG, e}\,[GB]$',
+    'efiTEM_GB': '$q_{TEM, i}\,[GB]$',
+    'efeTEM_GB': '$q_{TEM, e}\,[GB]$',
+    'efeETG_GB': 'Normalized heat flux $q$',
+
+    'pfe_GB': '$\Gamma_e\,[GB]$',
+    'pfi_GB': '$\Gamma_i\,[GB]$',
+    'pfeITG_GB': '$\Gamma_{ITG, i}\,[GB]$',
+    'pfeTEM_GB': '$\Gamma_{TEM, i}\,[GB]$'
 }
 nameconvert.update(shortname)
 def prettify_df(input, data):
