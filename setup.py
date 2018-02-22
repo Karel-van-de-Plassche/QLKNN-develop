@@ -32,6 +32,11 @@ class RunTests(Command):
                       '--ignore=lib/'])
         raise SystemExit(errno)
 
+nndb_require = ['peewee>=3.0.16', 'psycopg2']
+training_require = ['tensorflow>=1.3']
+plot_require = nndb_require + training_require
+pipeline_require = ['luigi']
+all_require = nndb_require + training_require + plot_require + pipeline_require
 
 setup(
     name = 'qlknn',
@@ -53,10 +58,15 @@ setup(
     ],
     keywords = '',
     packages = find_packages(exclude=['docs', 'tests*']),
-    python_requires='>=3.5',
-    install_requires = [],
+    python_requires='>=3.4',
+    install_requires = ['ipython', 'numpy', 'scipy', 'xarray', 'pandas>=0.15.2'],
     extras_require = {
         'test': ['coverage', 'pytest', 'pytest-cov'],
+        'nndb': nndb_require,
+        'training': training_require,
+        'pipeline': pipeline_require,
+        'plot': plot_require,
+        'all': all_require
     },
     cmdclass = {'test': RunTests},
 )
