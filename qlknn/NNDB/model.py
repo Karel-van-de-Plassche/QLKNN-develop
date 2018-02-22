@@ -77,10 +77,14 @@ class Filter(BaseModel):
 
     @classmethod
     @db.atomic()
-    def from_file(cls, pwd):
-        with open(pwd, 'r') as script:
-            script = script.read()
-        filter = Filter(script=script)
+    def from_file(cls, filter_file, hyper_file):
+        with open(filter_file, 'r') as script:
+            filter_script = script.read()
+
+        with open(hyper_file, 'r') as script:
+            hypercube_script = script.read()
+
+        filter = Filter(script=filter_script, hypercube_script=hypercube_script)
         filter.save()
 
     @classmethod
