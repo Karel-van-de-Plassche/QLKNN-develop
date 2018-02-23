@@ -164,8 +164,8 @@ class Network(BaseModel):
                 efi = splitted[1]
                 partner_targets = [[efe]]
                 formulas = OrderedDict([
-                    (efi, '(nn{0:d} * nn{1:d})'),
-                    (efe, 'nn{1:d}')
+                    (efe, '(nn{0:d} * nn{1:d})'),
+                    (efi, 'nn{1:d}')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -176,8 +176,8 @@ class Network(BaseModel):
                 efi = splitted[3]
                 partner_targets = [[efi]]
                 formulas = OrderedDict([
-                    (efi, 'nn{1:d}'),
-                    (efe, '(nn{0:d} * nn{1:d})')
+                    (efe, 'nn{1:d}'),
+                    (efi, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -203,8 +203,8 @@ class Network(BaseModel):
                                    [efe + '_div_' + efi]
                                    ]
                 formulas = OrderedDict([
-                    (efi, 'nn{1:d}'),
                     (efe, '(nn{1:d} * nn{2:d})'),
+                    (efi, 'nn{1:d}'),
                     (pfe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
@@ -271,8 +271,8 @@ class Network(BaseModel):
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (efi, '(nn{1:d} * nn{2:d})'),
-                    (efe, 'nn{1:d}'),
+                    (efe, '(nn{1:d} * nn{2:d})'),
+                    (efi, 'nn{1:d}'),
                     (pfe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
@@ -877,7 +877,7 @@ class RmspropOptimizer(BaseModel):
 class Postprocess(BaseModel):
     network         = ForeignKeyField(Network, related_name='postprocess')
     filter          = ForeignKeyField(Filter, related_name='postprocess')
-    rms             = FloatField()
+    rms             = ArrayField(FloatField)
     leq_bound       = FloatField()
     less_bound      = FloatField()
 
