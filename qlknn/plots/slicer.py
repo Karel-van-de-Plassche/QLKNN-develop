@@ -83,11 +83,14 @@ def mode_to_settings(mode):
     return settings
 
 def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_particle=False, no_divsum=False,
-                             no_mixed=True):
+                             no_mixed=True, target_names=None):
     non_sliced = (Network
                   .select()
                   .where(~fn.EXISTS(table.select().where(getattr(table, 'network') == Network.id)))
                  )
+    if target_names is not None:
+        non_sliced &= Network.select().where(Network.target_names == target_names)
+
     if only_dim is not None:
         non_sliced &= (Network.select()
                        .where(fn.array_length(Network.feature_names, 1) == only_dim)
@@ -280,7 +283,8 @@ def nns_from_manual():
 
     dbnns = []
     #dbnns.append(MultiNetwork.by_id(119).get())
-    dbnns.append(ComboNetwork.by_id(3333).get())
+    dbnns.append(Network.get_by_id(129))
+    dbnns.append(Network.get_by_id(135))
     #dbnns.append(ComboNetwork.by_id(1050).get())
     #dbnns.append(MultiNetwork.by_id(102).get())
 
@@ -293,6 +297,7 @@ def nns_from_manual():
     slicedim = 'Ati'
     style='duo'
     style='mono'
+    style='triple'
     #from qlkANNk import QuaLiKiz4DNN
     #nns['4D'] = QuaLiKiz4DNN()
     #nns['4D'].label = '4D'
@@ -482,15 +487,15 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             print('whyyy?')
 
         # 12.5 µs ± 970 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-        if all(['ef' in name for name in target_names]):
-            thresh2 = calculate_thresh2(feature.values, target[0,:], debug=settings['debug'])
-        elif all(['pf' in name for name in target_names]):
-            thresh2 = calculate_thresh2(feature.values, np.abs(target[0,:]), debug=settings['debug'])
-        else:
-            thresh2 = np.nan
-            print('No thresh2!')
-            embed()
-            print('Weird stuff')
+        #if all(['ef' in name for name in target_names]):
+        #    thresh2 = calculate_thresh2(feature.values, target[0,:], debug=settings['debug'])
+        #elif all(['pf' in name for name in target_names]):
+        thresh2 = calculate_thresh2(feature.values, np.abs(target[0,:]), debug=settings['debug'])
+        #else:
+        #    thresh2 = np.nan
+        #    print('No thresh2!')
+        #    embed()
+        #    print('Weird stuff')
 
         if settings['plot'] and settings['plot_threshlines']:
             ax1.axvline(thresh2, c='black', linestyle='dashed')
@@ -532,27 +537,31 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         # Plot nn lines
         nn_preds = np.ndarray([x.shape[0], 0])
         for ii, (nn_index, nn) in enumerate(nns.items()):
-            if all(['ef' in name for name in nn._target_names]):
-                clip_low = True
-                low_bound = np.zeros((len(nn._target_names), 1))
+            clip_low = True
+            low_bound = np.array([[0 if 'ef' in name else -np.inf for name in nn._target_names]]).T
+            clip_high = False
+            high_bound = None
+            #if all(['ef' in name for name in nn._target_names]):
+            #    clip_low = True
+            #    low_bound = np.zeros((len(nn._target_names), 1))
 
-                #high_bound = np.full((len(nn._target_names), 1), np.inf)
-                clip_high = False
-                high_bound = None
-            elif all(['pf' in name for name in nn._target_names]):
-                #raise NotImplementedError('Particle bounds')
-                clip_low = False
-                low_bound = np.full((len(nn._target_names), 1), -80)
-                clip_high = False
-                high_bound = np.full((len(nn._target_names), 1), 80)
-            else:
-                clip_low = False
-                low_bound = None
-                clip_high = False
-                high_bound = None
-                print('Mixed target!')
-                embed()
-                print('Weird stuff')
+            #    #high_bound = np.full((len(nn._target_names), 1), np.inf)
+            #    clip_high = False
+            #    high_bound = None
+            #elif all(['pf' in name for name in nn._target_names]):
+            #    #raise NotImplementedError('Particle bounds')
+            #    clip_low = False
+            #    low_bound = np.full((len(nn._target_names), 1), -80)
+            #    clip_high = False
+            #    high_bound = np.full((len(nn._target_names), 1), 80)
+            #else:
+            #    clip_low = False
+            #    low_bound = None
+            #    clip_high = False
+            #    high_bound = None
+            #    print('Mixed target!')
+            #    #embed()
+            #    print('Weird stuff')
             if unsafe:
                 nn_pred = nn.get_output(np.array(slice_list).T, clip_low=clip_low, low_bound=low_bound, clip_high=clip_high, high_bound=high_bound, safe=not unsafe, output_pandas=False)
             else:
@@ -561,7 +570,13 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
 
         if settings['plot'] and settings['plot_nns']:
             lines = []
-            if style == 'duo':
+            if style == 'triple':
+                labels = np.repeat([nn.label for nn in nns.values()], 3)
+                for ii in range(0, nn_preds.shape[1], 3):
+                    lines.append(ax1.plot(x, nn_preds[:, ii], label=labels[ii])[0])
+                    lines.append(ax1.plot(x, nn_preds[:, ii+1], label=labels[ii+1], c=lines[-1].get_color(), linestyle='dashed')[0])
+                    lines.append(ax1.plot(x, nn_preds[:, ii+2], label=labels[ii+2], c=lines[-1].get_color(), linestyle='dotted')[0])
+            elif style == 'duo':
                 labels = np.repeat([nn.label for nn in nns.values()], 2)
                 for ii in range(0, nn_preds.shape[1], 2):
                     lines.append(ax1.plot(x, nn_preds[:, ii], label=labels[ii])[0])
@@ -578,14 +593,17 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             thresh[thresh == x[-1]] = np.nan
         else:
             for ii, row in enumerate(nn_preds.T):
-                try:
-                    if row[-1] == 0:
-                        thresh_nn[ii] = np.nan
-                    else:
-                        thresh_i = thresh_nn_i[ii] = np.where(np.diff(np.sign(row)))[0][-1]
-                        thresh_nn[ii] = x[thresh_i]
-                except IndexError:
+                if 'pf' in np.take(nn._target_names, ii, mode='wrap'):
                     thresh_nn[ii] = np.nan
+                else:
+                    try:
+                        if row[-1] == 0:
+                            thresh_nn[ii] = np.nan
+                        else:
+                            thresh_i = thresh_nn_i[ii] = np.where(np.diff(np.sign(row)))[0][-1]
+                            thresh_nn[ii] = x[thresh_i]
+                    except IndexError:
+                        thresh_nn[ii] = np.nan
 
         if settings['plot'] and settings['plot_threshlines']:
             for ii, row in enumerate(thresh_nn):
@@ -620,10 +638,10 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         if settings['plot'] and settings['plot_pop']:
             thresh2_misses = thresh_nn - thresh2
             thresh2_popback = popbacks - thresh2
-            slice_stats = np.array([thresh2_misses, thresh2_popback, np.log10(wobble_tot), np.log10(wobble_unstab)]).T
+            slice_stats = np.array([thresh2_misses, thresh2_popback, np.log10(wobble_unstab)]).T
             slice_strings = np.array(['{:.1f}'.format(xx) for xx in slice_stats.reshape(slice_stats.size)])
             slice_strings = slice_strings.reshape(slice_stats.shape)
-            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis', 'wobble_tot', 'wobble_unstb'], axis=0)
+            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis', 'wobble_unstb'], axis=0)
             table = ax3.table(cellText=slice_strings, loc='center')
             table.auto_set_font_size(False)
             ax3.axis('tight')
@@ -646,11 +664,12 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
                 label=''
             else:
                 zorder=1000
-                label = 'QuaLiKiz'
+                #label = 'QuaLiKiz'
                 #label = 'Turbulence model'
                 #label=''
-            markers = ['x', '+']
-            for column, marker in zip(target, markers):
+                labels=target_names
+            markers = ['1', '2', '3']
+            for label, column, marker in zip(labels, target, markers):
                 ax1.scatter(feature[column != 0],
                             column[column != 0], c=color, label=label, marker=marker, zorder=zorder)
             ax1.scatter(feature[column==0],
