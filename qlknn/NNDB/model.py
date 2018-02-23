@@ -153,17 +153,31 @@ class Network(BaseModel):
         if splitted[2] == 'div':
             if splitted[1].startswith('efi') and splitted[3].startswith('efe'):
                 # If it is efi / efe
-                partner_targets = [[splitted[1] + '_plus_' + splitted[3]]]
-                formulas = OrderedDict([(splitted[1], '(nn{0:d} * nn{1:d}) / (nn{0:d} + 1)'),
-                                        (splitted[3], '(nn{1:d}) / (nn{0:d} + 1)')])
+                # Old style: efi / efe == nn0, efi + efe == nn1
+                #partner_targets = [[splitted[1] + '_plus_' + splitted[3]]]
+                #formulas = OrderedDict([(splitted[1], '(nn{0:d} * nn{1:d}) / (nn{0:d} + 1)'),
+                #                        (splitted[3], '(nn{1:d}) / (nn{0:d} + 1)')])
+                #partner_target_sets.append(partner_targets)
+                #formula_sets.append(formulas)
+                # Simple style: efi / efe == nn0, efe == nn1
+                efe = splitted[3]
+                efi = splitted[1]
+                partner_targets = [[efe]]
+                formulas = OrderedDict([
+                    (efi, '(nn{0:d} * nn{1:d})'),
+                    (efe, 'nn{1:d}')
+                ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
             elif splitted[1].startswith('efe') and splitted[3].startswith('efi'):
                 # If it is efe / efi
-                partner_targets = [[splitted[3]]]
+                # Simple style: efe / efi == nn0, efi == nn1
+                efe = splitted[1]
+                efi = splitted[3]
+                partner_targets = [[efi]]
                 formulas = OrderedDict([
-                    (splitted[3], 'nn{1:d}'),
-                    (splitted[1], '(nn{0:d} * nn{1:d})')
+                    (efi, 'nn{1:d}'),
+                    (efe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -196,33 +210,34 @@ class Network(BaseModel):
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
             elif splitted[1].startswith('efi') and splitted[3].startswith('pfe'):
+                raise NotImplementedError('Should look at those again..')
                 # If it is efi / pfe
                 efi = splitted[1]
                 pfe = splitted[3]
                 split_efi = re.compile('(?=.*)(.)(|ITG|ETG|TEM)(_GB|SI|cm)').split(efi)
                 efe = ''.join(*[[split_efi[0]] + ['e'] + split_efi[2:]])
-                # Triplet style: efi / pfe == nn0, pfe + efi + efe == nn1, efi / efe == nn2
-                partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
-                                   [efi + '_div_' + efe]
-                                   ]
-                formulas = OrderedDict([
-                    (efi, '(nn{0:d} * nn{1:d} * nn{2:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})'),
-                    (efe, '(nn{0:d} * nn{1:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})'),
-                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})')
-                ])
-                partner_target_sets.append(partner_targets)
-                formula_sets.append(formulas)
-                # Heatflux style: efi / pfe == nn0, efi + efe == nn1, efi / efe == nn2
-                partner_targets = [[efi + '_plus_' + efe],
-                                   [efi + '_div_' + efe]
-                                   ]
-                formulas = OrderedDict([
-                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{2:d})'),
-                    (efe, '(nn{1:d}) / (1 + nn{2:d})'),
-                    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} * (1 + nn{2:d}))')
-                ])
-                partner_target_sets.append(partner_targets)
-                formula_sets.append(formulas)
+                ## Triplet style: efi / pfe == nn0, pfe + efi + efe == nn1, efi / efe == nn2
+                #partner_targets = [[pfe + '_plus_' + efi + '_plus_' + efe],
+                #                   [efi + '_div_' + efe]
+                #                   ]
+                #formulas = OrderedDict([
+                #    (efi, '(nn{0:d} * nn{1:d} * nn{2:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})'),
+                #    (efe, '(nn{0:d} * nn{1:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})'),
+                #    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} + nn{2:d} + nn{0:d} * nn{2:d})')
+                #])
+                #partner_target_sets.append(partner_targets)
+                #formula_sets.append(formulas)
+                ## Heatflux style: efi / pfe == nn0, efi + efe == nn1, efi / efe == nn2
+                #partner_targets = [[efi + '_plus_' + efe],
+                #                   [efi + '_div_' + efe]
+                #                   ]
+                #formulas = OrderedDict([
+                #    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{2:d})'),
+                #    (efe, '(nn{1:d}) / (1 + nn{2:d})'),
+                #    (pfe, '(nn{1:d} * nn{2:d}) / (nn{0:d} * (1 + nn{2:d}))')
+                #])
+                #partner_target_sets.append(partner_targets)
+                #formula_sets.append(formulas)
             elif splitted[1].startswith('pfe') and splitted[3].startswith('efe'):
                 # If it is pfe / efe
                 pfe = splitted[1]
@@ -240,14 +255,25 @@ class Network(BaseModel):
                 #])
                 #partner_target_sets.append(partner_targets)
                 #formula_sets.append(formulas)
-                # Heatflux style: pfe / efe == nn0, efi + efe == nn1, efi / efe == nn2
-                partner_targets = [[efi + '_plus_' + efe],
+                ## Heatflux style: pfe / efe == nn0, efi + efe == nn1, efi / efe == nn2
+                #partner_targets = [[efi + '_plus_' + efe],
+                #                   [efi + '_div_' + efe]
+                #                   ]
+                #formulas = OrderedDict([
+                #    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{2:d})'),
+                #    (efe, '(nn{1:d}) / (1 + nn{2:d})'),
+                #    (pfe, '(nn{0:d} * nn{1:d} * nn{2:d}) / (1 + nn{2:d})')
+                #])
+                #partner_target_sets.append(partner_targets)
+                #formula_sets.append(formulas)
+                # Simple style: pfe/efe == nn0, efe == nn1, efi / efe == nn2
+                partner_targets = [[efe],
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (efi, '(nn{1:d} * nn{2:d}) / (1 + nn{2:d})'),
-                    (efe, '(nn{1:d}) / (1 + nn{2:d})'),
-                    (pfe, '(nn{0:d} * nn{1:d} * nn{2:d}) / (1 + nn{2:d})')
+                    (efi, '(nn{1:d} * nn{2:d})'),
+                    (efe, 'nn{1:d}'),
+                    (pfe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -330,28 +356,28 @@ class Network(BaseModel):
 
                 try:
                     net = cls.get(
-                        cls.recipe == 'np.concat(*args)',
+                        cls.recipe == 'np.hstack(args)',
                         cls.networks == [net.id for net in nets],
                         cls.target_names == list(recipes.keys()),
                         cls.feature_names == nn.feature_names
                     )
                 except Network.DoesNotExist:
                     net = cls.create(
-                        recipe = 'np.concat(*args)',
+                        recipe = 'np.hstack(args)',
                         networks = [net.id for net in nets],
                         target_names = list(recipes.keys()),
                         feature_names = nn.feature_names
                     )
                     print('Created MultiNetwork with id: {:d}'.format(net.id))
                 else:
-                    print('MultiNetwork with ComboNetworks {!s} already exists with id: {:d}'.format([combonet.id for combonet in combonets], net.id))
+                    print('MultiNetwork with Networks {!s} already exists with id: {:d}'.format([net.id for net in nets], net.id))
 
     def to_QuaLiKizNDNN(self):
         return self.pure_network_params.get().to_QuaLiKizNDNN()
 
     def to_QuaLiKizComboNN(self):
         network_ids = self.networks
-        networks = [Network.get_by_id(num).to_QuaLiKizNDNN() for num in network_ids]
+        networks = [Network.get_by_id(num).to_QuaLiKizNN() for num in network_ids]
         recipe = self.recipe
         for ii in range(len(network_ids)):
             recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
