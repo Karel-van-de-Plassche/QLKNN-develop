@@ -3,7 +3,7 @@
     ],
     "dataset_path": "./filtered_everything_nions0.h5",
     "drop_outlier_above": 0.999,
-    "drop_outlier_below": 0.000,
+    "drop_outlier_below": 0.001,
     "hidden_neurons": [
         30,
         30,
@@ -20,7 +20,7 @@
     "goodness": "mse",
     "cost_l2_scale": 0.1,
     "cost_l1_scale": 0.0,
-    "early_stop_after": 5,
+    "early_stop_after": 15,
     "early_stop_measure": "loss",
     "minibatches": 10,
 
