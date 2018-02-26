@@ -74,6 +74,9 @@ class ModelTestCase(ModelDatabaseTestCase):
     def assertNumpyArrayEqual(self, x, y, msg='', verbose=True):
         np.testing.assert_array_equal(x, y, err_msg=msg, verbose=verbose)
 
+    def assertNumpyArrayListEqual(self, x, y, msg='', verbose=True):
+        np.testing.assert_equal(x, y, err_msg=msg, verbose=verbose)
+
 
 def requires_models(*models):
     def decorator(method):

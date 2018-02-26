@@ -562,19 +562,63 @@ class TestRecursiveAttributes(ModelTestCase):
                                   networks=[self.combo_net.id, net2.id],
                                   recipe='np.hstack(args)')
 
-    def test_get_recursive_pure(self):
+    def test_get_recursive_pure_arrays(self):
         hyperpar = self.net.pure_network_params.get().hyperparameters.get()
-        hidden_neurons = np.array(hyperpar.hidden_neurons)
-        rec_hidden_neurons = self.net.get_recursive_hyperparameter('hidden_neurons')
-        self.assertNumpyArrayEqual(hidden_neurons, rec_hidden_neurons)
+        param_name = 'hidden_neurons'
+        param = np.array(getattr(hyperpar, param_name))
+        desired = param
+        rec_param = self.net.get_recursive_hyperparameter(param_name)
+        self.assertNumpyArrayEqual(desired, rec_param)
+        self.assertNumpyArrayEqual(np.array([128, 128, 128]), rec_param)
 
-    def test_get_recursive_combo(self):
+    def test_get_recursive_combo_arrays(self):
         hyperpar = self.net.pure_network_params.get().hyperparameters.get()
-        hidden_neurons = np.array(hyperpar.hidden_neurons)
-        rec_hidden_neurons = self.combo_net.get_recursive_hyperparameter('hidden_neurons')
-        self.assertNumpyArrayEqual(hidden_neurons, rec_hidden_neurons)
+        param_name = 'hidden_neurons'
+        param = np.array(getattr(hyperpar, param_name))
+        desired = [param] * 2
+        rec_param = self.combo_net.get_recursive_hyperparameter(param_name)
+        self.assertNumpyArrayListEqual(desired, rec_param)
+        arr = np.array([128, 128, 128])
+        manual = [arr, arr]
+        self.assertNumpyArrayListEqual(manual, rec_param)
 
-    #single_valued(self):
+    def test_get_recursive_multi_arrays(self):
+        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        param_name = 'hidden_neurons'
+        param = np.array(getattr(hyperpar, param_name))
+        desired = [[param] * 2, param]
+        rec_param = self.multi_net.get_recursive_hyperparameter(param_name)
+        self.assertNumpyArrayListEqual(desired, rec_param)
+        arr = np.array([128, 128, 128])
+        manual = [[arr, arr], arr]
+        self.assertNumpyArrayListEqual(manual, rec_param)
+
+    def test_get_recursive_pure_floats(self):
+        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        param_name = 'cost_l2_scale'
+        param = np.array(getattr(hyperpar, param_name))
+        desired = param
+        rec_param = self.net.get_recursive_hyperparameter(param_name)
+        self.assertEqual(desired, rec_param)
+        self.assertEqual(8e-6, rec_param)
+
+    def test_get_recursive_combo_floats(self):
+        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        param_name = 'cost_l2_scale'
+        param = getattr(hyperpar, param_name)
+        desired = [param] * 2
+        rec_param = self.combo_net.get_recursive_hyperparameter(param_name)
+        self.assertSequenceEqual(desired, rec_param)
+        self.assertSequenceEqual([8.e-6, 8e-6], rec_param)
+
+    def test_get_recursive_multi_floats(self):
+        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        param_name = 'cost_l2_scale'
+        param = getattr(hyperpar, param_name)
+        desired = [[param] * 2, param]
+        rec_param = self.multi_net.get_recursive_hyperparameter(param_name)
+        self.assertSequenceEqual(desired, rec_param)
+        self.assertSequenceEqual([[8.e-6, 8e-6], 8e-6], rec_param)
 
 if __name__ == '__main__':
     embed()
