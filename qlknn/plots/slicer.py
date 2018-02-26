@@ -107,11 +107,11 @@ def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_pa
     if no_particle:
         tags.append('pf')
     if len(tags) != 0:
-        filter = fn.array_to_string(Network.target_names, ',') % ('%' + tags[0] + '%')
+        filter = ~fn.array_to_string(Network.target_names, ',') % ('%' + tags[0] + '%')
         for tag in tags[1:]:
-            filter &= fn.array_to_string(Network.target_names, ',') % ('%' + tag + '%')
+            filter &= ~(fn.array_to_string(Network.target_names, ',') % ('%' + tag + '%'))
         non_sliced &= (Network.select()
-                       .where(~filter)
+                       .where(filter)
                       )
     if only_sep:
         tags = ['TEM', 'ITG', 'ETG']
@@ -593,7 +593,8 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             thresh[thresh == x[-1]] = np.nan
         else:
             for ii, row in enumerate(nn_preds.T):
-                if 'pf' in np.take(nn._target_names, ii, mode='wrap'):
+                if 'pf' in np.take(nn._target_names.values, ii, mode='wrap'):
+                    thresh_nn_i[ii] = len(x)
                     thresh_nn[ii] = np.nan
                 else:
                     try:
@@ -633,15 +634,21 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         # 5.16 µs ± 188 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
 
         wobble = np.abs(np.diff(nn_preds, n=2,axis=0))
-        wobble_unstab = np.array([np.mean(col[ind:]) for ind, col in zip(thresh_nn_i + 1, wobble.T)])
         wobble_tot = np.mean(wobble, axis=0)
+        wobble_unstab = np.array([np.mean(col[ind:]) for ind, col in zip(thresh_nn_i + 1, wobble.T)])
+        try:
+            thresh_2_i = np.where(np.abs(x - thresh2) == np.min(np.abs(x - thresh2)))[0][0]
+            wobble_qlkunstab = np.array([np.mean(col[thresh_2_i:]) for col in wobble.T])
+        except IndexError:
+            thresh_2_i = np.nan
+            wobble_qlkunstab = np.full_like(wobble_tot, np.nan)
         if settings['plot'] and settings['plot_pop']:
             thresh2_misses = thresh_nn - thresh2
             thresh2_popback = popbacks - thresh2
-            slice_stats = np.array([thresh2_misses, thresh2_popback, np.log10(wobble_unstab)]).T
+            slice_stats = np.array([thresh2_misses, thresh2_popback, np.log10(wobble_qlkunstab)]).T
             slice_strings = np.array(['{:.1f}'.format(xx) for xx in slice_stats.reshape(slice_stats.size)])
             slice_strings = slice_strings.reshape(slice_stats.shape)
-            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis', 'wobble_unstb'], axis=0)
+            slice_strings = np.insert(slice_strings, 0, ['thre_mis', 'pop_mis', 'wobble_qlkunstab'], axis=0)
             table = ax3.table(cellText=slice_strings, loc='center')
             table.auto_set_font_size(False)
             ax3.axis('tight')
@@ -685,7 +692,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
             ax1.plot(x[x< thresh1], np.zeros_like(x[x< thresh1]), c='gray', linestyle='dotted')
             #ax1.axvline(thresh1, c='black', linestyle='dotted')
 
-        slice_res = np.array([thresh_nn, popbacks, wobble_tot, wobble_unstab]).T
+        slice_res = np.array([thresh_nn, popbacks, wobble_tot, wobble_unstab, wobble_qlkunstab]).T
         if settings['plot']:
             ax1.legend()
             ax1.set_ylim(bottom=min(ax1.get_ylim()[0], 0))
@@ -728,6 +735,7 @@ def extract_stats(totstats, style):
 
         results['_'.join(['no', measure, 'frac'])] = mis.isnull().sum() / len(mis)
     results['wobble_unstab'] = df['wobble_unstab'].mean()
+    results['wobble_qlkunstab'] = df['wobble_qlkunstab'].mean()
     results['wobble_tot'] = df['wobble_tot'].mean()
 
     if style == 'duo':
@@ -846,7 +854,7 @@ if __name__ == '__main__':
             totstats.append(result[2])
             qlk_thresh.append(result[1])
 
-    stats = ['thresh', 'pop', 'wobble_tot', 'wobble_unstab']
+    stats = ['thresh', 'pop', 'wobble_tot', 'wobble_unstab', 'wobble_qlkunstab']
     totstats = pd.DataFrame(totstats, columns=pd.MultiIndex.from_tuples(list(product([nn.label for nn in nns.values()], target_names, stats))))
 
     qlk_columns = list(product(['QLK'], target_names, stats))
