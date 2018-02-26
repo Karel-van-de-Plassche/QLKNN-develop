@@ -133,21 +133,24 @@ def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_pa
 
 def nns_from_NNDB(max=20, only_dim=None):
     db.connect()
-    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False, no_divsum=True, only_dim=only_dim)
+    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False, no_divsum=True, no_mixed=False, only_dim=only_dim)
     network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
-        match_0 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[0])
-        match_1 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[1])
-        if len(match_0) == 1 and len(match_1) == 1:
-            group_0 = match_0[0]
-            group_1 = match_1[0]
-            if ((group_0[1] == 'e' and group_1[1] == 'i') or
-                (group_0[1] == 'i' and group_1[1] == 'e')):
-                style='duo'
-            else:
-                raise Exception('non-matching target_names. Not sure what to do.. {s}'
-                                .format(network.target_names))
+        style = 'duo'
+    elif len(network.target_names) == 3:
+        style = 'triple'
+    #    match_0 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[0])
+    #    match_1 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[1])
+    #    if len(match_0) == 1 and len(match_1) == 1:
+    #        group_0 = match_0[0]
+    #        group_1 = match_1[0]
+    #        if ((group_0[1] == 'e' and group_1[1] == 'i') or
+    #            (group_0[1] == 'i' and group_1[1] == 'e')):
+    #            style='duo'
+    #        else:
+    #            raise Exception('non-matching target_names. Not sure what to do.. {s}'
+    #                            .format(network.target_names))
     matches = []
     for target_name in network.target_names:
         matches.extend(re.compile('^.f.(ITG|ETG|TEM)_GB').findall(target_name))
