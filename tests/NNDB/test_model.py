@@ -470,6 +470,39 @@ class TestComboNetworks(ModelTestCase):
         nn = combo_nn.to_QuaLiKizNN()
         nn.get_output(input)
 
+class TestMultiNetworks(ModelTestCase):
+    requires = require_lists['pure_network_params'] + [Hyperparameters, AdamOptimizer, LbfgsOptimizer, AdadeltaOptimizer, RmspropOptimizer, NetworkLayer, NetworkMetadata, TrainMetadata, NetworkJSON]
+
+    def setUp(self):
+        super().setUp()
+        self.filter = Filter.create(**default_dicts['filter'])
+        self.train_script = TrainScript.create(**default_dicts['train_script'])
+
+    def test_create(self):
+        net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'network': {'target_names': ['efe_GB']}})
+        net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'network': {'target_names': ['efi_GB']}})
+        multi_nn = Network.create(target_names=['efe_GB', 'efi_GB'],
+                                  feature_names=['Ati'],
+                                  filter=self.filter,
+                                  train_script=self.train_script,
+                                  networks=[net1.id, net2.id],
+                                  recipe='np.hstack(args)')
+
+    def test_to_QuaLiKizNN(self):
+        net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'network': {'target_names': ['efe_GB']}})
+        net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'network': {'target_names': ['efi_GB']}})
+        multi_nn = Network.create(target_names=['efe_GB', 'efi_GB'],
+                                  feature_names=['Ati'],
+                                  filter=self.filter,
+                                  train_script=self.train_script,
+                                  networks=[net1.id, net2.id],
+                                  recipe='np.hstack(args)')
+        nn = combo_nn.to_QuaLiKizNN()
+
 
 if __name__ == '__main__':
     embed()
