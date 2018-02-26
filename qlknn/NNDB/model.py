@@ -488,6 +488,19 @@ class PureNetworkParams(BaseModel):
     target_max = HStoreField()
     timestamp = DateTimeField(constraints=[SQL('DEFAULT now()')])
 
+    def download_raw(self):
+        root_dir = 'Network_' + str(self.network_id)
+        os.mkdir(root_dir)
+        network_json = self.network_json.get()
+        with open(os.path.join(root_dir, 'settings.json'), 'w') as settings_file:
+            json.dump(network_json.settings_json, settings_file,
+                       sort_keys=True, indent=4)
+        with open(os.path.join(root_dir, 'nn.json'), 'w') as network_file:
+            json.dump(network_json.network_json, network_file,
+                       sort_keys=True, indent=4)
+        with open(os.path.join(root_dir, 'train_NDNN.py'), 'w') as train_file:
+            train_file.writelines(self.train_script.get().script)
+
     @classmethod
     def find_partners_by_id(cls, pure_network_params_id):
         q1 = cls.find_similar_topology_by_id(pure_network_params_id, match_train_dim=False)
