@@ -40,7 +40,7 @@ class QuaLiKizComboNN():
     def get_output(self, input, output_pandas=True, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=True, **kwargs):
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(self, input, safe, clip_low, clip_high, low_bound, high_bound)
-        output = self._combo_func(*[nn.get_output(input, output_pandas=False, clip_low=False, clip_high=False, safe=False, **kwargs) for nn in self._nns])
+        output = self._combo_func(*[nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=False, **kwargs) for nn in self._nns])
         output = clip_to_bounds(output, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
