@@ -1,6 +1,7 @@
 #from functools import wraps
 from unittest import TestCase
 from IPython import embed
+import numpy as np
 from peewee import *
 from playhouse.postgres_ext import *
 
@@ -69,6 +70,9 @@ class ModelTestCase(ModelDatabaseTestCase):
                 self.database.drop_tables(self.requires, safe=True)
         finally:
             super(ModelTestCase, self).tearDown()
+
+    def assertNumpyArrayEqual(self, x, y, msg='', verbose=True):
+        np.testing.assert_array_equal(x, y, err_msg=msg, verbose=verbose)
 
 
 def requires_models(*models):
