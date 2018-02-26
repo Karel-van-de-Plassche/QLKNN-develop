@@ -30,6 +30,8 @@ from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN
 #db = RetryPostgresqlExtDatabase(database='nndb', host='gkdb.org')
 db = PostgresqlExtDatabase(database='nndb', host='gkdb.org', register_hstore=True)
 #db.execute_sql('CREATE SCHEMA IF NOT EXISTS develop;')
+def flatten(l):
+    return [item for sublist in l for item in sublist]
 
 class BaseModel(Model):
     """A base model that will use our Postgresql database"""
@@ -105,6 +107,65 @@ class Network(BaseModel):
     recipe = TextField(null=True)
     networks = ArrayField(IntegerField, null=True)
 
+    def get_recursive_hyperparameter(self, property):
+        if self.networks is not None:
+            prop_list = []
+            for net_id in self.networks:
+                net = Network.get_by_id(net_id)
+                inner_prop_list = net.get_recursive_hyperparameter(property)
+                prop_list.append(inner_prop_list)
+        elif self.pure_network_params.count() == 1:
+            query = (Hyperparameters.select(getattr(Hyperparameters, property))
+                     .join(PureNetworkParams)
+                     .join(Network)
+                     .where(Network.id == self.id))
+            value = query.tuples().get()[0]
+            if isinstance(value, list):
+                prop_list = np.array(value)
+            else:
+                prop_list = value
+            #return [self.pure_network_params.get().hyperparametes.get().hidden_neurons]
+        else:
+            raise Exception
+        return prop_list
+
+    def flat_recursive_property(self, property):
+        prop_list = self.get_recursive_hyperparameter(property)
+        flat_list = prop_list
+        while isinstance(prop_list, list) and (any([isinstance(el, list) for el in prop_list])):
+            flat_list = []
+            for ii in range(len(prop_list)):
+                el = prop_list[ii]
+                try:
+                    if isinstance(el, list):
+                        flattened = flatten(el)
+                        flat_list.append(flattened)
+                    else:
+                        flat_list.extend([el])
+                except TypeError:
+                    try:
+                        if isinstance(el, list):
+                            flat_list.extend(el)
+                        else:
+                            flat_list.extend([el])
+                    except TypeError:
+                        flat_list.append(el)
+            prop_list = flat_list
+        if isinstance(prop_list, list):
+            if prop_list[1:] == prop_list[:-1]:
+                return prop_list[0]
+            else:
+                raise Exception('Unequal values for {!s}={!s}'.format(property, prop_list))
+        else:
+            return prop_list
+
+    @hybrid_property
+    def hidden_neurons(self):
+        return self.flat_recursive_property('hidden_neurons')
+
+    @hybrid_property
+    def cost_l2_scale(self):
+        return self.flat_recursive_property('cost_l2_scale')
     #@hybrid_property
     #def hidden_neurons(self):
     #    return [Network.get_by_id(nn).hyperparameters.get().hidden_neurons for nn in self.networks]
