@@ -288,8 +288,8 @@ class Network(BaseModel):
             for partner_target in partner_targets:
                 if len(partner_target) > 1:
                     raise Exception('Multiple partner targets!')
-                query = PureNetworkParams.find_similar_topology_by_id(network_id, match_train_dim=False)
-                query &= PureNetworkParams.find_similar_networkpar_by_id(network_id, match_train_dim=False)
+                query = PureNetworkParams.find_similar_topology_by_id(nn.pure_network_params.get().id, match_train_dim=False)
+                query &= PureNetworkParams.find_similar_networkpar_by_id(nn.pure_network_params.get().id, match_train_dim=False)
                 query &= (PureNetworkParams
                      .select()
                      .where(Network.target_names == partner_target)
@@ -298,16 +298,20 @@ class Network(BaseModel):
                 if query.count() > 1:
                     print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
                     try:
-                        # TODO: change after PureNetworkParams split
-                        sort = sorted([(el.postprocess.get().rms, el.id) for el in query])
+                        candidates = [(el.network.postprocess.get().rms, el.id) for el in query]
                     except Postprocess.DoesNotExist as ee:
-                        net_id = re.search('PARAMS: \[(.*)\]', ee.args[0])[1]
+                        net_id = re.search('Params: \[(.*)\]', ee.args[0])[1]
                         table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
                         raise Exception('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
+                    sort = []
+                    for rms, pure_id in candidates:
+                        assert len(rms) == 1
+                        sort.append([rms[0], pure_id])
+                    sort = sorted(sort)
                     print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
-                    query = (Network
+                    query = (PureNetworkParams
                              .select()
-                             .where(Network.id == sort[0][1])
+                             .where(PureNetworkParams.id == sort[0][1])
                     )
                 elif query.count() == 0:
                     if stop_on_missing:
@@ -315,8 +319,13 @@ class Network(BaseModel):
                     print('No {!s} with target {!s}! Skipping..'.format(cls, partner_target))
                     skip = True
 
-                if query.count() > 0:
-                    nns.append(query.get())
+                if query.count() == 1:
+                    purenet = query.get()
+                    nns.append(purenet.network)
+                    # Sanity check, something weird happening here..
+                    if nns[-1].target_names != partner_target:
+                        print('Insanety! Wrong partner found {!s} != {!s}'.format(nns[-1].target_names, partner_target))
+                        embed()
 
             # TODO: change after PureNetworkParams split
             if skip is not True:
@@ -891,6 +900,7 @@ class PostprocessSlice(BaseModel):
     no_pop_frac                 = ArrayField(FloatField)
     wobble_tot                  = ArrayField(FloatField)
     wobble_unstab               = ArrayField(FloatField)
+    wobble_qlkunstab            = ArrayField(FloatField)
     frac                        = FloatField()
     dual_thresh_mismatch_median = FloatField(null=True)
     dual_thresh_mismatch_95width= FloatField(null=True)
