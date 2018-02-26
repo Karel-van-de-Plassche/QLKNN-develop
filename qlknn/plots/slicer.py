@@ -283,8 +283,7 @@ def nns_from_manual():
 
     dbnns = []
     #dbnns.append(MultiNetwork.by_id(119).get())
-    dbnns.append(Network.get_by_id(129))
-    dbnns.append(Network.get_by_id(135))
+    dbnns.append(Network.get_by_id(12))
     #dbnns.append(ComboNetwork.by_id(1050).get())
     #dbnns.append(MultiNetwork.by_id(102).get())
 
@@ -295,9 +294,12 @@ def nns_from_manual():
 
     #nns[nn.label] = QuaLiKizNDNN.from_json('nn.json')
     slicedim = 'Ati'
-    style='duo'
-    style='mono'
-    style='triple'
+    if len(nn._target_names) == 1:
+        style='mono'
+    elif len(nn._target_names) == 2:
+        style='duo'
+    elif len(nn._target_names) == 3:
+        style='triple'
     #from qlkANNk import QuaLiKiz4DNN
     #nns['4D'] = QuaLiKiz4DNN()
     #nns['4D'].label = '4D'
@@ -788,12 +790,17 @@ if __name__ == '__main__':
         mode = 'quick'
         submit_to_nndb = True
 
-    store = pd.HDFStore('../../gen3_7D_nions0_flat_filter8.h5', 'r')
+    #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
+    store_root = '../..'
+    store = pd.HDFStore(os.path.join(store_root, 'gen3_7D_nions0_flat_filter8.h5'), 'r')
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
-    slicedim, style, nns = nns_from_NNDB(100, only_dim=7)
-    #slicedim, style, nns = nns_from_manual()
+    if not socket.gethostname().startswith('rs'):
+        slicedim, style, nns = nns_from_NNDB(100, only_dim=7)
+        #slicedim, style, nns = nns_from_manual()
+    else:
+        slicedim, style, nns = nns_from_manual()
     #slicedim = 'An'
 
     #nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
