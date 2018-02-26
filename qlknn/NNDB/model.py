@@ -225,8 +225,8 @@ class Network(BaseModel):
                 efi = splitted[1]
                 partner_targets = [[efe]]
                 formulas = OrderedDict([
-                    (efe, '(nn{0:d} * nn{1:d})'),
-                    (efi, 'nn{1:d}')
+                    (efe, 'nn{1:d}'),
+                    (efi, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -237,8 +237,8 @@ class Network(BaseModel):
                 efi = splitted[3]
                 partner_targets = [[efi]]
                 formulas = OrderedDict([
-                    (efe, 'nn{1:d}'),
-                    (efi, '(nn{0:d} * nn{1:d})')
+                    (efe, '(nn{0:d} * nn{1:d})'),
+                    (efi, 'nn{1:d}')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
