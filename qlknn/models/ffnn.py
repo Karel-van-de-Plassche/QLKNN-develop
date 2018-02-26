@@ -29,7 +29,7 @@ class QuaLiKizComboNN():
             raise Exception('Feature min > feature max')
 
         self._combo_func = combo_func
-        self._target_names = target_names
+        self._target_names = pd.Series(target_names)
         self._target_min = pd.Series(
             self._combo_func(*[nn._target_min.values for nn in nns]),
             index=self._target_names)
