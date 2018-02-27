@@ -539,13 +539,13 @@ class TestRecursiveAttributes(ModelTestCase):
         self.filter = Filter.create(**default_dicts['filter'])
         self.train_script = TrainScript.create(**default_dicts['train_script'])
 
-        self.net = net1 = PureNetworkParams.from_folder(efi_network_path)
-        net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        self.net1 = PureNetworkParams.from_folder(efi_network_path)
+        self.net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
 
         # These parameters should be the same for ALL networks:
-        hyperpar1 = net1.pure_network_params.get().hyperparameters.get()
-        for net in [net2]:
-            hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        hyperpar1 = self.net1.pure_network_params.get().hyperparameters.get()
+        for net in [self.net2]:
+            hyperpar = net.pure_network_params.get().hyperparameters.get()
             for param in ['hidden_neurons']:
                 assert getattr(hyperpar1, param) == getattr(hyperpar, param)
 
@@ -553,26 +553,45 @@ class TestRecursiveAttributes(ModelTestCase):
                                   feature_names=['Ati'],
                                   filter=self.filter,
                                   train_script=self.train_script,
-                                  networks=[net1.id, net2.id],
+                                  networks=[self.net1.id, self.net2.id],
                                   recipe='nn0 * nn1')
         self.multi_net = Network.create(target_names=['efe_GB', 'efi_GB'],
                                   feature_names=['Ati'],
                                   filter=self.filter,
                                   train_script=self.train_script,
-                                  networks=[self.combo_net.id, net2.id],
+                                  networks=[self.combo_net.id, self.net2.id],
                                   recipe='np.hstack(args)')
 
+    def test_flatten_recursive(self):
+        arr = np.array([128, 128, 128])
+
+        nested = [arr]
+        flat = Network.flatten_recursive(nested)
+        self.assertNumpyArrayListEqual(flat, [arr])
+
+        nested = [arr, arr]
+        flat = Network.flatten_recursive(nested)
+        self.assertNumpyArrayListEqual(flat, [arr, arr])
+
+        nested = [[arr, arr], arr]
+        flat = Network.flatten_recursive(nested)
+        self.assertNumpyArrayListEqual(flat, [arr, arr, arr])
+
+        nested = [[arr, arr, arr], arr, [arr, arr, arr]]
+        flat = Network.flatten_recursive(nested)
+        self.assertNumpyArrayListEqual(flat, [arr, arr, arr, arr, arr, arr, arr])
+
     def test_get_recursive_pure_arrays(self):
-        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        hyperpar = self.net1.pure_network_params.get().hyperparameters.get()
         param_name = 'hidden_neurons'
         param = np.array(getattr(hyperpar, param_name))
         desired = param
-        rec_param = self.net.get_recursive_hyperparameter(param_name)
+        rec_param = self.net1.get_recursive_hyperparameter(param_name)
         self.assertNumpyArrayEqual(desired, rec_param)
         self.assertNumpyArrayEqual(np.array([128, 128, 128]), rec_param)
 
     def test_get_recursive_combo_arrays(self):
-        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        hyperpar = self.net1.pure_network_params.get().hyperparameters.get()
         param_name = 'hidden_neurons'
         param = np.array(getattr(hyperpar, param_name))
         desired = [param] * 2
@@ -583,7 +602,7 @@ class TestRecursiveAttributes(ModelTestCase):
         self.assertNumpyArrayListEqual(manual, rec_param)
 
     def test_get_recursive_multi_arrays(self):
-        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        hyperpar = self.net1.pure_network_params.get().hyperparameters.get()
         param_name = 'hidden_neurons'
         param = np.array(getattr(hyperpar, param_name))
         desired = [[param] * 2, param]
@@ -593,17 +612,34 @@ class TestRecursiveAttributes(ModelTestCase):
         manual = [[arr, arr], arr]
         self.assertNumpyArrayListEqual(manual, rec_param)
 
+    def test_get_recursive_multi_arrays_flipped(self):
+        self.multi_net = Network.create(target_names=['efi_GB', 'efe_GB'],
+                                  feature_names=['Ati'],
+                                  filter=self.filter,
+                                  train_script=self.train_script,
+                                  networks=[self.net2.id, self.combo_net.id],
+                                  recipe='np.hstack(args)')
+        hyperpar = self.net1.pure_network_params.get().hyperparameters.get()
+        param_name = 'hidden_neurons'
+        param = np.array(getattr(hyperpar, param_name))
+        desired = [param, [param] * 2]
+        rec_param = self.multi_net.get_recursive_hyperparameter(param_name)
+        self.assertNumpyArrayListEqual(desired, rec_param)
+        arr = np.array([128, 128, 128])
+        manual = [arr, [arr, arr]]
+        self.assertNumpyArrayListEqual(manual, rec_param)
+
     def test_get_recursive_pure_floats(self):
-        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        hyperpar = self.net1.pure_network_params.get().hyperparameters.get()
         param_name = 'cost_l2_scale'
         param = np.array(getattr(hyperpar, param_name))
         desired = param
-        rec_param = self.net.get_recursive_hyperparameter(param_name)
+        rec_param = self.net1.get_recursive_hyperparameter(param_name)
         self.assertEqual(desired, rec_param)
         self.assertEqual(8e-6, rec_param)
 
     def test_get_recursive_combo_floats(self):
-        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        hyperpar = self.net1.pure_network_params.get().hyperparameters.get()
         param_name = 'cost_l2_scale'
         param = getattr(hyperpar, param_name)
         desired = [param] * 2
@@ -612,7 +648,7 @@ class TestRecursiveAttributes(ModelTestCase):
         self.assertSequenceEqual([8.e-6, 8e-6], rec_param)
 
     def test_get_recursive_multi_floats(self):
-        hyperpar = self.net.pure_network_params.get().hyperparameters.get()
+        hyperpar = self.net1.pure_network_params.get().hyperparameters.get()
         param_name = 'cost_l2_scale'
         param = getattr(hyperpar, param_name)
         desired = [[param] * 2, param]

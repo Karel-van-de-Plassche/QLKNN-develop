@@ -11,6 +11,7 @@ from warnings import warn
 from functools import reduce
 from itertools import chain
 from collections import OrderedDict
+import itertools
 
 import numpy as np
 import scipy.io as io
@@ -108,8 +109,8 @@ class Network(BaseModel):
     networks = ArrayField(IntegerField, null=True)
 
     def get_recursive_hyperparameter(self, property):
+        prop_list = []
         if self.networks is not None:
-            prop_list = []
             for net_id in self.networks:
                 net = Network.get_by_id(net_id)
                 inner_prop_list = net.get_recursive_hyperparameter(property)
@@ -121,38 +122,51 @@ class Network(BaseModel):
                      .where(Network.id == self.id))
             value = query.tuples().get()[0]
             if isinstance(value, list):
-                prop_list = np.array(value)
+                prop_list.append(np.array(value))
             else:
-                prop_list = value
+                prop_list.append(value)
             #return [self.pure_network_params.get().hyperparametes.get().hidden_neurons]
         else:
             raise Exception
         return prop_list
 
+    @staticmethod
+    def consume(iterable, break_strings=True, break_arrays=False):
+        iterable = iter(iterable)
+
+        while 1:
+            try:
+                item = next(iterable)
+            except StopIteration:
+                break
+
+            if isinstance(item, str):
+                if break_strings:
+                    for char in item:
+                        yield char
+                else:
+                    yield item
+                continue
+
+            if isinstance(item, np.ndarray):
+                if not break_arrays:
+                    yield item
+                    continue
+
+            try:
+                data = iter(item)
+                iterable = itertools.chain(data, iterable)
+            except TypeError:
+                yield item
+
+    def flatten_recursive(iterable):
+        return list(Network.consume(iterable))
+
     def flat_recursive_property(self, property):
         prop_list = self.get_recursive_hyperparameter(property)
-        flat_list = prop_list
-        while isinstance(prop_list, list) and (any([isinstance(el, list) for el in prop_list])):
-            flat_list = []
-            for ii in range(len(prop_list)):
-                el = prop_list[ii]
-                try:
-                    if isinstance(el, list):
-                        flattened = flatten(el)
-                        flat_list.append(flattened)
-                    else:
-                        flat_list.extend([el])
-                except TypeError:
-                    try:
-                        if isinstance(el, list):
-                            flat_list.extend(el)
-                        else:
-                            flat_list.extend([el])
-                    except TypeError:
-                        flat_list.append(el)
-            prop_list = flat_list
+        prop_list = Network.flatten_recursive(prop_list)
         if isinstance(prop_list, list):
-            if prop_list[1:] == prop_list[:-1]:
+            if np.array_equal(prop_list[1:], prop_list[:-1]):
                 return prop_list[0]
             else:
                 raise Exception('Unequal values for {!s}={!s}'.format(property, prop_list))
