@@ -980,11 +980,15 @@ class Postprocess(BaseModel):
 
 class PostprocessSlice(BaseModel):
     network = ForeignKeyField(Network, related_name='postprocess_slice', null=True)
+    thresh_abs_mis_median       = ArrayField(FloatField)
+    thresh_abs_mis_95width      = ArrayField(FloatField)
     thresh_rel_mis_median       = ArrayField(FloatField)
     thresh_rel_mis_95width      = ArrayField(FloatField)
     no_thresh_frac              = ArrayField(FloatField)
     pop_abs_mis_median          = ArrayField(FloatField)
     pop_abs_mis_95width         = ArrayField(FloatField)
+    pop_rel_mis_median          = ArrayField(FloatField)
+    pop_rel_mis_95width         = ArrayField(FloatField)
     no_pop_frac                 = ArrayField(FloatField)
     wobble_tot                  = ArrayField(FloatField)
     wobble_unstab               = ArrayField(FloatField)

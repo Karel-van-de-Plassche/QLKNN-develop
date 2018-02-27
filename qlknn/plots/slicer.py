@@ -723,7 +723,7 @@ def extract_stats(totstats, style):
 
     results = pd.DataFrame()
 
-    for relabs, measure in zip(['rel', 'abs'], ['thresh', 'pop']):
+    for relabs, measure in product(['rel', 'abs'], ['thresh', 'pop']):
         df2 = df[measure]
         qlk_data = df2['QLK']
         network_data = df2.drop('QLK', axis=1)
@@ -738,7 +738,8 @@ def extract_stats(totstats, style):
         results['_'.join([measure, relabs, 'mis', 'median'])] = mis.median()
         results['_'.join([measure, relabs, 'mis', '95width'])] = quant.loc[quant2] - quant.loc[quant1]
 
-        results['_'.join(['no', measure, 'frac'])] = mis.isnull().sum() / len(mis)
+        if relabs == 'abs':
+            results['_'.join(['no', measure, 'frac'])] = mis.isnull().sum() / len(mis)
     results['wobble_unstab'] = df['wobble_unstab'].mean()
     results['wobble_qlkunstab'] = df['wobble_qlkunstab'].mean()
     results['wobble_tot'] = df['wobble_tot'].mean()
