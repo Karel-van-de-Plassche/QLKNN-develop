@@ -743,14 +743,16 @@ def extract_stats(totstats, style):
     results['wobble_qlkunstab'] = df['wobble_qlkunstab'].mean()
     results['wobble_tot'] = df['wobble_tot'].mean()
 
-    if style == 'duo':
+    if style == 'duo' or style == 'triple':
         duo_results = pd.DataFrame()
         measure = 'thresh'
         df2 = df[measure]
         network_data = df2.drop('QLK', axis=1)
         network_data = network_data.reorder_levels([1, 0], axis=1)
-        efelike_name = network_data.columns[1][0]
-        efilike_name = network_data.columns[0][0]
+        efelike_name = network_data.columns[0][0]
+        efilike_name = network_data.columns[1][0]
+        if not (efelike_name.startswith('efe') and efilike_name.startswith('efi')):
+            raise Exception('{!s} does not start with efe or {!s} does not start with efi'.format(efelike_name, efilike_name))
         mis = network_data[efilike_name] - network_data[efelike_name]
         quant = mis.quantile([quant1, quant2])
         duo_results['dual_thresh_mismatch_median'] = mis.median()
