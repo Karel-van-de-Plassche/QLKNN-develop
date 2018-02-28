@@ -49,7 +49,10 @@ def div_filter(store):
         if 'pf' in group:
             se = se.abs()
 
-        store[group] = store[group].loc[(low < se) & (se < high)]
+        if isinstance(store, pd.HDFStore):
+            store.put(group, store[group].loc[(low < se) & (se < high)], format=store_format)
+        else:
+            store[set.name] = store[group].loc[(low < se) & (se < high)]
         print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
     return store
 
@@ -256,9 +259,9 @@ def split_dims(input, data, const, gen, prefix=''):
     for dim in [7, 4]:
         print('splitting', dim)
         store = pd.HDFStore(prefix + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
-        store['/megarun1/flattened'] = data.loc[idx[dim]]
-        store['/megarun1/input'] = inputs[dim]
-        store['/megarun1/constants'] = consts[dim]
+        store.put('/megarun1/flattened', data.loc[idx[dim]], format=store_format)
+        store.put('/megarun1/input', inputs[dim], format=store_format)
+        store.put('/megarun1/constants', consts[dim], format=store_format)
         store.close()
 
 def split_subsets(input, data, const, gen, frac=0.1):
@@ -273,9 +276,9 @@ def split_subsets(input, data, const, gen, frac=0.1):
     for dim, set in product([4, 7, 9], ['test', 'training']):
         print(dim, set)
         store = pd.HDFStore(set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
-        store['/megarun1/flattened'] = data.loc[idx[dim] & idx[set]]
-        store['/megarun1/input'] = inputs[dim].loc[idx[set]]
-        store['/megarun1/constants'] = consts[dim]
+        store.put('/megarun1/flattened', data.loc[idx[dim] & idx[set]], format=store_format)
+        store.put('/megarun1/input', inputs[dim].loc[idx[set]], format=store_format)
+        store.put('/megarun1/constants', consts[dim], format=store_format)
         store.close()
 
 if __name__ == '__main__':
@@ -299,9 +302,9 @@ if __name__ == '__main__':
     input = input.loc[data.index]
     print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
     sane_store = pd.HDFStore(os.path.join(root_dir, 'sane_' + store_name + '_filter' + str(filter_num) + '.h5'))
-    sane_store['/megarun1/input'] = input
-    sane_store['/megarun1/flattened'] = data
-    sane_store['/megarun1/constants'] = const
+    sane_store.put('/megarun1/flattened', data, format=store_format)
+    sane_store.put('/megarun1/input', input, format=store_format)
+    sane_store.put('/megarun1/constants', const, format=store_format)
     #input = sane_store['/megarun1/input']
     #data = sane_store['/megarun1/flattened']
     #const = sane_store['/megarun1/constants']
