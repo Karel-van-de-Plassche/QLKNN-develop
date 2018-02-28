@@ -361,8 +361,10 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
             se = parts.iloc[:,0] / parts.iloc[:,1]
             se.name = target_name
             data = data.append(se.to_frame())
+            get_vars = get_vars[(get_vars != target_name)]
 
-    data = data.join(store.select('megarun1/flattened', columns=get_vars))
+    if get_vars.size != 0:
+        data = data.append(store.select('megarun1/flattened', columns=get_vars))
 
     data = data.loc[idx]
     data.dropna(axis='index', how='all', inplace=True)
@@ -565,7 +567,7 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         nn_preds = np.ndarray([x.shape[0], 0])
         for ii, (nn_index, nn) in enumerate(nns.items()):
             clip_low = True
-            low_bound = np.array([[0 if 'ef' in name else -np.inf for name in nn._target_names]]).T
+            low_bound = np.array([[0 if ('ef' in name) and (not 'div' in name) else -np.inf for name in nn._target_names]]).T
             clip_high = False
             high_bound = None
             #if all(['ef' in name for name in nn._target_names]):
