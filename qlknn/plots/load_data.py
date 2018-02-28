@@ -77,8 +77,18 @@ nameconvert = {
     'pfi_GB': '$\Gamma_i\,[GB]$',
     'pfeITG_GB': '$\Gamma_{ITG, i}\,[GB]$',
     'pfeTEM_GB': '$\Gamma_{TEM, i}\,[GB]$'
+
+}
+
+comboname = {
+    'efiTEM_GB_div_efeTEM_GB': nameconvert['efiTEM_GB'] + '/' + nameconvert['efeTEM_GB'],
+    'pfeTEM_GB_div_efeTEM_GB': nameconvert['pfeTEM_GB'] + '/' + nameconvert['efeTEM_GB'],
+    'efeITG_GB_div_efiITG_GB': nameconvert['efeITG_GB'] + '/' + nameconvert['efiITG_GB'],
+    'pfeITG_GB_div_efiITG_GB': nameconvert['pfeITG_GB'] + '/' + nameconvert['efiITG_GB']
+
 }
 nameconvert.update(shortname)
+nameconvert.update(comboname)
 def prettify_df(input, data):
     try:
         del input['nions']

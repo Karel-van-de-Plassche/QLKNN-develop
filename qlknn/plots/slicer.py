@@ -341,10 +341,32 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
         idx = input.index
     input = input[feature_names]
 
-    data = store.select('megarun1/flattened', columns=target_names)
+    get_vars = target_names
+    data = pd.DataFrame()
 
-    input = input.loc[idx]
-    data = data.loc[input.index]
+    dataset_vars = store.get_storer('/megarun1/flattened').non_index_axes[0][1]
+    for target_name in target_names:
+        if target_name not in dataset_vars:
+            print('WARNING! {!s} missing from dataset. Trying to reconstruct'.format(target_name))
+            if target_name == 'efiTEM_GB_div_efeTEM_GB':
+                parts = store.select('megarun1/flattened', columns=['efiTEM_GB', 'efeTEM_GB'])
+            elif target_name == 'pfeTEM_GB_div_efeTEM_GB':
+                parts = store.select('megarun1/flattened', columns=['pfeTEM_GB', 'efeTEM_GB'])
+            elif target_name == 'efeITG_GB_div_efiITG_GB':
+                parts = store.select('megarun1/flattened', columns=['efeITG_GB', 'efiITG_GB'])
+            elif target_name == 'pfeITG_GB_div_efiITG_GB':
+                parts = store.select('megarun1/flattened', columns=['pfeITG_GB', 'efiITG_GB'])
+            else:
+                raise Exception('Could not reconstruct {!s}'.format(target_name))
+            se = parts.iloc[:,0] / parts.iloc[:,1]
+            se.name = target_name
+            data = data.append(se.to_frame())
+
+    data = data.join(store.select('megarun1/flattened', columns=get_vars))
+
+    data = data.loc[idx]
+    data.dropna(axis='index', how='all', inplace=True)
+    input = input.loc[data.index]
     df = input.join(data[target_names])
 
     if calc_maxgam is True:
