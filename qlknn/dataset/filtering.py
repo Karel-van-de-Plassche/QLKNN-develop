@@ -52,7 +52,7 @@ def div_filter(store):
         if isinstance(store, pd.HDFStore):
             store.put(group, store[group].loc[(low < se) & (se < high)], format=store_format)
         else:
-            store[set.name] = store[group].loc[(low < se) & (se < high)]
+            store[se.name] = store[group].loc[(low < se) & (se < high)]
         print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
     return store
 
