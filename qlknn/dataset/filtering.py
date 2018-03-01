@@ -3,12 +3,14 @@ import re
 from itertools import product
 import gc
 import os
+import warnings
 
 from IPython import embed
 import pandas as pd
 import numpy as np
 
-particle_vars = [u'pf', u'df', u'vt', u'vr', u'vc']
+particle_diffusion_vars = [u'df', u'vt', u'vr', u'vc']
+particle_vars = [u'pf'] + particle_diffusion_vars
 heat_vars = [u'ef']
 momentum_vars = [u'vf']
 store_format = 'table'
@@ -19,6 +21,46 @@ store_format = 'table'
 #       'efe_GB', 'vce_GB', 'pfe_GB',
 #       'vte_GB', 'dfe_GB'
              #'chie', 'ven', 'ver', 'vec']
+
+def drop_start_with(data, start_with):
+    droplist = []
+    for col in data.columns:
+        if any(col.startswith(part) for part in start_with):
+            droplist.append(col)
+    data.drop(droplist, axis='columns', inplace=True)
+
+def save_to_store(input, data, const, store_name, zip=True):
+    if zip is True:
+        kwargs = {'complevel': 1,
+                  'complib': 'zlib'}
+        store_name += '.1'
+    else:
+        kwargs = {}
+    store = pd.HDFStore(store_name)
+    if len(data) > 0:
+        store.put('/megarun1/flattened', data, format=store_format, **kwargs)
+    else:
+        store.put('/megarun1/flattened', data, format='fixed', **kwargs)
+    store.put('/megarun1/input', input, format=store_format, **kwargs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", pd.errors.PerformanceWarning)
+        store.put('/megarun1/constants', const)
+    store.close()
+
+def put_to_store_or_df(store_or_df, name, var):
+    if isinstance(store_or_df, pd.HDFStore):
+        store_or_df.put(name, var, format=store_format)
+    else:
+        store_or_df[name] = var
+
+def load_from_store(store_name):
+    store = pd.HDFStore(store_name)
+    input = store['/megarun1/input']
+    data = store['/megarun1/flattened']
+    const = store['/megarun1/constants']
+    store.close()
+    return input, data, const
+
 def regime_filter(data, leq, less):
     bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
     bool &= (data['efe_GB'] < less) & (data['efi_GB'] < less)
@@ -49,10 +91,7 @@ def div_filter(store):
         if 'pf' in group:
             se = se.abs()
 
-        if isinstance(store, pd.HDFStore):
-            store.put(group, store[group].loc[(low < se) & (se < high)], format=store_format)
-        else:
-            store[se.name] = store[group].loc[(low < se) & (se < high)]
+        put_to_store_or_df(store, se.name, store[group].loc[(low < se) & (se < high)])
         print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
     return store
 
@@ -92,10 +131,8 @@ def negative_filter(data):
     bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
     for col in data.columns:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-        if splitted[0] in heat_vars:
+        if (splitted[0] in heat_vars) and (len(splitted) == 5):
             bool &= (data[col] >= 0)
-        elif splitted[0] in particle_vars:
-            pass
     return bool
 
 def ck_filter(data, bound):
@@ -117,18 +154,22 @@ def totsep_filter(data, septot_factor, startlen=None):
                 #sepflux += data[sepname]
                 bool &= np.abs(data[sepname]) <= septot_factor * np.abs(data[totname])
 
-            print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*np.sum(bool)/startlen))
+                print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*np.sum(bool)/startlen))
     return bool
 
 def ambipolar_filter(data, bound):
     return (data['absambi'] < bound) & (data['absambi'] > 1/bound)
 
 def femtoflux_filter(data, bound):
-    fluxes = [col for col in data if len(re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)) > 1 if re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)[0] in particle_vars + heat_vars + momentum_vars]
-    absflux = data[fluxes].abs()
-    return ~((absflux < bound) & (absflux != 0)).any(axis=1)
+    fluxes = [col for col in data if len(re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)) == 5 if re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)[0] in particle_vars + heat_vars + momentum_vars]
+    bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
+    for flux in fluxes:
+        absflux = data[flux].abs()
+        bool &= ~((absflux < bound) & (absflux != 0))
+    return bool
 
-def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, startlen=None):
+def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, 
+                  stored_septot_filter=None, stored_femtoflux_filter=None, startlen=None):
     if startlen is None:
         startlen = len(data)
     # Throw away point if negative heat flux
@@ -143,7 +184,11 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, startl
     gc.collect()
 
     # Throw away point if sep flux is way higher than tot flux
-    data = data.loc[totsep_filter(data, septot_factor, startlen=startlen)]
+    if stored_septot_filter is None:
+        data = data.loc[totsep_filter(data, septot_factor, startlen=startlen)]
+    else:
+        data = data.reindex(index=data.index.difference(stored_septot_filter), copy=False)
+
     print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
     gc.collect()
 
@@ -151,7 +196,10 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, startl
     print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
     gc.collect()
 
-    data = data.loc[femtoflux_filter(data, femto_bound)]
+    if stored_femtoflux_filter is None:
+        data = data.loc[femtoflux_filter(data, femto_bound)]
+    else:
+        data = data.reindex(index=data.index.difference(stored_femtoflux_filter), copy=False)
     print('After filter {!s:<13} {:.2f}% left'.format('femtoflux', 100*len(data)/startlen))
     gc.collect()
 
@@ -165,15 +213,29 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, startl
     #        if splitted[2] != '':
     #            data.loc[]
 
-def separate_to_store(input, data, const, storename):
-    store = pd.HDFStore(storename)
+def separate_to_store(input, data, const, store_name):
+    store = pd.HDFStore(store_name)
     store['input'] = input.loc[data.index]
     for col in data:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-        if splitted[0] in heat_vars + particle_vars + momentum_vars + ['gam_leq_GB', 'gam_less_GB']:
+        if ((splitted[0] in heat_vars + particle_vars + momentum_vars) or
+            (col in ['gam_leq_GB', 'gam_great_GB'])):
             store.put(col, data[col].dropna(), format=store_format)
+        else:
+            print('do not save', col)
     store.put('constants', const)
     store.close()
+
+def create_gen3_divsum(store):
+    names = ['efeITG_GB_div_efiITG_GB',
+             'pfeITG_GB_div_efiITG_GB',
+             'efiTEM_GB_div_efeTEM_GB',
+             'pfeTEM_GB_div_efeTEM_GB']
+    for name in names:
+        one, two = re.compile('_div_').split(name)
+        one, two = store[one], store[two]
+        res = (one / two).dropna()
+        put_to_store_or_df(store, name, res)
 
 def create_divsum(store):
     for group in store:
@@ -200,15 +262,13 @@ def create_divsum(store):
                 ('_'.join([group, 'div', group3]),
                  store[group] / store[group3])
             ]
+
         else:
             continue
 
         for name, set in sets:
             set.name = name
-            if isinstance(store, pd.HDFStore):
-                store.put(set.name, set, format=store_format)
-            else:
-                store[set.name] = set
+            put_to_store_or_df(store, set.name, set)
     return store
 
 def filter_9D_to_7D(input, Zeff=1, Nustar=1e-3):
@@ -243,13 +303,13 @@ def split_input(input, const):
     idx[9] = input.index
     inputs[7] = input.loc[idx[7]]
     for name in ['Zeff', 'Nustar']:
-        consts[7][name] = inputs[7].head(1)[name]
+        consts[7][name] = float(inputs[7].head(1)[name].values)
     inputs[7].drop(['Zeff', 'Nustar'], axis='columns', inplace=True)
 
     idx[4] = filter_7D_to_4D(inputs[7])
     inputs[4] = inputs[7].loc[idx[4]]
     for name in ['Ate', 'An', 'x']:
-        consts[4][name] = inputs[4].head(1)[name]
+        consts[4][name] = float(inputs[4].head(1)[name].values)
     inputs[4].drop(['Ate', 'An', 'x'], axis='columns', inplace=True)
 
     return idx, inputs, consts
@@ -258,11 +318,8 @@ def split_dims(input, data, const, gen, prefix=''):
     idx, inputs, consts = split_input(input, const)
     for dim in [7, 4]:
         print('splitting', dim)
-        store = pd.HDFStore(prefix + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
-        store.put('/megarun1/flattened', data.loc[idx[dim]], format=store_format)
-        store.put('/megarun1/input', inputs[dim], format=store_format)
-        store.put('/megarun1/constants', consts[dim], format=store_format)
-        store.close()
+        store_name = prefix + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5'
+        save_to_store(inputs[dim], data.loc[idx[dim]], consts[dim], store_name)
 
 def split_subsets(input, data, const, gen, frac=0.1):
     idx, inputs, consts = split_input(input, const)
@@ -275,11 +332,11 @@ def split_subsets(input, data, const, gen, frac=0.1):
     print('Splitting subsets')
     for dim, set in product([4, 7, 9], ['test', 'training']):
         print(dim, set)
-        store = pd.HDFStore(set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5')
-        store.put('/megarun1/flattened', data.loc[idx[dim] & idx[set]], format=store_format)
-        store.put('/megarun1/input', inputs[dim].loc[idx[set]], format=store_format)
-        store.put('/megarun1/constants', consts[dim], format=store_format)
-        store.close()
+        store_name = set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5'
+        save_to_store(inputs[dim].reindex(index=(idx[dim] & idx[set]), copy=False),
+                      data.reindex(index=(idx[dim] & idx[set]), copy=False),
+                      consts[dim],
+                      store_name)
 
 if __name__ == '__main__':
     dim = 9
@@ -287,29 +344,49 @@ if __name__ == '__main__':
     filter_num = 8
 
     root_dir = '.'
-    store_name = ''.join(['gen', str(gen), '_', str(dim), 'D_nions0_flat'])
-    store = pd.HDFStore(os.path.join(root_dir, store_name + '.h5.1'), 'r')
+    basename = ''.join(['gen', str(gen), '_', str(dim), 'D_nions0_flat'])
+    store_name = basename + '.h5'
 
-    input = store['/megarun1/input']
-    data = store['/megarun1/flattened']
-    const = store['/megarun1/constants']
+    input, data, const = load_from_store(store_name)
+    septot_factor = 1.5
+    femto_bound = 1e-4
+    septot_filter_name = '/megarun1/insane_septot_' + str(septot_factor)
+    femto_filter_name = '/megarun1/insane_femtoflux_' + str(femto_bound)
+    # Summarize the diffusion stats in a single septot filter
+    with pd.HDFStore(store_name) as store:
+        store.put(septot_filter_name,
+                  data.index[~totsep_filter(data, septot_factor)].to_series())
+        store.put(femto_filter_name,
+                  data.index[~femtoflux_filter(data, femto_bound)].to_series())
+    drop_start_with(data, particle_diffusion_vars)
+    create_gen3_divsum(data)
     split_dims(input, data, const, gen)
 
     startlen = len(data)
-    data = sanity_filter(data, 50, 1.5, 1.5, 1e-4, startlen=startlen)
+
+    # As the 9D dataset is too big for memory, we have saved the septot filter seperately
+    with pd.HDFStore(store_name) as store:
+        if septot_filter_name in store:
+            stored_septot_filter = store[septot_filter_name]
+        else:
+            stored_septot_filter = None
+        if femto_filter_name in store:
+            stored_femtoflux_filter = store[femto_filter_name]
+        else:
+            stored_femtoflux_filter = None
+
+    data = sanity_filter(data, 50, septot_factor, 1.5, femto_bound,
+                         stored_septot_filter=stored_septot_filter,
+                         stored_femtoflux_filter=stored_femtoflux_filter,
+                         startlen=startlen)
     data = regime_filter(data, 0, 100)
     gc.collect()
     input = input.loc[data.index]
     print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
-    sane_store = pd.HDFStore(os.path.join(root_dir, 'sane_' + store_name + '_filter' + str(filter_num) + '.h5'))
-    sane_store.put('/megarun1/flattened', data, format=store_format)
-    sane_store.put('/megarun1/input', input, format=store_format)
-    sane_store.put('/megarun1/constants', const, format=store_format)
-    #input = sane_store['/megarun1/input']
-    #data = sane_store['/megarun1/flattened']
-    #const = sane_store['/megarun1/constants']
+    sane_store_name = os.path.join(root_dir, 'sane_' + basename + '_filter' + str(filter_num) + '.h5')
+    save_to_store(input, data, const, sane_store_name)
     split_dims(input, data, const, gen, prefix='sane_')
-    sane_store.close()
+    #input, data, const = load_from_store(sane_store_name)
     split_subsets(input, data, const, gen, frac=0.1)
     del data, input, const
     gc.collect()
@@ -317,14 +394,11 @@ if __name__ == '__main__':
 
     for dim, set in product([4, 7, 9], ['test', 'training']):
         print(dim, set)
-        basename = set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter_num) + '.h5'
-        store = pd.HDFStore(basename, 'r')
-        data = store['/megarun1/flattened']
-        input = store['/megarun1/input']
-        const = store['/megarun1/constants']
+        basename = set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter_num) + '.h5.1'
+        input, data, const = load_from_store(basename)
 
         data = stability_filter(data)
-        data = create_divsum(data)
+        #data = create_divsum(data)
         data = div_filter(data)
         separate_to_store(input, data, const, 'unstable_' + basename)
     #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
