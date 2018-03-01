@@ -18,7 +18,7 @@ import scipy.io as io
 import pandas as pd
 from peewee import (Model,
                     FloatField, FloatField, IntegerField, BooleanField, TextField, ForeignKeyField, DateTimeField,
-                    ProgrammingError, AsIs, fn, SQL, DoesNotExist)
+                    ProgrammingError, AsIs, fn, SQL, DoesNotExist, JOIN)
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
 from playhouse.hybrid import hybrid_property
 #from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
@@ -108,63 +108,18 @@ class Network(BaseModel):
     recipe = TextField(null=True)
     networks = ArrayField(IntegerField, null=True)
 
-    def get_recursive_hyperparameter(self, property):
-        prop_list = []
-        if self.networks is not None:
-            for net_id in self.networks:
-                net = Network.get_by_id(net_id)
-                inner_prop_list = net.get_recursive_hyperparameter(property)
-                prop_list.append(inner_prop_list)
-        elif self.pure_network_params.count() == 1:
-            query = (Hyperparameters.select(getattr(Hyperparameters, property))
-                     .join(PureNetworkParams)
-                     .join(Network)
-                     .where(Network.id == self.id))
-            value = query.tuples().get()[0]
-            if isinstance(value, list):
-                prop_list.append(np.array(value))
-            else:
-                prop_list.append(value)
-            #return [self.pure_network_params.get().hyperparametes.get().hidden_neurons]
-        else:
-            raise Exception
-        return prop_list
-
-    @staticmethod
-    def consume(iterable, break_strings=True, break_arrays=False):
-        iterable = iter(iterable)
-
-        while 1:
-            try:
-                item = next(iterable)
-            except StopIteration:
-                break
-
-            if isinstance(item, str):
-                if break_strings:
-                    for char in item:
-                        yield char
-                else:
-                    yield item
-                continue
-
-            if isinstance(item, np.ndarray):
-                if not break_arrays:
-                    yield item
-                    continue
-
-            try:
-                data = iter(item)
-                iterable = itertools.chain(data, iterable)
-            except TypeError:
-                yield item
-
-    def flatten_recursive(iterable):
-        return list(Network.consume(iterable))
 
     def flat_recursive_property(self, property):
-        prop_list = self.get_recursive_hyperparameter(property)
-        prop_list = Network.flatten_recursive(prop_list)
+        subq = Network.get_recursive_subquery(property)
+        query = (self.select(getattr(subq.c, property))
+                 .join(subq, on=(subq.c.id == Network.id))
+                 .where(Network.id == self.id)
+                 )
+        if query.count() == 1:
+            prop_list = query.tuples().get()[0]
+        else:
+            raise Exception
+
         if isinstance(prop_list, list):
             if np.array_equal(prop_list[1:], prop_list[:-1]):
                 return prop_list[0]
@@ -173,31 +128,29 @@ class Network(BaseModel):
         else:
             return prop_list
 
-    @hybrid_property
-    def hidden_neurons(self):
-        return self.flat_recursive_property('hidden_neurons')
+    @classmethod
+    def get_recursive_subquery(cls, params, table=None):
+        if table is None:
+            table = Hyperparameters
+        if not isinstance(params, list):
+            params = [params]
+        x = Network.alias()
+        y = Network.alias()
+        subx = x.select(x.id, x.networks)
+        suby = y.select(y.id)
 
-    @hybrid_property
-    def cost_l2_scale(self):
-        return self.flat_recursive_property('cost_l2_scale')
-    #@hybrid_property
-    #def hidden_neurons(self):
-    #    return [Network.get_by_id(nn).hyperparameters.get().hidden_neurons for nn in self.networks]
-
-    #@hidden_neurons.expression
-    #def hidden_neurons(cls):
-    #    raise NotImplementedError('Cannot use in SQL query')
-
-    #def to_QuaLiKizComboNN(self):
-    #    network_ids = self.networks
-    #    networks = [Network.get_by_id(num).to_QuaLiKizNDNN() for num in network_ids]
-    #    recipe = self.recipe
-    #    for ii in range(len(network_ids)):
-    #        recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
-    #    exec('def combo_func(*args): return ' + recipe, globals())
-    #    return QuaLiKizComboNN(self.target_names, networks, combo_func)
-
-    #to_QuaLiKizNN = to_QuaLiKizComboNN
+        subq = (cls.select(Network.id,
+                  *[fn.ARRAY_AGG(getattr(table, param), coerce=False).alias(param)
+                   for param in params])
+         .join(subx, JOIN.LEFT_OUTER, on=subx.c.id == fn.ANY(Network.networks))
+         .join(suby, JOIN.LEFT_OUTER, on=suby.c.id == fn.ANY(subx.c.networks))
+         .join(PureNetworkParams, on=((PureNetworkParams.network_id == Network.id) |
+                                   (PureNetworkParams.network_id == subx.c.id) |
+                                   (PureNetworkParams.network_id == suby.c.id)))
+         .join(table, on=PureNetworkParams.id == table.pure_network_params_id)
+         .group_by(Network.id)
+        )
+        return subq
 
     @classmethod
     def find_divsum_candidates(cls):
