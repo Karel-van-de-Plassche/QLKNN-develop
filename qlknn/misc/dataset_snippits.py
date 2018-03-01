@@ -25,7 +25,7 @@ list_train_dims = ['efe_GB',
                    'gam_GB_leq2max']
 
         index = input.index[(
-                             np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
+                             np.isclose(input['Zeff'], 1,     atol=1e-5, rtol=1e-3) &
                              np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
                              )]
 
@@ -46,7 +46,7 @@ list_train_dims = ['efe_GB',
     max = 60
     min = 0.1
         index = input.index[(
-                             np.isclose(input['Zeffx'], 1,     atol=1e-5, rtol=1e-3) &
+                             np.isclose(input['Zeff'], 1,     atol=1e-5, rtol=1e-3) &
                              np.isclose(input['Nustar'], 1e-3, atol=1e-5, rtol=1e-3)
                              )]
         sepflux = sepflux.loc[index]

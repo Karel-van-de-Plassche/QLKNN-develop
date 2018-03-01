@@ -60,8 +60,8 @@ nameconvert = {
     'Nustar': '$log_{10}(\\nu^*)$',
     'logNustar': '$log_{10}(\\nu^*)$',
     'Ti_Te': 'Relative temperature $T_i/T_e$',
-    'Zeffx': '$Z_{eff}$',
-    'qx': '$q$',
+    'Zeff': '$Z_{eff}$',
+    'q': '$q$',
     'smag': 'Magnetic shear $\hat{s}$',
     'x': '$\\varepsilon\,(r/R)$',
 

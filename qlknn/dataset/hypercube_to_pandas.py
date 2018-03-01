@@ -20,11 +20,11 @@ def metadatize(ds):
     return ds
 
 def absambi(ds):
-    n0, n1 = [-(ds['Zi'].sel(nions=1) - ds['Zeffx']) / ( ds['Zi'].sel(nions=0) * (ds['Zi'].sel(nions=0) - ds['Zi']
-    .sel(nions=1))), (ds['Zi'].sel(nions=0) - ds['Zeffx']) / ( ds['Zi'].sel(nions=1) * (ds['Zi'].sel(nions=0) - ds
+    n0, n1 = [-(ds['Zi'].sel(nions=1) - ds['Zeff']) / ( ds['Zi'].sel(nions=0) * (ds['Zi'].sel(nions=0) - ds['Zi']
+    .sel(nions=1))), (ds['Zi'].sel(nions=0) - ds['Zeff']) / ( ds['Zi'].sel(nions=1) * (ds['Zi'].sel(nions=0) - ds
     ['Zi'].sel(nions=1)))]
-    n0 = xr.DataArray(n0, coords={'Zeffx': n0['Zeffx'], 'nions': 0}, name='n0')
-    n1 = xr.DataArray(n1, coords={'Zeffx': n1['Zeffx'], 'nions': 1}, name='n1')
+    n0 = xr.DataArray(n0, coords={'Zeff': n0['Zeff'], 'nions': 0}, name='n0')
+    n1 = xr.DataArray(n1, coords={'Zeff': n1['Zeff'], 'nions': 1}, name='n1')
     ds['n'] = xr.concat([n0, n1], dim='nions')
     ds['absambi'] = np.abs(((ds['pfi_GB'] * ds['n'] * ds['Zi']).sum('nions') / ds['pfe_GB'])) 
     if (ds['absambi'].isnull() & (ds['pfe_GB'] != 0)).sum() == 0:
@@ -103,11 +103,11 @@ print('Xarray pandaized after', time.time() - starttime)
 del ds_tot
 gc.collect()
 store = pd.HDFStore('./gen3_9D_nions0_flat.h5')
-dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].reset_index(inplace=True)
-dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].index.name = 'dimx'
+dfs[('Zeff', 'Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te', 'Nustar')].reset_index(inplace=True)
+dfs[('Zeff', 'Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te', 'Nustar')].index.name = 'dimx'
 print('Index reset after', time.time() - starttime)
-store['/megarun1/input'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
+store['/megarun1/input'] = dfs[('Zeff', 'Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, :9]
 print('Input stored after', time.time() - starttime)
-store['/megarun1/flattened'] = dfs[('Zeffx', 'Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
+store['/megarun1/flattened'] = dfs[('Zeff', 'Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te', 'Nustar')].iloc[:, 9:]
 store['/megarun1/constants'] = dfs['constants']
 print('Done after', time.time() - starttime)

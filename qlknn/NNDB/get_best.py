@@ -18,8 +18,8 @@ target_to_fancy = {'efeETG_GB': 'Electron ETG Heat Flux',
                    'efeTEM_GB': 'Electron TEM Heat Flux',
                    'efiITG_GB': 'Ion ITG Heat Flux',
                    'efiTEM_GB': 'Ion TEM Heat Flux'}
-feature_names = ['An', 'Ate', 'Ati', 'Ti_Te', 'qx', 'smag', 'x']
-feature_names2 = ['Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te']
+feature_names = ['An', 'Ate', 'Ati', 'Ti_Te', 'q', 'smag', 'x']
+feature_names2 = ['Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te']
 query = (Network.select(Network.target_names).distinct().tuples())
 #df = pd.DataFrame(columns=['target_names', 'id','rms'])
 results = pd.DataFrame()

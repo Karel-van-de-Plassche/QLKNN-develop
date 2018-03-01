@@ -211,19 +211,19 @@ def create_divsum(store):
                 store[set.name] = set
     return store
 
-def filter_9D_to_7D(input, Zeffx=1, Nustar=1e-3):
+def filter_9D_to_7D(input, Zeff=1, Nustar=1e-3):
     if len(input.columns) != 9:
-        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'Zeffx', 'Nustar']")
+        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te', 'Zeff', 'Nustar']")
 
     idx = input.index[(
-        np.isclose(input['Zeffx'], Zeffx,     atol=1e-5, rtol=1e-3) &
+        np.isclose(input['Zeff'], Zeff,     atol=1e-5, rtol=1e-3) &
         np.isclose(input['Nustar'], Nustar, atol=1e-5, rtol=1e-3)
     )]
     return idx
 
 def filter_7D_to_4D(input, Ate=6.5, An=2, x=0.45):
     if len(input.columns) != 7:
-        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te']")
+        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te']")
 
     idx = input.index[(
         np.isclose(input['Ate'], Ate,     atol=1e-5, rtol=1e-3) &
@@ -242,9 +242,9 @@ def split_input(input, const):
     inputs = {9: input}
     idx[9] = input.index
     inputs[7] = input.loc[idx[7]]
-    for name in ['Zeffx', 'Nustar']:
+    for name in ['Zeff', 'Nustar']:
         consts[7][name] = inputs[7].head(1)[name]
-    inputs[7].drop(['Zeffx', 'Nustar'], axis='columns', inplace=True)
+    inputs[7].drop(['Zeff', 'Nustar'], axis='columns', inplace=True)
 
     idx[4] = filter_7D_to_4D(inputs[7])
     inputs[4] = inputs[7].loc[idx[4]]

@@ -322,9 +322,9 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
     except KeyError:
         print('No Nustar in dataset')
 
-    if ('Zeffx' == feature_names).any() and not ('Zeffx' in input.columns):
-        print('WARNING! creating Zeffx. You should use a 9D dataset')
-        input['Zeffx']  = np.full_like(input['Ati'], 1.)
+    if ('Zeff' == feature_names).any() and not ('Zeff' in input.columns):
+        print('WARNING! creating Zeff. You should use a 9D dataset')
+        input['Zeff']  = np.full_like(input['Ati'], 1.)
         raise Exception
     if ('logNustar' == feature_names).any() and not ('logNustar' in input.columns):
         print('WARNING! creating logNustar. You should use a 9D dataset')
@@ -378,8 +378,8 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
         )
         df = df.join(df_gam)
 
-    #itor = zip(['An', 'Ate', 'Ti_Te', 'qx', 'smag', 'x'], ['0.00', '10.00', '1.00', '5.00', '0.40', '0.45'])
-    #itor = zip(['Zeffx', 'Ate', 'An', 'qx', 'smag', 'x', 'Ti_Te', 'logNustar'], [1.0, 5.75, 2.5, 2.0, 0.10000000149011612, 0.33000001311302185, 1.0, -2.000217201545864])
+    #itor = zip(['An', 'Ate', 'Ti_Te', 'q', 'smag', 'x'], ['0.00', '10.00', '1.00', '5.00', '0.40', '0.45'])
+    #itor = zip(['Zeff', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te', 'logNustar'], [1.0, 5.75, 2.5, 2.0, 0.10000000149011612, 0.33000001311302185, 1.0, -2.000217201545864])
 
     if slice is not None:
         for name, val in slice:
