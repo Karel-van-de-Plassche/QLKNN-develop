@@ -54,19 +54,23 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
 
     if socket.gethostname().startswith('r0'):
         machine_type = 'marconi'
+    if socket.gethostname().startswith('login'):
+        machine_type = 'lisa'
     else:
         machine_type = 'general'
 
 
     database = 'nndb'
     host = 'gkdb.org'
+    user = 'someone'
     password = 'something'
     table = 'task'
-    with open(os.path.join(os.path.expanduser('~'), '.pgpass')) as file_:
-        line = file_.read()
-        split = line.split(':')
-    user=split[-2].strip()
-    password=split[-1].strip()
+    if interact_with_nndb:
+        with open(os.path.join(os.path.expanduser('~'), '.pgpass')) as file_:
+            line = file_.read()
+            split = line.split(':')
+        user=split[-2].strip()
+        password=split[-1].strip()
     columns = [('network_id', 'INT')]
 
     def run_async_io_cmd(self, cmd):
@@ -80,9 +84,12 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
             raise subprocess.CalledProcessError(return_code, cmd)
 
     def launch_train_NDNN(self):
-        if self.machine_type == 'marconi':
+        if self.machine_type == 'marconi' or self.machine_type == 'lisa':
             pipeline_path = os.path.dirname(os.path.abspath( __file__ ))
-            cmd = ['qsub', '-Wblock=true', '-o', 'stdout', '-e', 'stderr', os.path.join(pipeline_path, 'train_NDNN_pbs.sh')]
+            if self.machine_type == 'marconi':
+                cmd = ['qsub', '-Wblock=true', '-o', 'stdout', '-e', 'stderr', os.path.join(pipeline_path, 'train_NDNN_pbs.sh')]
+            else:
+                cmd = ['qsub', '-Ix', '-o', 'stdout', '-e', 'stderr', os.path.join(pipeline_path, 'train_NDNN_lisa.sh')]
             try:
                 for line in self.run_async_io_cmd(cmd):
                     if re.match('(\d{6,6}\.\w\d\d\d\w\d\d\w\d\d$)', line) is not None:
