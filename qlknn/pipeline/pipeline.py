@@ -245,15 +245,37 @@ class TrainDenseBatch(TrainBatch):
         settings.update(par)
         settings_list.append(settings.copy())
 
+class TrainMidsize7DBatch(TrainBatch):
+    dim = 7
+    gen = 3
+    plan = {'cost_l2_scale': [2e-5, 5e-5, 8e-5],
+            'hidden_neurons': [[128] * 3],
+            'filter': [8],
+            'activations': ['tanh'],
+            }
+
+    plan['dataset_path'] = []
+    for filter in plan.pop('filter'):
+        plan['dataset_path'].append('../../unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, dim, filter))
+
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
+        settings = json.load(file_)
+        settings.pop('train_dims')
+
+    settings_list = []
+    for val in product(*plan.values()):
+        par = dict(zip(plan.keys(), val))
+        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
+        settings.update(par)
+        settings_list.append(settings.copy())
+
 class TrainNarrow9DBatch(TrainBatch):
     dim = 9
-    gen = 2
-    plan = {'cost_l2_scale': [1.2e-5, 1e-5, 8e-6],
-            'hidden_neurons': [[96] * 3],
-            'filter': [7],
-            'early_stop_after': [15],
+    gen = 3
+    plan = {'cost_l2_scale': [2e-5, 5e-5, 8e-5],
+            'hidden_neurons': [[128] * 3],
+            'filter': [8],
             'activations': ['tanh'],
-            'drop_outlier_below': [0.000]
             }
 
     plan['dataset_path'] = []
@@ -273,12 +295,17 @@ class TrainNarrow9DBatch(TrainBatch):
 
 class TrainAll9DNetworks(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
-    #train_dims = luigi.ListParameter()
-    #scan = luigi.DictParameter()
 
     def requires(self):
-        for train_dims in target_names_generator():
+        for train_dims in gen3_single_target_list:
             yield TrainNarrow9DBatch(self.submit_date, train_dims)
+
+class TrainAll7DNetworks(luigi.WrapperTask):
+    submit_date = luigi.DateHourParameter()
+
+    def requires(self):
+        for train_dims in gen3_single_target_list:
+            yield TrainMidsize7DBatch(self.submit_date, train_dims)
 
 def target_names_generator():
     for mode in ['', 'ITG', 'TEM']:
@@ -297,6 +324,29 @@ def target_names_generator():
 
     name = type + 'eETG_GB'
     yield [name]
+
+gen3_single_target_list = [
+    ['efeETG_GB'],
+    ['efeITG_GB'],
+    ['efiITG_GB'],
+    ['efeITG_GB_div_efiITG_GB'],
+    ['pfeITG_GB'],
+    ['pfeITG_GB_div_efiITG_GB'],
+    ['efeTEM_GB'],
+    ['efiTEM_GB'],
+    ['efiTEM_GB_div_efeTEM_GB'],
+    ['pfeTEM_GB'],
+    ['pfeTEM_GB_div_efeTEM_GB']
+]
+
+gen3_multiD_target_list = [
+    ['efeITG_GB', 'efiITG_GB'],
+    ['efeTEM_GB', 'efiTEM_GB'],
+    ['efeITG_GB', 'efiITG_GB', 'pfeITG_GB'],
+    ['efeTEM_GB', 'efiTEM_GB', 'pfeTEM_GB']
+]
+gen3_target_list = gen3_single_target_list + gen3_multiD_target_list
+
 
 if __name__ == '__main__':
     luigi.run(main_task_cls=TrainNN)
