@@ -83,7 +83,7 @@ def mode_to_settings(mode):
     return settings
 
 def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_particle=False, no_divsum=False,
-                             no_mixed=True, target_names=None):
+                             no_mixed=True, target_names=None, no_gam=True):
     non_sliced = (Network
                   .select()
                   .where(~fn.EXISTS(table.select().where(getattr(table, 'network') == Network.id)))
@@ -100,6 +100,11 @@ def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_pa
         non_sliced &= (Network.select()
                        .where(~(fn.array_to_string(Network.target_names, ',') % '%pf%' &
                                 fn.array_to_string(Network.target_names, ',') % '%ef%'))
+                       )
+
+    if no_gam:
+        non_sliced &= (Network.select()
+                       .where(~(fn.array_to_string(Network.target_names, ',') % '%gam%'))
                        )
     tags = []
     if no_divsum:
