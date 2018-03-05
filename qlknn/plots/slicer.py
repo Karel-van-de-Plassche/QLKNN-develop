@@ -136,9 +136,13 @@ def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_pa
     non_sliced = non_sliced.limit(max)
     return non_sliced
 
-def nns_from_NNDB(max=20, only_dim=None):
+def nns_from_NNDB(dim, max=20, only_dim=None):
     db.connect()
-    non_sliced = get_similar_not_in_table(PostprocessSlice, max=max, only_sep=True, no_particle=False, no_divsum=True, no_mixed=False, only_dim=only_dim)
+    if dim == 7:
+        table = PostprocessSlice
+    elif dim == 9:
+        table = PostprocessSlice_9D
+    non_sliced = get_similar_not_in_table(table, max=max, only_sep=True, no_particle=False, no_divsum=True, no_mixed=False, only_dim=only_dim)
     network = non_sliced.get()
     style = 'mono'
     if len(network.target_names) == 2:
@@ -841,11 +845,12 @@ if __name__ == '__main__':
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
     store = pd.HDFStore(os.path.join(store_root, store_basename), 'r')
+    __, dim, __ = get_store_params(store_basename)
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
     if not socket.gethostname().startswith('rs'):
-        slicedim, style, nns = nns_from_NNDB(100, only_dim=None)
+        slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=7)
         #slicedim, style, nns = nns_from_manual()
     else:
         slicedim, style, nns = nns_from_manual()
