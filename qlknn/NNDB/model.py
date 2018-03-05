@@ -947,9 +947,13 @@ class PostprocessSlice(BaseModel):
     wobble_unstab               = ArrayField(FloatField)
     wobble_qlkunstab            = ArrayField(FloatField)
     frac                        = FloatField()
+    store_name                  = TextField()
     dual_thresh_mismatch_median = FloatField(null=True)
     dual_thresh_mismatch_95width= FloatField(null=True)
     no_dual_thresh_frac         = FloatField(null=True)
+
+class PostprocessSlice_9D(PostprocessSlice):
+    pass
 
 def create_schema():
     db.execute_sql('SET ROLE developer;')

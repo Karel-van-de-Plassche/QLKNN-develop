@@ -19,7 +19,7 @@ import pandas as pd
 from peewee import AsIs, fn, SQL
 from IPython import embed
 
-from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, db
+from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, PostprocessSlice_9D, db
 from qlknn.models.ffnn import QuaLiKizNDNN
 from qlknn.training.train_NDNN import shuffle_panda
 from qlknn.plots.load_data import load_nn, prettify_df, nameconvert
@@ -329,11 +329,10 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
 
     if ('Zeff' == feature_names).any() and not ('Zeff' in input.columns):
         print('WARNING! creating Zeff. You should use a 9D dataset')
-        input['Zeff']  = np.full_like(input['Ati'], 1.)
-        raise Exception
+        input['Zeff']  = np.full_like(input['Ati'], float(store['/megarun1/constants']['Zeff']))
     if ('logNustar' == feature_names).any() and not ('logNustar' in input.columns):
         print('WARNING! creating logNustar. You should use a 9D dataset')
-        input['logNustar']  = np.full_like(input['Ati'], np.log10(0.009995))
+        input['logNustar']  = np.full_like(input['Ati'], np.log10(float(store['/megarun1/constants']['Nustar'])))
 
     if len(feature_names) == 4:
         print('WARNING! Slicing 7D to 4D dataset. You should use a 4D dataset')
@@ -792,13 +791,14 @@ def extract_stats(totstats, style):
         duo_results = pd.DataFrame()
     return results, duo_results
 
-def extract_nn_stats(results, duo_results, nns, frac, submit_to_nndb=False):
+def extract_nn_stats(results, duo_results, nns, frac, store_name, submit_to_nndb=False):
     db.connect()
     for network_name, res in results.unstack().iterrows():
         network_class, network_number = network_name.split('_')
         nn = nns[network_name]
         res_dict = {'network': network_number}
         res_dict['frac'] = frac
+        res_dict['store_name'] = store_basename
 
         for stat, val in res.unstack(level=0).iteritems():
             res_dict[stat] = val.loc[nn._target_names].values
@@ -809,10 +809,22 @@ def extract_nn_stats(results, duo_results, nns, frac, submit_to_nndb=False):
         except KeyError:
             pass
 
-        postprocess_slice = PostprocessSlice(**res_dict)
+        __, dim, __ = get_store_params(store_name)
+        if dim == 7:
+            postprocess_slice = PostprocessSlice(**res_dict)
+        elif dim == 9:
+            postprocess_slice = PostprocessSlice_9D(**res_dict)
+
         if submit_to_nndb is True:
             postprocess_slice.save()
     db.close()
+
+def get_store_params(store_name):
+    gen, dim, filter = re.match('(?:gen(\d+)_|)(\d+)D_nions0_flat(?:_filter(\d+))?.h5', store_name).groups()
+    if filter is not None:
+        filter = int(filter)
+    gen, dim = int(gen), int(dim)
+    return gen, dim, filter
 
 if __name__ == '__main__':
     nn_set = 'duo'
@@ -827,12 +839,13 @@ if __name__ == '__main__':
 
     #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
     store_root = '../..'
-    store = pd.HDFStore(os.path.join(store_root, 'gen3_7D_nions0_flat_filter8.h5'), 'r')
+    store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
+    store = pd.HDFStore(os.path.join(store_root, store_basename), 'r')
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     #data = data.join(store['megarun1/combo'])
     #slicedim, style, nn_list = populate_nn_list(nn_set)
     if not socket.gethostname().startswith('rs'):
-        slicedim, style, nns = nns_from_NNDB(100, only_dim=7)
+        slicedim, style, nns = nns_from_NNDB(100, only_dim=None)
         #slicedim, style, nns = nns_from_manual()
     else:
         slicedim, style, nns = nns_from_manual()
@@ -906,7 +919,7 @@ if __name__ == '__main__':
 
     totstats = totstats.join(qlk_data)
     res, duo_res = extract_stats(totstats, style)
-    extract_nn_stats(res, duo_res, nns, frac, submit_to_nndb=submit_to_nndb)
+    extract_nn_stats(res, duo_res, nns, frac, store_basename, submit_to_nndb=submit_to_nndb)
 
 
     #print('WARNING! If you continue, you will overwrite ', 'totstats_' + style + '.pkl')
