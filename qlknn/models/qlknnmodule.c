@@ -491,7 +491,7 @@ static struct PyModuleDef qlknnmodule = {
 /* Export function for the module (*must* be called PyInit_xx) */
 
 PyMODINIT_FUNC
-PyInit_qlknn(void)
+PyInit_qlknn_intel(void)
 {
     PyObject* m;
     if (PyType_Ready(&Layer_Type) < 0)
