@@ -844,6 +844,7 @@ if __name__ == '__main__':
     #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
+    #store_basename = 'gen3_9D_nions0_flat.h5.1'
     for ii in range(10):
         try:
             store = pd.HDFStore(os.path.join(store_root, store_basename), 'r')
@@ -859,6 +860,7 @@ if __name__ == '__main__':
     #slicedim, style, nn_list = populate_nn_list(nn_set)
     if not socket.gethostname().startswith('rs'):
         slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=7)
+        #slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=9)
         #slicedim, style, nns = nns_from_manual()
     else:
         slicedim, style, nns = nns_from_manual()
