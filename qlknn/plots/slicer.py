@@ -844,7 +844,15 @@ if __name__ == '__main__':
     #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
-    store = pd.HDFStore(os.path.join(store_root, store_basename), 'r')
+    for ii in range(10):
+        try:
+            store = pd.HDFStore(os.path.join(store_root, store_basename), 'r')
+            store.groups()
+        except UnicodeDecodeError:
+            print('Waiting for file to come up.. {!s}/10'.format(ii))
+            time.sleep(1)
+        else:
+            break
     __, dim, __ = get_store_params(store_basename)
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     #data = data.join(store['megarun1/combo'])
