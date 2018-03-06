@@ -845,15 +845,26 @@ if __name__ == '__main__':
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
     #store_basename = 'gen3_9D_nions0_flat.h5.1'
+    store_path = os.path.join(store_root, store_basename)
     for ii in range(10):
         try:
-            store = pd.HDFStore(os.path.join(store_root, store_basename), 'r')
-            store.groups()
+            store = pd.HDFStore(store_path, 'r')
         except UnicodeDecodeError:
-            print('Waiting for file to come up.. {!s}/10'.format(ii))
-            time.sleep(1)
+            pass
         else:
-            break
+            try:
+                store.groups()
+                store.get_storer('/megarun1/flattened').non_index_axes[0][1]
+                store.get_storer('/megarun1/input').non_index_axes[0][1]
+            except (AttributeError, UnicodeDecodeError):
+                store.close()
+            else:
+                break
+        print('Waiting for file to come up.. {!s}/10'.format(ii))
+        time.sleep(1)
+
+    if not store.is_open:
+        raise Exception('Failed to open file {!s}'.format(store_path))
     __, dim, __ = get_store_params(store_basename)
     #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
     #data = data.join(store['megarun1/combo'])
