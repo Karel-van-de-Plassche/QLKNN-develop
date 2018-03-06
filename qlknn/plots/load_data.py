@@ -76,7 +76,9 @@ nameconvert = {
     'pfe_GB': '$\Gamma_e\,[GB]$',
     'pfi_GB': '$\Gamma_i\,[GB]$',
     'pfeITG_GB': '$\Gamma_{ITG, i}\,[GB]$',
-    'pfeTEM_GB': '$\Gamma_{TEM, i}\,[GB]$'
+    'pfeTEM_GB': '$\Gamma_{TEM, i}\,[GB]$',
+
+    'gam_leq_GB': '$\gamma_{max, \leq 2}\,[GB]$'
 
 }
 
