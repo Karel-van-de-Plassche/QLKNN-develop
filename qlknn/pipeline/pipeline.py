@@ -95,6 +95,15 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
                     if re.match('(\d{6,6}\.\w\d\d\d\w\d\d\w\d\d$)', line) is not None:
                         self.job_id = line
                         self.set_status_message_wrapper('Submitted job {!s}'.format(self.job_id))
+                    match = re.match('qsub: waiting for job (\d*.[\w|.]*)', line)
+                    if match is not None:
+                        self.job_id = match.groups()[0]
+                        self.set_status_message_wrapper('Submitted job {!s}, waiting for resources'.format(self.job_id))
+                    match = re.match('qsub: job (\d*.[\w|.]*)', line)
+                    if match is not None:
+                        self.job_id = match.groups()[0]
+                        self.set_status_message_wrapper('Job {!s} started'.format(self.job_id))
+
                     print(line)
             except subprocess.CalledProcessError as err:
                 import time
@@ -125,6 +134,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
             #cmd = ' '.join(['python train_NDNN.py'])
             #subprocess.check_call(cmd, shell=True, stdout=None, stderr=None)
         else:
+            self.job_id = 'local'
             train_NDNN.train_NDNN_from_folder()
 
     def run(self):
@@ -136,6 +146,8 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         old_dir = os.getcwd()
         if self.machine_type == 'marconi':
             tmproot = os.environ['CINECA_SCRATCH']
+        elif self.machine_type == 'lisa':
+            tmproot = os.path.join(os.environ['HOME'], 'tmp_nn')
         else:
             tmproot = None
         self.tmpdirname = tmpdirname = tempfile.mkdtemp(prefix='trainNN_', dir=tmproot)
@@ -154,18 +166,23 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         self.set_status_message_wrapper('Started training on {!s}'.format(socket.gethostname()))
         self.launch_train_NDNN()
         print('Training done!')
+
         if self.interact_with_nndb:
-            for ii in range(10):
-                self.set_status_message_wrapper('Trying to submit to NNDB, try: {!s} / 10 on {!s}'.format(ii+1, socket.gethostname()))
-                try:
-                    db.connect(reuse_if_open=True)
-                    self.NNDB_nn = PureNetworkParams.from_folder(tmpdirname)
-                    db.close()
-                except Exception as ee:
-                    exception = ee
-                    time.sleep(self.sleep_time)
-                else:
-                    break
+            if os.path.isfile(os.path.join(tmpdirname, 'nn.json')):
+                for ii in range(10):
+                    self.set_status_message_wrapper('Trying to submit to NNDB, try: {!s} / 10 on {!s}'.format(ii+1, socket.gethostname()))
+                    try:
+                        db.connect(reuse_if_open=True)
+                        self.NNDB_nn = PureNetworkParams.from_folder(tmpdirname)
+                        db.close()
+                    except Exception as ee:
+                        exception = ee
+                        time.sleep(self.sleep_time)
+                    else:
+                        break
+            else:
+                exception = Exception('Could not find nn.json! Did training really finish?')
+                raise exception
             if not hasattr(self, 'NNDB_nn'):
                 raise reraise(type(exception), exception, sys.exc_info()[2])
             else:
@@ -186,8 +203,9 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         with open('traceback.dump', 'w') as file_:
            file_.write(traceback.format_exc())
 
-        message = 'Host: {!s}\nDir: {!s}\nRuntime error:\n{!s}'.format(socket.gethostname(),
+        message = 'Host: {!s}\nDir: {!s}\nJobID: {!s}\nRuntime error:\n{!s}'.format(socket.gethostname(),
                                                                         self.tmpdirname,
+                                                                        self.job_id,
                                                                         traceback_string)
         self.set_status_message_wrapper(message)
         return message

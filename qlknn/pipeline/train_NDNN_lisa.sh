@@ -1,6 +1,6 @@
 #Set job requirements
 #PBS -S /bin/bash
-#PBS -lnodes=1
+#PBS -lnodes=1:mem64gb
 #PBS -lwalltime=36:00:00
 
 module load python/3.5.0-intel
