@@ -4,17 +4,13 @@ from itertools import product
 import gc
 import os
 import warnings
+from collections import OrderedDict
 
 from IPython import embed
 import pandas as pd
 import numpy as np
 
-particle_diffusion_vars = [u'df', u'vt', u'vr', u'vc']
-particle_vars = [u'pf'] + particle_diffusion_vars
-heat_vars = [u'ef']
-momentum_vars = [u'vf']
-store_format = 'table'
-
+from qlknn.dataset.data_io import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, put_to_store_or_df, save_to_store, load_from_store
 #'vti_GB', 'dfi_GB', 'vci_GB',
 #       'pfi_GB', 'efi_GB',
 #       
@@ -28,38 +24,6 @@ def drop_start_with(data, start_with):
         if any(col.startswith(part) for part in start_with):
             droplist.append(col)
     data.drop(droplist, axis='columns', inplace=True)
-
-def save_to_store(input, data, const, store_name, zip=True):
-    if zip is True:
-        kwargs = {'complevel': 1,
-                  'complib': 'zlib'}
-        store_name += '.1'
-    else:
-        kwargs = {}
-    store = pd.HDFStore(store_name)
-    if len(data) > 0:
-        store.put('/megarun1/flattened', data, format=store_format, **kwargs)
-    else:
-        store.put('/megarun1/flattened', data, format='fixed', **kwargs)
-    store.put('/megarun1/input', input, format=store_format, **kwargs)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", pd.errors.PerformanceWarning)
-        store.put('/megarun1/constants', const)
-    store.close()
-
-def put_to_store_or_df(store_or_df, name, var):
-    if isinstance(store_or_df, pd.HDFStore):
-        store_or_df.put(name, var, format=store_format)
-    else:
-        store_or_df[name] = var
-
-def load_from_store(store_name):
-    store = pd.HDFStore(store_name)
-    input = store['/megarun1/input']
-    data = store['/megarun1/flattened']
-    const = store['/megarun1/constants']
-    store.close()
-    return input, data, const
 
 def regime_filter(data, leq, less):
     bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
@@ -212,19 +176,6 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
     #    if splitted[0] in particle_vars + heat_vars:
     #        if splitted[2] != '':
     #            data.loc[]
-
-def separate_to_store(input, data, const, store_name):
-    store = pd.HDFStore(store_name)
-    store['input'] = input.loc[data.index]
-    for col in data:
-        splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-        if ((splitted[0] in heat_vars + particle_vars + momentum_vars) or
-            (col in ['gam_leq_GB', 'gam_great_GB'])):
-            store.put(col, data[col].dropna(), format=store_format)
-        else:
-            print('do not save', col)
-    store.put('constants', const)
-    store.close()
 
 def create_gen3_divsum(store):
     names = ['efeITG_GB_div_efiITG_GB',
@@ -394,11 +345,11 @@ if __name__ == '__main__':
 
     for dim, set in product([4, 7, 9], ['test', 'training']):
         print(dim, set)
-        basename = set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter_num) + '.h5.1'
+        basename = set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter_num) + '.h5'
         input, data, const = load_from_store(basename)
 
         data = stability_filter(data)
         #data = create_divsum(data)
         data = div_filter(data)
-        separate_to_store(input, data, const, 'unstable_' + basename)
+        save_to_store(input, data, const, 'unstable_' + basename)
     #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
