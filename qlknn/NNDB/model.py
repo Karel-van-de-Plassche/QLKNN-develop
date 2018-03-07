@@ -760,8 +760,8 @@ class PureNetworkParams(BaseModel):
 
 class NetworkJSON(BaseModel):
     pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_json', unique=True)
-    network_json = JSONField()
-    settings_json = JSONField()
+    network_json = BinaryJSONField()
+    settings_json = BinaryJSONField()
 
 class NetworkLayer(BaseModel):
     pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_layer')
