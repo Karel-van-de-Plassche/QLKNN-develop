@@ -321,6 +321,7 @@ class Network(BaseModel):
                 query &= (PureNetworkParams
                      .select()
                      .where(Network.target_names == partner_target)
+                     .where(Network.feature_names == nn.feature_names)
                      .join(Network)
                      )
                 if query.count() > 1:
