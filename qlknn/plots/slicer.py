@@ -82,8 +82,11 @@ def mode_to_settings(mode):
         settings['plot_threshslope'] = True
     return settings
 
-def get_similar_not_in_table(table, max=20, only_dim=None, only_sep=False, no_particle=False, no_divsum=False,
-                             no_mixed=True, target_names=None, no_gam=True):
+def get_similar_not_in_table(table, max=20,
+                             only_dim=None, only_sep=False,
+                             no_particle=False, no_divsum=False,
+                             no_mixed=True, target_names=None,
+                             no_gam=True):
     non_sliced = (Network
                   .select()
                   .where(~fn.EXISTS(table.select().where(getattr(table, 'network') == Network.id)))
