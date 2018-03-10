@@ -410,23 +410,27 @@ class Network(BaseModel):
                 else:
                     print('MultiNetwork with Networks {!s} already exists with id: {:d}'.format([net.id for net in nets], net.id))
 
-    def to_QuaLiKizNDNN(self):
-        return self.pure_network_params.get().to_QuaLiKizNDNN()
+    def to_QuaLiKizNDNN(self, **nn_kwargs):
+        return self.pure_network_params.get().to_QuaLiKizNDNN(**nn_kwargs)
 
-    def to_QuaLiKizComboNN(self):
+    def to_QuaLiKizComboNN(self, combo_kwargs=None, **nn_kwargs):
+        if combo_kwargs is None:
+            combo_kwargs = {}
         network_ids = self.networks
-        networks = [Network.get_by_id(num).to_QuaLiKizNN() for num in network_ids]
+        networks = [Network.get_by_id(num).to_QuaLiKizNN(**nn_kwargs) for num in network_ids]
         recipe = self.recipe
         for ii in range(len(network_ids)):
             recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
         exec('def combo_func(*args): return ' + recipe, globals())
-        return QuaLiKizComboNN(self.target_names, networks, combo_func)
+        return QuaLiKizComboNN(self.target_names, networks, combo_func, **combo_kwargs)
 
-    def to_QuaLiKizNN(self):
+    def to_QuaLiKizNN(self, combo_kwargs=None, **nn_kwargs):
+        if combo_kwargs is None:
+            combo_kwargs = {}
         if self.networks is None:
-            net = self.to_QuaLiKizNDNN()
+            net = self.to_QuaLiKizNDNN(**nn_kwargs)
         else:
-            net = self.to_QuaLiKizComboNN()
+            net = self.to_QuaLiKizComboNN(combo_kwargs=combo_kwargs, **nn_kwargs)
         return net
 
     @classmethod
@@ -730,9 +734,9 @@ class PureNetworkParams(BaseModel):
             settings_json=settings)
         return network
 
-    def to_QuaLiKizNDNN(self):
+    def to_QuaLiKizNDNN(self, **nn_kwargs):
         json_dict = self.network_json.get().network_json
-        nn = QuaLiKizNDNN(json_dict)
+        nn = QuaLiKizNDNN(json_dict, **nn_kwargs)
         return nn
 
     to_QuaLiKizNN = to_QuaLiKizNDNN
