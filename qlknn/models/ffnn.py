@@ -307,9 +307,9 @@ def determine_settings(network, input, safe, clip_low, clip_high, low_bound, hig
             else:
                 raise Exception('Please pass a pandas.DataFrame for safe mode')
             if low_bound is not None:
-                low_bound = low_bound[network._target_names].values
+                low_bound = low_bound.loc[network._target_names].values
             if high_bound is not None:
-                high_bound = high_bound[network._target_names].values
+                high_bound = high_bound.loc[network._target_names].values
         else:
             if input.__class__ == pd.DataFrame:
                 nn_input = input.values
