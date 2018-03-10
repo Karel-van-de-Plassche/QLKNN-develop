@@ -54,7 +54,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
 
     if socket.gethostname().startswith('r0'):
         machine_type = 'marconi'
-    if socket.gethostname().startswith('login'):
+    elif socket.gethostname().startswith('login'):
         machine_type = 'lisa'
     else:
         machine_type = 'general'
@@ -74,8 +74,8 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
     columns = [('network_id', 'INT')]
 
     def run_async_io_cmd(self, cmd):
-        proc = Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         print(' '.join(cmd))
+        proc = Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         for stdout_line in iter(proc.stdout.readline, ""):
             yield stdout_line
         proc.stdout.close()
@@ -83,29 +83,49 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         if return_code:
             raise subprocess.CalledProcessError(return_code, cmd)
 
+    @staticmethod
+    def parse_batch_file(prefix, filepath):
+        cmd_list = []
+        for line in open(filepath, 'r'):
+            if line.startswith(prefix):
+                cmd = line.lstrip(prefix).strip()
+                cmd_list.append(cmd)
+        return cmd_list
+
     def launch_train_NDNN(self):
-        if self.machine_type == 'marconi' or self.machine_type == 'lisa':
+        if (self.machine_type == 'marconi') or (self.machine_type == 'lisa'):
+            print('Starting batch system job')
             pipeline_path = os.path.dirname(os.path.abspath( __file__ ))
             if self.machine_type == 'marconi':
-                cmd = ['qsub', '-Wblock=true', '-o', 'stdout', '-e', 'stderr', os.path.join(pipeline_path, 'train_NDNN_pbs.sh')]
-            else:
+                batch_path = os.path.join(pipeline_path, 'train_NDNN_marconi.sh')
+                cmd = ['srun'] + self.parse_batch_file('#SBATCH', batch_path) + [batch_path]
+            elif self.machine_type == 'lisa':
                 cmd = ['qsub', '-Ix', '-o', 'stdout', '-e', 'stderr', os.path.join(pipeline_path, 'train_NDNN_lisa.sh')]
             try:
                 for line in self.run_async_io_cmd(cmd):
-                    if re.match('(\d{6,6}\.\w\d\d\d\w\d\d\w\d\d$)', line) is not None:
-                        self.job_id = line
-                        self.set_status_message_wrapper('Submitted job {!s}'.format(self.job_id))
-                    match = re.match('qsub: waiting for job (\d*.[\w|.]*)', line)
-                    if match is not None:
-                        self.job_id = match.groups()[0]
-                        self.set_status_message_wrapper('Submitted job {!s}, waiting for resources'.format(self.job_id))
-                    match = re.match('qsub: job (\d*.[\w|.]*)', line)
-                    if match is not None:
-                        self.job_id = match.groups()[0]
-                        self.set_status_message_wrapper('Job {!s} started'.format(self.job_id))
-
                     print(line)
+                    if self.machine_type == 'marconi':
+                        match = re.match('srun: job (\d*) queued and waiting for resources', line)
+                        if match is not None:
+                            self.job_id = match.groups()[0] + '.marconi'
+                            self.set_status_message_wrapper('Submitted job {!s}, waiting for resources'.format(self.job_id))
+                        match = re.match('srun: job (\d*) has been allocated resources', line)
+                        if match is not None:
+                            self.job_id = match.groups()[0] + '.marconi'
+                            self.set_status_message_wrapper('Job {!s} started'.format(self.job_id))
+
+                    elif self.machine_type == 'lisa':
+                        match = re.match('qsub: waiting for job (\d*.[\w|.]*)', line)
+                        if match is not None:
+                            self.job_id = match.groups()[0]
+                            self.set_status_message_wrapper('Submitted job {!s}, waiting for resources'.format(self.job_id))
+                        match = re.match('qsub: job (\d*.[\w|.]*)', line)
+                        if match is not None:
+                            self.job_id = match.groups()[0]
+                            self.set_status_message_wrapper('Job {!s} started'.format(self.job_id))
+
             except subprocess.CalledProcessError as err:
+                print('Error in job process! waiting for stdout/stderr')
                 import time
                 exc_type = type(err)
                 exc_traceback = sys.exc_info()[2]
@@ -135,6 +155,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
             #subprocess.check_call(cmd, shell=True, stdout=None, stderr=None)
         else:
             self.job_id = 'local'
+            print('Starting local job')
             train_NDNN.train_NDNN_from_folder()
 
     def run(self):
@@ -161,7 +182,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         os.symlink(os.path.join(train_script_path), os.path.join(tmpdirname, 'train_NDNN.py'))
         settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
         with open(os.path.join(tmpdirname, 'settings.json'), 'w') as file_:
-            json.dump(settings, file_)
+            json.dump(settings, file_, indent=4, sort_keys=True)
         os.chdir(tmpdirname)
         self.set_status_message_wrapper('Started training on {!s}'.format(socket.gethostname()))
         self.launch_train_NDNN()
@@ -203,10 +224,13 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         with open('traceback.dump', 'w') as file_:
            file_.write(traceback.format_exc())
 
-        message = 'Host: {!s}\nDir: {!s}\nJobID: {!s}\nRuntime error:\n{!s}'.format(socket.gethostname(),
+        message_list = []
+        if hasattr(self, 'job_id'):
+            message_list.append('JobID: {!s}\n'.format(self.job_id))
+        message_list.append('Host: {!s}\nDir: {!s}\nRuntime error:\n{!s}'.format(socket.gethostname(),
                                                                         self.tmpdirname,
-                                                                        self.job_id,
-                                                                        traceback_string)
+                                                                        traceback_string))
+        message = ''.join(message_list)
         self.set_status_message_wrapper(message)
         return message
 
