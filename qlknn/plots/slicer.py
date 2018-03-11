@@ -322,12 +322,12 @@ def nns_from_manual():
     db.close()
     return slicedim, style, nns
 
-def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, calc_maxgam=False, clip=False, slice=None, frac=1):
+def prep_df(store_name, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, calc_maxgam=False, clip=False, slice=None, frac=1):
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
 
-    input = store['megarun1/input']
+    input, data, const = load_from_store(store_name, columns=target_names)
     try:
         input['logNustar'] = np.log10(input['Nustar'])
         del input['Nustar']
@@ -352,27 +352,27 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
         idx = input.index
     input = input[feature_names]
 
-    get_vars = target_names
-    data = pd.DataFrame()
+    #get_vars = target_names
+    #data = pd.DataFrame()
 
-    dataset_vars = store.get_storer('/megarun1/flattened').non_index_axes[0][1]
-    for target_name in target_names:
-        if target_name not in dataset_vars:
-            print('WARNING! {!s} missing from dataset. Trying to reconstruct'.format(target_name))
-            if target_name == 'efiTEM_GB_div_efeTEM_GB':
-                parts = store.select('megarun1/flattened', columns=['efiTEM_GB', 'efeTEM_GB'])
-            elif target_name == 'pfeTEM_GB_div_efeTEM_GB':
-                parts = store.select('megarun1/flattened', columns=['pfeTEM_GB', 'efeTEM_GB'])
-            elif target_name == 'efeITG_GB_div_efiITG_GB':
-                parts = store.select('megarun1/flattened', columns=['efeITG_GB', 'efiITG_GB'])
-            elif target_name == 'pfeITG_GB_div_efiITG_GB':
-                parts = store.select('megarun1/flattened', columns=['pfeITG_GB', 'efiITG_GB'])
-            else:
-                raise Exception('Could not reconstruct {!s}'.format(target_name))
-            se = parts.iloc[:,0] / parts.iloc[:,1]
-            se.name = target_name
-            data = data.append(se.to_frame())
-            get_vars = get_vars[(get_vars != target_name)]
+    #dataset_vars = store.get_storer('/megarun1/flattened').non_index_axes[0][1]
+    #for target_name in target_names:
+    #    if target_name not in dataset_vars:
+    #        print('WARNING! {!s} missing from dataset. Trying to reconstruct'.format(target_name))
+    #        if target_name == 'efiTEM_GB_div_efeTEM_GB':
+    #            parts = store.select('megarun1/flattened', columns=['efiTEM_GB', 'efeTEM_GB'])
+    #        elif target_name == 'pfeTEM_GB_div_efeTEM_GB':
+    #            parts = store.select('megarun1/flattened', columns=['pfeTEM_GB', 'efeTEM_GB'])
+    #        elif target_name == 'efeITG_GB_div_efiITG_GB':
+    #            parts = store.select('megarun1/flattened', columns=['efeITG_GB', 'efiITG_GB'])
+    #        elif target_name == 'pfeITG_GB_div_efiITG_GB':
+    #            parts = store.select('megarun1/flattened', columns=['pfeITG_GB', 'efiITG_GB'])
+    #        else:
+    #            raise Exception('Could not reconstruct {!s}'.format(target_name))
+    #        se = parts.iloc[:,0] / parts.iloc[:,1]
+    #        se.name = target_name
+    #        data = data.append(se.to_frame())
+    #        get_vars = get_vars[(get_vars != target_name)]
 
     if get_vars.size != 0:
         data = data.append(store.select('megarun1/flattened', columns=get_vars))
@@ -869,9 +869,6 @@ if __name__ == '__main__':
     if not store.is_open:
         raise Exception('Failed to open file {!s}'.format(store_path))
     __, dim, __ = get_store_params(store_basename)
-    #store = pd.HDFStore('../sane_gen2_7D_nions0_flat_filter7.h5')
-    #data = data.join(store['megarun1/combo'])
-    #slicedim, style, nn_list = populate_nn_list(nn_set)
     if not socket.gethostname().startswith('rs'):
         slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=7)
         #slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=9)
@@ -896,7 +893,7 @@ if __name__ == '__main__':
 
     itor = None
     frac = 0.05
-    df, target_names = prep_df(store, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor, frac=frac)
+    df, target_names = prep_df(store_name, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor, frac=frac)
     gc.collect()
     unsafe = is_unsafe(df, nns, slicedim)
     if not unsafe:
