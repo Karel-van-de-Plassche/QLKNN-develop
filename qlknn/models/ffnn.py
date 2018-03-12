@@ -352,7 +352,12 @@ if __name__ == '__main__':
     nn2 = QuaLiKizNDNN.from_json('nn.json', layer_mode='classic')
     fluxes2 = nn2.get_output(input.values, safe=False)
 
-    nn3 = QuaLiKizNDNN.from_json('nn.json', layer_mode='cython')
+    try:
+        nn3 = QuaLiKizNDNN.from_json('nn.json', layer_mode='cython')
+        fluxes3 = nn2.get_output(input.values, safe=False)
+    except Exception as ee:
+        print('Problem loading cython style:')
+        print(ee)
     #print(fluxes)
 
     #import qlknn;

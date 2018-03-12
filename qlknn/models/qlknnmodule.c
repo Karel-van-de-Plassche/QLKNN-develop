@@ -32,6 +32,7 @@ enum act {
     NONE,
     ERR
 };
+void vdFmax(const MKL_INT n, const double* a, const double* b, double* y) __attribute__((weak));
 
 typedef struct {
     PyObject_HEAD
@@ -228,7 +229,8 @@ Layer_apply(LayerObject *self, PyObject *args)
             break;
         case RELU:
             zeros = (double *)calloc( m*n, sizeof( double ) );
-            for (int ii = 0; ii < m*n; ii++)
+            int ii;
+            for (ii = 0; ii < m*n; ii++)
                 zeros[ii] = 0.0;
             vdFmax(m*n, C, zeros, C);
             free(zeros);
