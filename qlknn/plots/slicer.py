@@ -340,10 +340,10 @@ def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle
 
     if ('Zeff' == feature_names).any() and not ('Zeff' in input.columns):
         print('WARNING! creating Zeff. You should use a 9D dataset')
-        input['Zeff']  = np.full_like(input['Ati'], float(store['/megarun1/constants']['Zeff']))
+        input.insert(0, 'Zeff', np.full_like(input['Ati'], float(const['Zeff'])))
     if ('logNustar' == feature_names).any() and not ('logNustar' in input.columns):
         print('WARNING! creating logNustar. You should use a 9D dataset')
-        input['logNustar']  = np.full_like(input['Ati'], np.log10(float(store['/megarun1/constants']['Nustar'])))
+        input['logNustar']  = np.full_like(input['Ati'], np.log10(float(const['Nustar'])))
 
     if len(feature_names) == 4:
         print('WARNING! Slicing 7D to 4D dataset. You should use a 4D dataset')
@@ -884,7 +884,7 @@ if __name__ == '__main__':
         raise Exception('Failed to open file {!s}'.format(store_name))
     __, dim, __ = get_store_params(store_basename)
     if not socket.gethostname().startswith('rs'):
-        slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=7)
+        slicedim, style, nns = nns_from_NNDB(dim, max=100)
         #slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=9)
         #slicedim, style, nns = nns_from_manual()
     else:
