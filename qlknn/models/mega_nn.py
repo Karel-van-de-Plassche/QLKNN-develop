@@ -5,7 +5,7 @@ import os
 import sys
 sys.path.insert(0,'..')
 
-from run_model import QuaLiKizDuoNN, QuaLiKizMultiNN, QuaLiKizNDNN, QuaLiKizComboNN
+from run_model import QuaLiKizMultiNN, QuaLiKizNDNN, QuaLiKizComboNN
 
 simple_nns = ['efe_GB',
               'efi_GB',
@@ -72,7 +72,6 @@ nn = QuaLiKizMultiNN(nns)
 #for name, recipe in combo_nns.items():
 #    nn1 = QuaLiKizNDNN.from_json('nns/nn_' + recipe[0] + '.json')
 #    nn2 = QuaLiKizNDNN.from_json('nns/nn_' + recipe[1] + '.json')
-#    nn = QuaLiKizDuoNN(name, nn1, nn2, recipe[2])
 #    nns.append(nn)
 
 #nn = QuaLiKizMultiNN(nns)

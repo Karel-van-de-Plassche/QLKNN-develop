@@ -273,36 +273,9 @@ def nns_from_nn_list(nn_list, slicedim, labels=True):
 def nns_from_manual():
     nns = OrderedDict()
 
-    #div_nn = load_nn(405)
-    #sum_nn = load_nn(406)
-    #nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], div_nn, sum_nn, [lambda x, y: x * y/(x + 1), lambda x, y: y/(x + 1)])
-    #nn.label = 'div_style'
-    #nns[nn.label] = nn
-
-    #nn_efi = load_nn(88)
-    #nn_efe = load_nn(89)
-    #nn = QuaLiKizDuoNN(['efiITG_GB', 'efeITG_GB'], nn_efi, nn_efe, [lambda x, y: x, lambda x, y: y])
-    #nn.label = 'sep_style'
-    #nns[nn.label] = nn
-
-    #nn = load_nn(205)
-    #nn.label = 'combo_style'
-    #nns[nn.label] = nn
-
-    #subnn = (ComboNetwork.select()
-    #            .where(ComboNetwork.id == 78)
-    #            ).get()
-    #nn = subnn.to_QuaLiKizComboNN()
-    #nn.label = 'bla'
-    #nns[nn.label] = nn
-
-    #dbnn = Network.by_id(135).get()
-
     dbnns = []
-    #dbnns.append(MultiNetwork.by_id(119).get())
     dbnns.append(Network.get_by_id(12))
     #dbnns.append(ComboNetwork.by_id(1050).get())
-    #dbnns.append(MultiNetwork.by_id(102).get())
 
     for dbnn in dbnns:
         nn = dbnn.to_QuaLiKizNN()

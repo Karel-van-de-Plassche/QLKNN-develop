@@ -66,40 +66,6 @@ class QuaLiKizComboNN():
             feature_min = nn._feature_min.combine(feature_min, max)
         return feature_min
 
-class QuaLiKizDuoNN():
-    def __init__(self, target_names, nn1, nn2, combo_funcs):
-        self._nn1 = nn1
-        self._nn2 = nn2
-        if np.any(self._feature_min > self._feature_max):
-            raise Exception('Feature min > feature max')
-        if np.all(nn1._feature_names.ne(nn2._feature_names)):
-            raise Exception('Supplied NNs have different feature names')
-        if not len(target_names) == len(combo_funcs):
-            raise Exception('len(target_names) = {.f} and len(combo_func) = {.f}'
-                            .format(len(target_names),  len(combo_funcs)))
-        self._combo_funcs = combo_funcs
-        self._target_names = target_names
-
-    def get_output(self, input, **kwargs):
-        output = pd.DataFrame()
-        output1 = self._nn1.get_output(input, **kwargs)
-        output2 = self._nn2.get_output(input, **kwargs)
-        for target_name, combo_func in zip(self._target_names, self._combo_funcs):
-            output[target_name] = np.squeeze(combo_func(output1, output2))
-        return output
-
-    @property
-    def _feature_names(self):
-        return self._nn1._feature_names
-
-    @property
-    def _feature_max(self):
-        return self._nn1._feature_max.combine(self._nn2._feature_max, min)
-
-    @property
-    def _feature_min(self):
-        return self._nn1._feature_min.combine(self._nn2._feature_min, max)
-
 class QuaLiKizNDNN():
     def __init__(self, nn_dict, target_names_mask=None, layer_mode=None):
         """ General ND fully-connected multilayer perceptron neural network
@@ -365,7 +331,6 @@ if __name__ == '__main__':
     root = os.path.dirname(os.path.realpath(__file__))
     #nn1 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efe_GB.json'))
     #nn2 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efi_GB.json'))
-    #nn3 = QuaLiKizDuoNN('nn_eftot_GB', nn1, nn2, lambda x, y: x + y)
     #nn = QuaLiKizMultiNN([nn1, nn2])
     nn = QuaLiKizNDNN.from_json('nn.json', layer_mode='intel')
 
@@ -388,8 +353,6 @@ if __name__ == '__main__':
     fluxes2 = nn2.get_output(input.values, safe=False)
 
     nn3 = QuaLiKizNDNN.from_json('nn.json', layer_mode='cython')
-    fluxes3 = nn3.get_output(input.values, safe=False)
-
     #print(fluxes)
 
     #import qlknn;

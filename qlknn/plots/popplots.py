@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice
-from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizDuoNN
+from qlknn.models.ffnn import QuaLiKizNDNN
 
 def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
     cover_left = False
