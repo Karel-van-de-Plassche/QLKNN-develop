@@ -7,6 +7,7 @@ import time
 import re
 import gc
 import socket
+import warnings
 from itertools import product, chain
 from functools import partial
 from collections import OrderedDict
@@ -23,6 +24,7 @@ from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, Postprocess
 from qlknn.models.ffnn import QuaLiKizNDNN
 from qlknn.training.train_NDNN import shuffle_panda
 from qlknn.plots.load_data import load_nn, prettify_df, nameconvert
+from qlknn.dataset.data_io import load_from_store
 
 if __name__ == '__main__':
     import matplotlib as mpl
@@ -322,12 +324,14 @@ def nns_from_manual():
     db.close()
     return slicedim, style, nns
 
-def prep_df(store_name, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, calc_maxgam=False, clip=False, slice=None, frac=1):
+def prep_df(store, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, shuffle=True, sort=False, calc_maxgam=False, clip=False, slice=None, frac=1):
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
 
-    input, data, const = load_from_store(store_name, columns=target_names)
+    input, data, const = load_from_store(store=store, columns=target_names)
+    data.dropna(axis='index', how='all', inplace=True)
+
     try:
         input['logNustar'] = np.log10(input['Nustar'])
         del input['Nustar']
@@ -348,9 +352,11 @@ def prep_df(store_name, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, sh
             np.isclose(input['An'], 2, atol=1e-5, rtol=1e-3) &
             np.isclose(input['x'], .45, atol=1e-5, rtol=1e-3)
         )]
-    else:
-        idx = input.index
-    input = input[feature_names]
+        data = data.loc[idx]
+
+    if any(input.columns != feature_names):
+        print('WARNING! {!s} != {!s}, using 2* RAM to reorder.'.format(input.columns, feature_names))
+        input = input[feature_names]
 
     #get_vars = target_names
     #data = pd.DataFrame()
@@ -374,13 +380,12 @@ def prep_df(store_name, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, sh
     #        data = data.append(se.to_frame())
     #        get_vars = get_vars[(get_vars != target_name)]
 
-    if get_vars.size != 0:
-        data = data.append(store.select('megarun1/flattened', columns=get_vars))
-
-    data = data.loc[idx]
-    data.dropna(axis='index', how='all', inplace=True)
-    input = input.loc[data.index]
-    df = input.join(data[target_names])
+    input_cols = list(input.columns)
+    print('Merging target and features')
+    df = data = input.merge(data, left_index=True, right_index=True, copy=False)
+    del input
+    gc.collect()
+    #df = input.join(data[target_names], how='inner')
 
     if calc_maxgam is True:
         df_gam = store.select('/megarun1/flattened', columns=['gam_leq_GB', 'gam_great_GB'])
@@ -397,32 +402,35 @@ def prep_df(store_name, nns, unstack, filter_less=np.inf, filter_geq=-np.inf, sh
             df = df[np.isclose(df[name], float(val),     atol=1e-5, rtol=1e-3)]
 
     if clip is True:
+        print('Clipping')
         df[target_names] = df[target_names].clip(filter_less, filter_geq, axis=1)
-    else:
-        # filter
-        df = df[(df[target_names] < filter_less).all(axis=1)]
-        df = df[(df[target_names] >= filter_geq).all(axis=1)]
-    #print(np.sum(df['target'] < 0)/len(df), ' frac < 0')
-    #print(np.sum(df['target'] == 0)/len(df), ' frac == 0')
-    #print(np.sum(df['target'] > 0)/len(df), ' frac > 0')
-    #uni = {col: input[col].unique() for col in input}
-    #uni_len = {key: len(value) for key, value in uni.items()}
-    #input['index'] = input.index
-    df.set_index([col for col in input], inplace=True)
-    df = df.astype('float64')
-    df = df.sort_index(level=unstack)
+        #df = df[(df[target_names] < filter_less).all(axis=1)]
+        #df = df[(df[target_names] >= filter_geq).all(axis=1)]
+
+    print('Setting index')
+    df.set_index(input_cols, inplace=True)
+    if sort:
+        print('Sorting')
+        if sort and shuffle:
+            print('WARNING! Sorting and shuffeling. Sort will be useless')
+        df = df.sort_index(level=unstack)
+    print('Unstacking slices')
     df = df.unstack(unstack)
+
     if shuffle:
+        print("Every day I'm shuffling")
         df = shuffle_panda(df)
-    #df.sort_values('smag', inplace=True)
-    #input, data = prettify_df(input, data)
-    #input = input.astype('float64')
-    # Filter
 
     if frac < 1:
+        print('Taking {!s} fraction'.format(frac))
+        if not shuffle:
+            print('WARNING! Taking fraction without shuffle. You will always get the same slices!')
         idx = int(frac * len(df))
         df = df.iloc[:idx, :]
     #df = df.iloc[1040:2040,:]
+
+    print('Converting to float64')
+    df = df.astype('float64')
     print('dataset loaded!')
     return df, target_names
 
@@ -675,10 +683,17 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
 
         wobble = np.abs(np.diff(nn_preds, n=2,axis=0))
         wobble_tot = np.mean(wobble, axis=0)
-        wobble_unstab = np.array([np.mean(col[ind:]) for ind, col in zip(thresh_nn_i + 1, wobble.T)])
+        with warnings.catch_warnings(): # col[ind:] is empty if no threshold
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            wobble_unstab = np.array([np.mean(col[ind:]) for ind, col in zip(thresh_nn_i + 1, wobble.T)])
         try:
-            thresh_2_i = np.where(np.abs(x - thresh2) == np.min(np.abs(x - thresh2)))[0][0]
-            wobble_qlkunstab = np.array([np.mean(col[thresh_2_i:]) for col in wobble.T])
+
+            with warnings.catch_warnings(): # col[ind:] is empty if no threshold
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                thresh_2_i = np.where(np.abs(x - thresh2) == np.min(np.abs(x - thresh2)))[0][0]
+            with warnings.catch_warnings(): # col[thresh_2_i:] is empty if no threshold
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                wobble_qlkunstab = np.array([np.mean(col[thresh_2_i:]) for col in wobble.T])
         except IndexError:
             thresh_2_i = np.nan
             wobble_qlkunstab = np.full_like(wobble_tot, np.nan)
@@ -827,7 +842,7 @@ def extract_nn_stats(results, duo_results, nns, frac, store_name, submit_to_nndb
     db.close()
 
 def get_store_params(store_name):
-    gen, dim, filter = re.match('(?:gen(\d+)_|)(\d+)D_nions0_flat(?:_filter(\d+))?.h5', store_name).groups()
+    gen, dim, filter = re.match('(?:gen(\d+)_|)(\d+)D_nions0_flat(?:_filter(\d+))?.*', store_name).groups()
     if filter is not None:
         filter = int(filter)
     gen, dim = int(gen), int(dim)
@@ -847,18 +862,17 @@ if __name__ == '__main__':
     #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
-    #store_basename = 'gen3_9D_nions0_flat.h5.1'
-    store_path = os.path.join(store_root, store_basename)
+    #store_basename = 'gen3_9D_nions0_flat_sep.h5.1'
+    store_name = os.path.join(store_root, store_basename)
     for ii in range(10):
         try:
-            store = pd.HDFStore(store_path, 'r')
+            store = pd.HDFStore(store_name, 'r')
         except UnicodeDecodeError:
             pass
         else:
             try:
                 store.groups()
-                store.get_storer('/megarun1/flattened').non_index_axes[0][1]
-                store.get_storer('/megarun1/input').non_index_axes[0][1]
+                storer = store.get_storer('/megarun1/input')
             except (AttributeError, UnicodeDecodeError):
                 store.close()
             else:
@@ -867,7 +881,7 @@ if __name__ == '__main__':
         time.sleep(1)
 
     if not store.is_open:
-        raise Exception('Failed to open file {!s}'.format(store_path))
+        raise Exception('Failed to open file {!s}'.format(store_name))
     __, dim, __ = get_store_params(store_basename)
     if not socket.gethostname().startswith('rs'):
         slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=7)
@@ -885,15 +899,17 @@ if __name__ == '__main__':
         labels=False
 
     if mode == 'quick':
-        filter_geq = -np.inf
-        filter_less = np.inf
+        clip = False
+        filter_geq = None
+        filter_less = None
     else:
+        clip = True
         filter_geq = -120
         filter_less = 120
 
     itor = None
     frac = 0.05
-    df, target_names = prep_df(store_name, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor, frac=frac)
+    df, target_names = prep_df(store, nns, slicedim, filter_less=filter_less, filter_geq=filter_geq, slice=itor, frac=frac)
     gc.collect()
     unsafe = is_unsafe(df, nns, slicedim)
     if not unsafe:
@@ -909,8 +925,9 @@ if __name__ == '__main__':
     if settings['parallel']:
         num_processes = cpu_count()
         chunk_size = int(df.shape[0]/num_processes)
-        chunks = [df.ix[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
+        chunks = [df.loc[df.index[i:i + chunk_size]] for i in range(0, df.shape[0], chunk_size)]
         pool = Pool(processes=num_processes)
+        print('Using {:d} processes'.format(num_processes))
 
     print('Starting {:d} slices for {:d} networks'.format(len(df), len(nns)))
     starttime = time.time()

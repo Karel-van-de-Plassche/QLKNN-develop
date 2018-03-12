@@ -67,10 +67,15 @@ def first(s):
     '''
     return next(iter(s.items()))
 
-def load_from_store(store_name, fast=True, mode='bare', how='left', columns=None):
+def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None):
     if isinstance(columns, str):
         columns = [columns]
-    store = pd.HDFStore(store_name, 'r')
+    elif isinstance(columns, pd.Series):
+        columns = columns.values
+    if store_name is not None and store is not None:
+        raise Exception('Specified both store and store name!')
+    if store is None:
+        store = pd.HDFStore(store_name, 'r')
     has_flattened = lambda store: any(['flattened' in group for group in store.keys()])
     return_all = lambda columns: columns is None
     return_no = lambda columns: columns is False
@@ -86,6 +91,7 @@ def load_from_store(store_name, fast=True, mode='bare', how='left', columns=None
     have_sep = lambda columns: columns is None or (len(names) == len(columns))
     if not return_all(columns):
         names = [(varname, name) for (varname, name) in names if name in columns]
+    names = OrderedDict(names)
     if has_flattened(store) and (return_all(columns) or not have_sep(columns)):
         #print('Taking "old" code path')
         if is_legacy(store):
@@ -111,7 +117,6 @@ def load_from_store(store_name, fast=True, mode='bare', how='left', columns=None
         #print('Taking "new" code path')
         const = store[prefix + 'constants']
         input = store[prefix + 'input']
-        names = OrderedDict(names)
         if not return_no(columns):
             if fast:
                 output = []
