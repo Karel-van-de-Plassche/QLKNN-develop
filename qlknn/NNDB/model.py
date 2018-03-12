@@ -299,8 +299,8 @@ class Network(BaseModel):
                                    [efi + '_div_' + efe]
                                    ]
                 formulas = OrderedDict([
-                    (efe, '(nn{1:d} * nn{2:d})'),
-                    (efi, 'nn{1:d}'),
+                    (efe, 'nn{1:d}'),
+                    (efi, '(nn{1:d} * nn{2:d})'),
                     (pfe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
