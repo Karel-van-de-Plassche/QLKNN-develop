@@ -30,6 +30,8 @@ class QuaLiKizComboNN():
 
         self._combo_func = combo_func
         self._target_names = pd.Series(target_names)
+        if not self._target_names.index.is_unique:
+            raise Exception('Non unique index for target_names!')
         self._target_min = pd.Series(
             self._combo_func(*[nn._target_min.values for nn in nns]),
             index=self._target_names)
@@ -268,7 +270,7 @@ def clip_to_bounds(output, clip_low, clip_high, low_bound, high_bound):
 
 def determine_settings(network, input, safe, clip_low, clip_high, low_bound, high_bound):
         if safe:
-            if input.__class__ == pd.DataFrame:
+            if isinstance(input, pd.DataFrame):
                 nn_input = input[network._feature_names]
             else:
                 raise Exception('Please pass a pandas.DataFrame for safe mode')
