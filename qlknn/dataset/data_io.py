@@ -7,10 +7,7 @@ import pandas as pd
 import numpy as np
 from IPython import embed
 
-particle_diffusion_vars = [u'df', u'vt', u'vr', u'vc']
-particle_vars = [u'pf'] + particle_diffusion_vars
-heat_vars = [u'ef']
-momentum_vars = [u'vf']
+from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_flux
 
 store_format = 'fixed'
 
@@ -22,10 +19,6 @@ def put_to_store_or_df(store_or_df, name, var):
 
 def separate_to_store(input, data, const, store, save_flux=True, save_growth=True, save_all=False, **put_kwargs):
     is_growth = lambda col: col in ['gam_leq_GB', 'gam_great_GB']
-
-    def is_flux(col):
-        re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-        return splitted[0] in heat_vars + particle_vars + momentum_vars
 
     for col in data:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)

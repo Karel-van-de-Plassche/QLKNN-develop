@@ -10,7 +10,8 @@ from IPython import embed
 import pandas as pd
 import numpy as np
 
-from qlknn.dataset.data_io import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, put_to_store_or_df, save_to_store, load_from_store
+from qlknn.dataset.data_io import put_to_store_or_df, save_to_store, load_from_store
+from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars
 #'vti_GB', 'dfi_GB', 'vci_GB',
 #       'pfi_GB', 'efi_GB',
 #       
