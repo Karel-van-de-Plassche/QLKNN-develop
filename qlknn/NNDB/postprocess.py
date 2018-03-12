@@ -15,7 +15,8 @@ def nns_from_nndb(max=20):
     non_processed = get_similar_not_in_table(Postprocess, max,
                                              only_sep=False,
                                              no_particle=False,
-                                             no_mixed=False)
+                                             no_mixed=False,
+                                             no_gam=False)
 
     nns = OrderedDict()
     for dbnn in non_processed:
@@ -31,7 +32,7 @@ def process_nns(nns, root_path, set, filter, leq_bound, less_bound):
     feature_names = nn0._feature_names
 
     dim = len(feature_names)
-    filter_name = set + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter) + '.h5'
+    filter_name = set + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter) + '.h5.1'
     filter_path_name = os.path.join(root_path, filter_name)
 
     store = pd.HDFStore(filter_path_name)
