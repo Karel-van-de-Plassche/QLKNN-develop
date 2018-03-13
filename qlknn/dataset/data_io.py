@@ -17,17 +17,19 @@ def put_to_store_or_df(store_or_df, name, var):
     else:
         store_or_df[name] = var
 
-def separate_to_store(data, store, save_flux=True, save_growth=True, save_all=False, **put_kwargs):
+def separate_to_store(data, store, save_flux=True, save_growth=True, save_all=False, verbose=False, **put_kwargs):
     for col in data:
         key = ''.join(['output/', col])
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
         if ((is_flux(col) and save_flux) or
             (is_growth(col) and save_growth) or
             save_all):
-            print('Saving', col)
+            if verbose:
+                print('Saving', col)
             store.put(key, data[col].dropna(), format=store_format, **put_kwargs)
         else:
-            print('Do not save', col)
+            if verbose:
+                print('Do not save', col)
 
 def save_to_store(input, data, const, store_name, style='both', zip=False, prefix='/'):
     if zip is True:
