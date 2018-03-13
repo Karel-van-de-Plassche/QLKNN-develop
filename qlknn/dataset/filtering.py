@@ -33,23 +33,14 @@ def regime_filter(data, leq, less):
     data = data.loc[bool]
     return data
 
-div_bounds = {
-    'pfeTEM_GB': (0.02, 20),
-    'pfeITG_GB': (0.02, 10),
-    'efiTEM_GB': (0.05, np.inf),
-    'efeITG_GB_div_efiITG_GB': (0.05, 1.5),
-    'pfeITG_GB_div_efiITG_GB': (0.02, 0.6),
-    'efiTEM_GB_div_efeTEM_GB': (0.05, 2.0),
-    'pfeTEM_GB_div_efeTEM_GB': (0.03, 0.8)
-}
 def div_filter(store):
     for group in store:
         if isinstance(store, pd.HDFStore):
             group = group[1:]
         pre = np.sum(~store[group].isnull())
         se = store[group]
-        if group in div_bounds:
-            low, high = div_bounds[group]
+        if group in filter_defaults['div']:
+            low, high = filter_defaults['div'][group]
         else:
             continue
 
@@ -103,7 +94,7 @@ def negative_filter(data):
 def ck_filter(data, bound):
     return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
 
-def totsep_filter(data, septot_factor, startlen=None):
+def septot_filter(data, septot_factor, startlen=None):
     if startlen is None:
         startlen = len(data)
     bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
@@ -134,30 +125,38 @@ def femtoflux_filter(data, bound):
     return bool
 
 def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, 
+                  stored_negative_filter=None, stored_ck_filter=None, stored_ambipolar_filter=None,
                   stored_septot_filter=None, stored_femtoflux_filter=None, startlen=None):
     if startlen is None:
         startlen = len(data)
     # Throw away point if negative heat flux
-    data = data.loc[negative_filter(data)]
+    if stored_negative_filter is None:
+        data = data.loc[negative_filter(data)]
+    else:
+        data = data.reindex(index=data.index.difference(stored_negative_filter), copy=False)
     print('After filter {!s:<13} {:.2f}% left'.format('negative', 100*len(data)/startlen))
     gc.collect()
 
-
     # Throw away point if cke or cki too high
-    data = data.loc[ck_filter(data, ck_bound)]
+    if stored_ck_filter is None:
+        data = data.loc[ck_filter(data, ck_bound)]
+    else:
+        data = data.reindex(index=data.index.difference(stored_ck_filter), copy=False)
     print('After filter {!s:<13} {:.2f}% left'.format('ck', 100*len(data)/startlen))
     gc.collect()
 
     # Throw away point if sep flux is way higher than tot flux
     if stored_septot_filter is None:
-        data = data.loc[totsep_filter(data, septot_factor, startlen=startlen)]
+        data = data.loc[septot_filter(data, septot_factor, startlen=startlen)]
     else:
         data = data.reindex(index=data.index.difference(stored_septot_filter), copy=False)
-
     print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
     gc.collect()
 
-    data = data.loc[ambipolar_filter(data, ambi_bound)]
+    if stored_ambipolar_filter is None:
+        data = data.loc[ambipolar_filter(data, ambi_bound)]
+    else:
+        data = data.reindex(index=data.index.difference(stored_ambipolar_filter), copy=False)
     print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
     gc.collect()
 
@@ -169,14 +168,55 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
     gc.collect()
 
     # Alternatively:
-    #data = data.loc[filter_negative(data) & filter_ck(data, ck_bound) & filter_totsep(data, septot_factor)]
+    #data = data.loc[filter_negative(data) & filter_ck(data, ck_bound) & filter_septot(data, septot_factor)]
 
     return data
-    #for col in data.columns:
-    #    splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-    #    if splitted[0] in particle_vars + heat_vars:
-    #        if splitted[2] != '':
-    #            data.loc[]
+
+filter_functions = {'negative': negative_filter,
+                    'ck': ck_filter,
+                    'septot': septot_filter,
+                    'ambipolar': ambipolar_filter,
+                    'femtoflux': femtoflux_filter}
+
+filter_defaults = {'div':
+                     {
+                         'pfeTEM_GB': (0.02, 20),
+                         'pfeITG_GB': (0.02, 10),
+                         'efiTEM_GB': (0.05, np.inf),
+                         'efeITG_GB_div_efiITG_GB': (0.05, 1.5),
+                         'pfeITG_GB_div_efiITG_GB': (0.02, 0.6),
+                         'efiTEM_GB_div_efeTEM_GB': (0.05, 2.0),
+                         'pfeTEM_GB_div_efeTEM_GB': (0.03, 0.8)
+                     },
+                   'negative': None,
+                   'ck': 50,
+                   'septot': 1.5,
+                   'ambipolar': 1.5,
+                   'femtoflux': 1e-4
+                   }
+
+def create_stored_filter(store, data, filter_name, filter_var):
+    filter_func = filter_functions[filter_name]
+    name = ''.join(['/filter/', filter_name])
+    if filter_var is not None:
+        name = ''.join([name, '_', str(filter_var)])
+        var = data.index[~filter_func(data, filter_var)].to_series()
+    else:
+        var = data.index[~filter_func(data)].to_series()
+    store.put(name, var)
+
+def load_stored_filter(store, filter_name, filter_var):
+    name = ''.join(['/filter/', filter_name])
+    try:
+        if filter_var is not None:
+            name = ''.join([name, '_', str(filter_var)])
+            filter = store.get(name)
+        else:
+            filter = store.get(name)
+    except KeyError:
+        filter = None
+    return filter
+
 
 def create_gen3_divsum(store):
     names = ['efeITG_GB_div_efiITG_GB',
@@ -300,37 +340,31 @@ if __name__ == '__main__':
     store_name = basename + '.h5'
 
     input, data, const = load_from_store(store_name)
-    septot_factor = 1.5
-    femto_bound = 1e-4
-    septot_filter_name = '/megarun1/insane_septot_' + str(septot_factor)
-    femto_filter_name = '/megarun1/insane_femtoflux_' + str(femto_bound)
     # Summarize the diffusion stats in a single septot filter
-    with pd.HDFStore(store_name) as store:
-        store.put(septot_filter_name,
-                  data.index[~totsep_filter(data, septot_factor)].to_series())
-        store.put(femto_filter_name,
-                  data.index[~femtoflux_filter(data, femto_bound)].to_series())
-    drop_start_with(data, particle_diffusion_vars)
+    store_filters = False
+    if store_filters:
+        with pd.HDFStore(store_name) as store:
+            for filter_name in filter_functions.keys():
+                create_stored_filter(store, data, filter_name, filter_defaults[filter_name])
     create_gen3_divsum(data)
     split_dims(input, data, const, gen)
 
     startlen = len(data)
 
     # As the 9D dataset is too big for memory, we have saved the septot filter seperately
+    filters = {}
     with pd.HDFStore(store_name) as store:
-        if septot_filter_name in store:
-            stored_septot_filter = store[septot_filter_name]
-        else:
-            stored_septot_filter = None
-        if femto_filter_name in store:
-            stored_femtoflux_filter = store[femto_filter_name]
-        else:
-            stored_femtoflux_filter = None
+        for filter_name in filter_functions.keys():
+            name = ''.join(['stored_', filter_name, '_filter'])
+            filters[name] = load_stored_filter(store, filter_name, filter_defaults[filter_name])
 
-    data = sanity_filter(data, 50, septot_factor, 1.5, femto_bound,
-                         stored_septot_filter=stored_septot_filter,
-                         stored_femtoflux_filter=stored_femtoflux_filter,
-                         startlen=startlen)
+
+    data = sanity_filter(data,
+                         filter_defaults['ck'],
+                         filter_defaults['septot'],
+                         filter_defaults['ambipolar'],
+                         filter_defaults['femtoflux'],
+                         startlen=startlen, **filters)
     data = regime_filter(data, 0, 100)
     gc.collect()
     input = input.loc[data.index]
