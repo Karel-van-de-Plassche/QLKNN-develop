@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 from IPython import embed
 
-from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_flux
+from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_flux, is_growth
 
 store_format = 'fixed'
 
@@ -17,21 +17,19 @@ def put_to_store_or_df(store_or_df, name, var):
     else:
         store_or_df[name] = var
 
-def separate_to_store(input, data, const, store, save_flux=True, save_growth=True, save_all=False, **put_kwargs):
-    is_growth = lambda col: col in ['gam_leq_GB', 'gam_great_GB']
-
+def separate_to_store(data, store, save_flux=True, save_growth=True, save_all=False, **put_kwargs):
     for col in data:
+        key = ''.join(['output/', col])
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
         if ((is_flux(col) and save_flux) or
             (is_growth(col) and save_growth) or
             save_all):
             print('Saving', col)
-            store.put(col, data[col].dropna(), format=store_format, **put_kwargs)
+            store.put(key, data[col].dropna(), format=store_format, **put_kwargs)
         else:
             print('Do not save', col)
 
-def save_to_store(input, data, const, store_name, style='both', zip=False):
-    prefix = '/'
+def save_to_store(input, data, const, store_name, style='both', zip=False, prefix='/'):
     if zip is True:
         kwargs = {'complevel': 1,
                   'complib': 'zlib'}
@@ -40,7 +38,7 @@ def save_to_store(input, data, const, store_name, style='both', zip=False):
         kwargs = {}
     store = pd.HDFStore(store_name)
     if style == 'sep' or style == 'both':
-        separate_to_store(input, data, const, store, save_all=True, **kwargs)
+        separate_to_store(data, store, save_all=True, **kwargs)
     if style == 'flat' or style == 'both':
         if len(data) > 0:
             store.put('flattened', data, format=store_format, **kwargs)
@@ -60,7 +58,7 @@ def first(s):
     '''
     return next(iter(s.items()))
 
-def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None):
+def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='/'):
     if isinstance(columns, str):
         columns = [columns]
     elif isinstance(columns, pd.Series):
@@ -75,7 +73,6 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
     is_legacy = lambda store: all(['megarun' in name for name in store.keys()])
     names = store.keys()
     # Associate 'nice' name with 'ugly' HDF5 node path, and only use data columns
-    prefix = '/'
     names = [(name, name.lstrip(prefix))
                    for name in names
                    if (('input' not in name) and
@@ -88,6 +85,7 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
     if has_flattened(store) and (return_all(columns) or not have_sep(columns)):
         #print('Taking "old" code path')
         if is_legacy(store):
+            warnings.warn('Using legacy datafile!')
             prefix = '/megarun1/'
         input = store[prefix + 'input']
         try:
@@ -97,11 +95,6 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
             const = pd.Series()
         if return_all(columns):
             data = store.select(prefix + 'flattened')
-            #storer = store.get_storer(prefix + 'flattened')
-            #try:
-            #    columns = storer.non_index_axes[0][1]
-            #except AttributeError:
-            #    columns = storer.read_index('axis0').tolist()
         elif return_no(columns):
             data = pd.DataFrame(index=input.index)
         else:
