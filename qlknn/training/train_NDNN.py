@@ -8,32 +8,30 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import argparse
 import sys
 import time
 import os
 import io
-from shutil import copyfile
 import subprocess
+import json
+from itertools import product
+from shutil import copyfile
 
 if not (sys.version_info > (3, 0)):
     range = xrange
 
-from IPython import embed
+import argparse
 import tensorflow as tf
 from tensorflow.contrib import opt
 from tensorflow.python.client import timeline
-from itertools import product
-
-
 import numpy as np
 import pandas as pd
 from IPython import embed
-import json
-import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
-from nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
+
+
+from qlknn.training.datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
+from qlknn.training.nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
+from qlknn.dataset.data_io import load_from_store
 
 FLAGS = None
 
@@ -49,18 +47,7 @@ def print_last_row(df, header=False):
 def prep_dataset(settings):
     train_dims = settings['train_dims']
     # Open HDF store. This is usually a soft link to our filtered dataset
-    try:
-        store = pd.HDFStore(settings['dataset_path'], 'r')
-    except IOError:
-        print('Could not find {!s} in {!s}'.format(settings['dataset_path'], os.path.abspath(os.curdir)))
-        raise
-
-    # Get the targets (train_dims) and features (input)
-    target_df = store.get(train_dims[0]).to_frame()
-    for target_name in train_dims[1:]:
-        target_df = pd.concat([target_df, store.get(target_name)], axis=1)
-    input_df = store.select('input')
-    store.close()
+    input_df, target_df, const = load_from_store(settings['dataset_path'], columns=train_dims)
 
     try:
         del input_df['nions']  # Delete leftover artifact from dataset split
