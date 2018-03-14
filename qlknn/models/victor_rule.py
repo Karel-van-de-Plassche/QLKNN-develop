@@ -73,41 +73,68 @@ class VictorNN():
 
 if __name__ == '__main__':
     scann = 100
-    input = pd.DataFrame()
-    input['epsilon'] = np.array(np.linspace(1/1,1/33, scann))
-    input['q']  = np.full_like(input.iloc[:, 0], 1.4)
-    input['s_hat']  = np.full_like(input.iloc[:, 0], 0.4)
+    import matplotlib as mpl
+    from matplotlib.colors import ListedColormap
     import matplotlib.pyplot as plt
-    plt.plot(1/input['epsilon'], victor_func(*input.loc[:, ['epsilon', 'q', 's_hat']].values.T))
-    plt.title('s_hat = ' + str(input['s_hat'].iloc[0]) + ', q = ' + str(input['q'].iloc[0]))
-    plt.xlabel('1/eps')
-    plt.xlim([0, 35])
-    plt.ylim([-1.5, 2.5])
 
-    input = pd.DataFrame()
-    input['q'] = np.array(np.linspace(0.5, 4.5, scann))
-    input['epsilon']  = np.full_like(input.iloc[:, 0], 0.18)
-    input['s_hat']  = np.full_like(input.iloc[:, 0], 0.4)
-    plt.plot(input['q'], victor_func(*input.loc[:, ['epsilon', 'q', 's_hat']].values.T))
-    plt.title('s_hat = ' + str(input['s_hat'].iloc[0]) + ', epsilon = ' + str(input['epsilon'].iloc[0]))
-    plt.xlabel('q')
-    plt.xlim([0.5, 4.5])
-    plt.ylim([-1.5, 0.75])
+    #input = pd.DataFrame()
+    #input['epsilon'] = np.array(np.linspace(1/1,1/33, scann))
+    #input['q']  = np.full_like(input.iloc[:, 0], 1.4)
+    #input['s_hat']  = np.full_like(input.iloc[:, 0], 0.4)
+    #plt.plot(1/input['epsilon'], victor_func(*input.loc[:, ['epsilon', 'q', 's_hat']].values.T))
+    #plt.title('s_hat = ' + str(input['s_hat'].iloc[0]) + ', q = ' + str(input['q'].iloc[0]))
+    #plt.xlabel('1/eps')
+    #plt.xlim([0, 35])
+    #plt.ylim([-1.5, 2.5])
 
-    input = pd.DataFrame()
-    input['s_hat'] = np.array(np.linspace(0, 3, scann))
-    input['epsilon']  = np.full_like(input.iloc[:, 0], 0.18)
-    input['q']  = np.full_like(input.iloc[:, 0], 1.4)
-    plt.plot(input['s_hat'], victor_func(*input.loc[:, ['epsilon', 'q', 's_hat']].values.T))
-    plt.title('q = ' + str(input['q'].iloc[0]) + ', epsilon = ' + str(input['epsilon'].iloc[0]))
-    plt.xlabel('s_hat')
-    plt.xlim([0, 3])
-    plt.ylim([-1.2, 0.4])
+    def plot_victorplot(epsilon, q, s_hat, gamma_0, plotvar):
+        n = 100
+        idx = pd.MultiIndex.from_product([np.linspace(0,1,n), epsilon, q, s_hat], names=['gamma_E', 'epsilon', 'q', 's_hat'])
+        data = pd.DataFrame(index=idx)
+        data.reset_index(inplace=True)
+        data['f_vic'] = victor_func(*data.loc[:, ('epsilon', 'q', 's_hat')].values.T)
+        data['gamma_0'] = np.tile(gamma_0, [1, n]).T
+        data['line'] = data['gamma_0'] + data['f_vic'] * data['gamma_E']
+        data['line'].clip(0, inplace=True)
+        gamma_E_plot = data.pivot(index='gamma_E', columns=plotvar, values='line')
+        if plotvar == 'epsilon':
+            gamma_E_plot = gamma_E_plot[gamma_E_plot.columns[::-1]]
+            cmap = ListedColormap(['C1', 'C0', 'C2', 'C4', 'C3', 'C8'])
+        else:
+            cmap = ListedColormap(['C1', 'C2', 'C0', 'C4', 'C3', 'C8'])
+        style = [':'] * data[plotvar].unique().size
+        gamma_E_plot.plot(colormap=cmap, style=style)
+        plt.show()
+    plot_victorplot([0.03, 0.05, 0.1, 0.18, 0.26, 0.35], [1.4], [0.4], [0.22, 0.27, 0.4, 0.57, 0.65, 0.71], 'epsilon')
+    plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.4], [0.27, 0.5, 0.64, 0.701, 0.74, 0.76], 'q')
+    plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.8], [0.34, 0.54, 0.64, 0.69, 0.71, 0.73], 'q')
+    plot_victorplot([0.18], [1.4], [0.2, 0.7, 1.2, 1.7, 2.2, 2.7], [.92, 1.18, 1.07, 0.85, 0.63, 0.52], 's_hat')
+
+
+    #input = pd.DataFrame()
+    #input['q'] = np.array(np.linspace(0.5, 4.5, scann))
+    #input['epsilon']  = np.full_like(input.iloc[:, 0], 0.18)
+    #input['s_hat']  = np.full_like(input.iloc[:, 0], 0.4)
+    #plt.plot(input['q'], victor_func(*input.loc[:, ['epsilon', 'q', 's_hat']].values.T))
+    #plt.title('s_hat = ' + str(input['s_hat'].iloc[0]) + ', epsilon = ' + str(input['epsilon'].iloc[0]))
+    #plt.xlabel('q')
+    #plt.xlim([0.5, 4.5])
+    #plt.ylim([-1.5, 0.75])
+
+    #input = pd.DataFrame()
+    #input['s_hat'] = np.array(np.linspace(0, 3, scann))
+    #input['epsilon']  = np.full_like(input.iloc[:, 0], 0.18)
+    #input['q']  = np.full_like(input.iloc[:, 0], 1.4)
+    #plt.plot(input['s_hat'], victor_func(*input.loc[:, ['epsilon', 'q', 's_hat']].values.T))
+    #plt.title('q = ' + str(input['q'].iloc[0]) + ', epsilon = ' + str(input['epsilon'].iloc[0]))
+    #plt.xlabel('s_hat')
+    #plt.xlim([0, 3])
+    #plt.ylim([-1.2, 0.4])
     #plt.show()
 
     # Test the function
     root = os.path.dirname(os.path.realpath(__file__))
-    nn = QuaLiKizNDNN.from_json('nn.json', layer_mode='classic')
+    nn = QuaLiKizNDNN.from_json('../../tests/gen2_test_files/network_1393/nn.json', layer_mode='classic')
 
     scann = 100
     input = pd.DataFrame()
