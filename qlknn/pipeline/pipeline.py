@@ -279,7 +279,7 @@ class TrainDenseBatch(TrainBatch):
 
     plan['dataset_path'] = []
     for filter in plan.pop('filter'):
-        plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5'.format(dim, filter))
+        plan['dataset_path'].append('../filtered_{!s}D_nions0_flat_filter{!s}.h5.1'.format(dim, filter))
 
     with open(os.path.join(training_path, 'default_settings.json')) as file_:
         settings = json.load(file_)
@@ -329,7 +329,7 @@ class TrainNarrow9DBatch(TrainBatch):
 
     plan['dataset_path'] = []
     for filter in plan.pop('filter'):
-        plan['dataset_path'].append('../unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, dim, filter))
+        plan['dataset_path'].append('../../unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(gen, dim, filter))
 
     with open(os.path.join(training_path, 'default_settings.json')) as file_:
         settings = json.load(file_)
