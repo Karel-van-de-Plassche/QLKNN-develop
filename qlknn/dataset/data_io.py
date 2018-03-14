@@ -75,7 +75,7 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
     is_legacy = lambda store: all(['megarun' in name for name in store.keys()])
     names = store.keys()
     # Associate 'nice' name with 'ugly' HDF5 node path, and only use data columns
-    names = [(name, name.lstrip(prefix))
+    names = [(name, name.lstrip(prefix + 'output'))
                    for name in names
                    if (('input' not in name) and
                        ('constants' not in name) and
