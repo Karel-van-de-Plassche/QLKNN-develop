@@ -305,7 +305,7 @@ class TrainMidsize7DBatch(TrainBatch):
 
     plan['dataset_path'] = []
     for filter in plan.pop('filter'):
-        plan['dataset_path'].append('../../unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, dim, filter))
+        plan['dataset_path'].append('../../unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(gen, dim, filter))
 
     with open(os.path.join(training_path, 'default_settings.json')) as file_:
         settings = json.load(file_)
@@ -353,7 +353,7 @@ class TrainAll7DNetworks(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
 
     def requires(self):
-        for train_dims in gen3_single_target_list:
+        for train_dims in gen3_target_list:
             yield TrainMidsize7DBatch(self.submit_date, train_dims)
 
 def target_names_generator():
@@ -376,16 +376,49 @@ def target_names_generator():
 
 gen3_single_target_list = [
     ['efeETG_GB'],
+
     ['efeITG_GB'],
     ['efiITG_GB'],
     ['efeITG_GB_div_efiITG_GB'],
     ['pfeITG_GB'],
     ['pfeITG_GB_div_efiITG_GB'],
+
     ['efeTEM_GB'],
     ['efiTEM_GB'],
     ['efiTEM_GB_div_efeTEM_GB'],
     ['pfeTEM_GB'],
     ['pfeTEM_GB_div_efeTEM_GB']
+]
+
+gen3_dv_single_target_pure_list = [
+    ['dfeITG_GB'],
+    ['dfiITG_GB'],
+    ['vceITG_GB'],
+    ['vciITG_GB'],
+    ['vteITG_GB'],
+    ['vtiITG_GB'],
+
+    ['dfeTEM_GB'],
+    ['dfiTEM_GB'],
+    ['vceTEM_GB'],
+    ['vciTEM_GB'],
+    ['vteTEM_GB'],
+    ['vtiTEM_GB']
+]
+gen3_dv_single_target_div_list = [
+    ['dfeITG_GB_div_efiITG_GB'],
+    ['dfiITG_GB_div_efiITG_GB'],
+    ['vceITG_GB_div_efiITG_GB'],
+    ['vciITG_GB_div_efiITG_GB'],
+    ['vteITG_GB_div_efiITG_GB'],
+    ['vtiITG_GB_div_efiITG_GB'],
+
+    ['dfeTEM_GB_div_efeTEM_GB'],
+    ['dfiTEM_GB_div_efeTEM_GB'],
+    ['vceTEM_GB_div_efeTEM_GB'],
+    ['vciTEM_GB_div_efeTEM_GB'],
+    ['vteTEM_GB_div_efeTEM_GB'],
+    ['vtiTEM_GB_div_efeTEM_GB']
 ]
 
 gen3_multiD_target_list = [
@@ -394,7 +427,7 @@ gen3_multiD_target_list = [
     ['efeITG_GB', 'efiITG_GB', 'pfeITG_GB'],
     ['efeTEM_GB', 'efiTEM_GB', 'pfeTEM_GB']
 ]
-gen3_target_list = gen3_single_target_list + gen3_multiD_target_list
+gen3_target_list = gen3_single_target_list + gen3_dv_single_target_div_list
 
 
 if __name__ == '__main__':
