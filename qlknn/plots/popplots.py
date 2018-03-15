@@ -14,7 +14,7 @@ import seaborn as sns
 from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice
 from qlknn.models.ffnn import QuaLiKizNDNN
 from qlknn.dataset.data_io import sep_prefix
-from qlknn.misc.analyse_names import is_flux, is_full, is_pure, is_heat, is_particle, is_rot, is_diffusion, is_leading
+from qlknn.misc.analyse_names import is_transport, is_full_transport, is_pure, is_partial_heat, is_partial_particle, is_partial_rot, is_partial_diffusion, is_leading
 qlknn_root = os.path.abspath('../..')
 
 def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
@@ -72,7 +72,7 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
                            width="30%",
                            height="30%",
                            loc=loc)
-        if 'pf' in df.name or is_diffusion(df.name):
+        if is_partial_particle(df.name):
             quant_bound = .15
             low_bound = max(-1, df.quantile(quant_bound))
             high_bound = min(1, df.quantile(1 - quant_bound))
@@ -112,24 +112,42 @@ def plot_pure_network_dataset_dist(self):
                 plot_dataset_dist(store, sub_dim)
 Network.plot_dataset_dist = plot_pure_network_dataset_dist
 
-def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle=True, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False):
+def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle=True, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False, verbose_debug=False):
     with PdfPages('multipage_pdf.pdf') as pdf:
         for varname in store:
             varname = varname.lstrip(sep_prefix)
-            if (is_flux(varname) and
-                ((plot_full and is_full(varname)) or not is_full(varname)) and
+            if verbose_debug:
+                print(varname)
+                print('is_full_transport', is_full_transport(varname))
+                print('is_pure', is_pure(varname))
+                print('is_partial_rot', is_partial_rot(varname))
+                print('is_partial_heat', is_partial_heat(varname))
+                print('is_partial_particle', is_partial_particle(varname))
+                print('is_partial_diffusion', is_partial_diffusion(varname))
+                print('is_leading', is_leading(varname))
+
+            if (is_transport(varname) and
+                ((plot_full and is_full_transport(varname)) or not is_full_transport(varname)) and
                 ((plot_pure and is_pure(varname)) or not is_pure(varname)) and
-                ((plot_rot and is_rot(varname)) or
-                 (plot_heat and is_heat(varname)) or
-                 (plot_particle and is_particle(varname)) or
-                 (plot_diffusion and is_diffusion(varname)) or
+                ((plot_rot and is_partial_rot(varname)) or
+                 (plot_heat and is_partial_heat(varname)) or
+                 (plot_particle and is_partial_particle(varname)) or
+                 (plot_diffusion and is_partial_diffusion(varname)) or
                  (plot_nonleading and not is_leading(varname)) or
-                 (not is_rot(varname) and not is_full(varname) and not is_heat(varname) and not is_particle(varname) and not is_diffusion(varname) and is_leading(varname)))):
+                  (not is_full_transport(varname) and
+                   not is_partial_rot(varname) and
+                   not is_partial_heat(varname) and
+                   not is_partial_particle(varname) and
+                   not is_partial_diffusion(varname) and
+                   is_leading(varname)))):
                 print(varname)
                 fig = plot_dataset_dist(store, varname)
                 pdf.savefig(fig)
                 plt.close(fig)
-                fig = plot_dataset_zoomin(store, varname)
+                try:
+                    fig = plot_dataset_zoomin(store, varname)
+                except ZeroDivisionError:
+                    fig = plt.figure()
                 pdf.savefig(fig)
                 plt.close(fig)
 
