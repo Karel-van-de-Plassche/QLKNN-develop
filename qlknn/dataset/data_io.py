@@ -109,8 +109,10 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
         if not return_no(columns):
             if fast:
                 output = []
-                for varname, __ in names.items():
-                    output.append(store[varname])
+                for varname, name in names.items():
+                    var = store[varname]
+                    var.name = name
+                    output.append(var)
                 data = pd.concat(output, axis=1)
                 del output
             else:
