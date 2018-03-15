@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 
 from qlknn.dataset.data_io import put_to_store_or_df, save_to_store, load_from_store, sep_prefix
-from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars
+from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_partial_diffusion, is_partial_particle
 
 def drop_start_with(data, start_with):
     droplist = []
@@ -30,15 +30,17 @@ def regime_filter(data, leq, less):
 def div_filter(store):
     for group in store:
         if isinstance(store, pd.HDFStore):
-            group = group[1:]
-        pre = np.sum(~store[group].isnull())
-        se = store[group]
-        if group in filter_defaults['div']:
-            low, high = filter_defaults['div'][group]
+            name = group.lstrip(sep_prefix)
+
+        if name in filter_defaults['div']:
+            low, high = filter_defaults['div'][name]
         else:
             continue
+        se = store[group]
+        se.name = name
+        pre = np.sum(~se.isnull())
 
-        if 'pf' in group:
+        if is_partial_particle(name):
             se = se.abs()
 
         put_to_store_or_df(store, se.name, store[group].loc[(low < se) & (se < high)])
@@ -180,7 +182,21 @@ filter_defaults = {'div':
                          'efeITG_GB_div_efiITG_GB': (0.05, 1.5),
                          'pfeITG_GB_div_efiITG_GB': (0.02, 0.6),
                          'efiTEM_GB_div_efeTEM_GB': (0.05, 2.0),
-                         'pfeTEM_GB_div_efeTEM_GB': (0.03, 0.8)
+                         'pfeTEM_GB_div_efeTEM_GB': (0.03, 0.8),
+
+                         'dfeITG_GB_div_efiITG_GB': (0.02, np.inf),
+                         'dfiITG_GB_div_efiITG_GB': (0.15, np.inf),
+                         'vceITG_GB_div_efiITG_GB': (-np.inf, np.inf),
+                         'vciITG_GB_div_efiITG_GB': (0.1, np.inf),
+                         'vteITG_GB_div_efiITG_GB': (0.02, np.inf),
+                         'vtiITG_GB_div_efiITG_GB': (-np.inf, np.inf),
+
+                         'dfeTEM_GB_div_efeTEM_GB': (0.10, np.inf),
+                         'dfiTEM_GB_div_efeTEM_GB': (0.05, np.inf),
+                         'vceTEM_GB_div_efeTEM_GB': (0.07, np.inf),
+                         'vciTEM_GB_div_efeTEM_GB': (-np.inf, np.inf),
+                         'vteTEM_GB_div_efeTEM_GB': (-np.inf, np.inf),
+                         'vtiTEM_GB_div_efeTEM_GB': (-np.inf, np.inf)
                      },
                    'negative': None,
                    'ck': 50,
