@@ -10,16 +10,17 @@ from IPython import embed
 from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_flux, is_growth
 
 store_format = 'fixed'
-
-def put_to_store_or_df(store_or_df, name, var):
+sep_prefix = '/output/'
+def put_to_store_or_df(store_or_df, name, var, store_prefix=sep_prefix):
     if isinstance(store_or_df, pd.HDFStore):
-        store_or_df.put(name, var, format=store_format)
+        store_or_df.put(''.join([store_prefix, name]),
+                        var, format=store_format)
     else:
         store_or_df[name] = var
 
 def separate_to_store(data, store, save_flux=True, save_growth=True, save_all=False, verbose=False, **put_kwargs):
     for col in data:
-        key = ''.join(['output/', col])
+        key = ''.join([sep_prefix, col])
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
         if ((is_flux(col) and save_flux) or
             (is_growth(col) and save_growth) or
@@ -75,7 +76,7 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
     is_legacy = lambda store: all(['megarun' in name for name in store.keys()])
     names = store.keys()
     # Associate 'nice' name with 'ugly' HDF5 node path, and only use data columns
-    names = [(name, name.lstrip(prefix + 'output'))
+    names = [(name, name.lstrip(prefix + sep_prefix))
                    for name in names
                    if (('input' not in name) and
                        ('constants' not in name) and

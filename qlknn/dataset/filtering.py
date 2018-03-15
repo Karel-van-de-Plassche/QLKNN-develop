@@ -10,14 +10,8 @@ from IPython import embed
 import pandas as pd
 import numpy as np
 
-from qlknn.dataset.data_io import put_to_store_or_df, save_to_store, load_from_store
+from qlknn.dataset.data_io import put_to_store_or_df, save_to_store, load_from_store, sep_prefix
 from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars
-#'vti_GB', 'dfi_GB', 'vci_GB',
-#       'pfi_GB', 'efi_GB',
-#       
-#       'efe_GB', 'vce_GB', 'pfe_GB',
-#       'vte_GB', 'dfe_GB'
-             #'chie', 'ven', 'ver', 'vec']
 
 def drop_start_with(data, start_with):
     droplist = []
@@ -218,14 +212,32 @@ def load_stored_filter(store, filter_name, filter_var):
     return filter
 
 
-def create_gen3_divsum(store):
-    names = ['efeITG_GB_div_efiITG_GB',
-             'pfeITG_GB_div_efiITG_GB',
-             'efiTEM_GB_div_efeTEM_GB',
-             'pfeTEM_GB_div_efeTEM_GB']
-    for name in names:
+gen3_div_names_base = ['efeITG_GB_div_efiITG_GB',
+                       'pfeITG_GB_div_efiITG_GB',
+                       'efiTEM_GB_div_efeTEM_GB',
+                       'pfeTEM_GB_div_efeTEM_GB']
+
+gen3_div_names_dv = [
+    'dfeITG_GB_div_efiITG_GB',
+    'dfiITG_GB_div_efiITG_GB',
+    'vceITG_GB_div_efiITG_GB',
+    'vciITG_GB_div_efiITG_GB',
+    'vteITG_GB_div_efiITG_GB',
+    'vtiITG_GB_div_efiITG_GB',
+
+    'dfeTEM_GB_div_efeTEM_GB',
+    'dfiTEM_GB_div_efeTEM_GB',
+    'vceTEM_GB_div_efeTEM_GB',
+    'vciTEM_GB_div_efeTEM_GB',
+    'vteTEM_GB_div_efeTEM_GB',
+    'vtiTEM_GB_div_efeTEM_GB'
+]
+gen3_div_names = gen3_div_names_base + gen3_div_names_dv
+
+def create_gen3_divsum(store, divnames=gen3_div_names):
+    for name in divnames:
         one, two = re.compile('_div_').split(name)
-        one, two = store[one], store[two]
+        one, two = store[sep_prefix + one],  store[sep_prefix + two]
         res = (one / two).dropna()
         put_to_store_or_df(store, name, res)
 
