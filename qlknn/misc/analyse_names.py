@@ -2,10 +2,16 @@ import re
 
 from IPython import embed
 
-particle_diffusion_vars = [u'df', u'vt', u'vr', u'vc']
-particle_vars = [u'pf'] + particle_diffusion_vars
-heat_vars = [u'ef']
-momentum_vars = [u'vf']
+particle_rotationless_diffusion_vars = [u'df', u'vt', u'vc']
+particle_rotation_diffusion_vars = [u'vr']
+particle_diffusion_vars = particle_rotationless_diffusion_vars + particle_rotation_diffusion_vars
+particle_flux = [u'pf']
+particle_vars = particle_flux + particle_diffusion_vars
+heat_flux = [u'ef']
+heat_vars = heat_flux
+momentum_flux = [u'vf']
+momentum_vars = momentum_flux
+rotation_vars = particle_rotation_diffusion_vars
 
 def split_parts(name):
     splitted = re.compile('((?:.{2})(?:.)(?:|ITG|ETG|TEM)_(?:GB|SI|cm))').split(name)
@@ -31,10 +37,19 @@ def is_flux(name):
     flux = True
     try:
         for part_name in split_parts(name):
-            flux &= split_name(name)[0] in heat_vars + particle_vars + momentum_vars
+            flux &= split_name(name)[0] in heat_flux + particle_flux + momentum_flux
     except ValueError:
         flux = False
     return flux
+
+def is_transport(name):
+    transport = True
+    try:
+        for part_name in split_parts(name):
+            transport &= split_name(name)[0] in heat_vars + particle_vars + momentum_vars
+    except ValueError:
+        transport = False
+    return transport
 
 def is_pure_flux(name):
     try:
@@ -54,42 +69,61 @@ def split_name(name):
 def is_growth(name):
     return name in ['gam_leq_GB', 'gam_great_GB']
 
-def is_full(name):
-    return all(sub not in name for sub in ['TEM', 'ITG', 'ETG'])
+def contains_sep(name):
+    return any(sub in name for sub in ['TEM', 'ITG', 'ETG'])
 
-def is_flux_family(name, identifiers):
-    if is_flux(name):
-        flux_family = True
-        for subname in split_name(name):
-            flux_family &= any(sub in name for sub in identifiers)
+def is_full_transport(name):
+    return is_transport(name) and not contains_sep(name)
+
+def is_transport_family(name, identifiers, combiner):
+    if is_transport(name):
+        subnames = split_name(name)
+        transport_family = any(sub in subnames[0] for sub in identifiers)
+        for subname in subnames[1:]:
+            transport_family = combiner(transport_family, any(sub in subname for sub in identifiers))
     else:
-        flux_family = False
-    return flux_family
+        transport_family = False
+    return transport_family
 
-def is_diffusion(name):
-    return is_flux_family(name, ['df', 'vc', 'vt'])
+def is_pure_diffusion(name):
+    return is_transport_family(name, particle_diffusion_vars, lambda x, y: x and y)
 
-def is_heat(name):
-    return is_flux_family(name, ['ef'])
+def is_pure_heat(name):
+    return is_transport_family(name, heat_vars, lambda x, y: x and y)
 
-def is_particle(name):
-    return is_flux_family(name, ['pf'])
+def is_pure_particle(name):
+    return is_transport_family(name, particle_vars, lambda x, y: x and y)
 
-def is_rot(name):
-    return is_flux_family(name, ['vr', 'vf'])
+def is_pure_rot(name):
+    return is_transport_family(name, rotation_vars, lambda x, y: x and y)
+
+def is_partial_diffusion(name):
+    return is_transport_family(name, particle_diffusion_vars, lambda x, y: x or y)
+
+def is_partial_heat(name):
+    return is_transport_family(name, heat_vars, lambda x, y: x or y)
+
+def is_partial_particle(name):
+    return is_transport_family(name, particle_vars, lambda x, y: x or y)
+
+def is_partial_rot(name):
+    return is_transport_family(name, rotation_vars, lambda x, y: x or y)
 
 def is_leading(name):
-    leading = True
-    if not is_full(name):
-        if any(sub in name for sub in ['div', 'plus']):
-            if 'ITG' in name:
-                if name not in ['efeITG_GB_div_efiITG_GB', 'pfeITG_GB_div_efiITG_GB']:
-                    leading = False
-            elif 'TEM' in name:
-                if name not in ['efiTEM_GB_div_efeTEM_GB', 'pfeTEM_GB_div_efeTEM_GB']:
-                    leading = False
-        if 'pfi' in name:
-            leading = False
+    if is_transport(name):
+        leading = True
+        if not is_full_transport(name):
+            if any(sub in name for sub in ['div', 'plus']):
+                if 'ITG' in name:
+                    if name not in ['efeITG_GB_div_efiITG_GB', 'pfeITG_GB_div_efiITG_GB']:
+                        leading = False
+                elif 'TEM' in name:
+                    if name not in ['efiTEM_GB_div_efeTEM_GB', 'pfeTEM_GB_div_efeTEM_GB']:
+                        leading = False
+            if 'pfi' in name:
+                leading = False
+    else:
+        leading = False
     return leading
 
 if __name__ == '__main__':
