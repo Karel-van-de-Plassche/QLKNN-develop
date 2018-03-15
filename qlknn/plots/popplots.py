@@ -1,14 +1,9 @@
-import pickle
 import os
-from itertools import product, chain, zip_longest
-from collections import OrderedDict
-from functools import partial
 import re
 
-from IPython import embed
 import numpy as np
 import pandas as pd
-from peewee import AsIs, fn
+from IPython import embed
 import matplotlib as mpl
 #mpl.use('pdf')
 from matplotlib.backends.backend_pdf import PdfPages
@@ -18,6 +13,9 @@ import seaborn as sns
 
 from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice
 from qlknn.models.ffnn import QuaLiKizNDNN
+from qlknn.dataset.data_io import sep_prefix
+from qlknn.misc.analyse_names import is_flux, is_full, is_pure, is_heat, is_particle, is_rot, is_diffusion, is_leading
+qlknn_root = os.path.abspath('../..')
 
 def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
     cover_left = False
@@ -47,7 +45,8 @@ def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
 
 def plot_dataset_zoomin(store, varname, bound=0.1):
     with sns.axes_style("white"):
-        df = store[varname]
+        df = store[sep_prefix + varname]
+        df.name = varname
         df.dropna(inplace=True)
         fig = plt.figure()
         ax = sns.distplot(df.loc[df.abs() < bound],
@@ -58,12 +57,14 @@ def plot_dataset_zoomin(store, varname, bound=0.1):
 
 def plot_dataset_dist(store, varname, cutoff=0.01):
     with sns.axes_style("white"):
-        df = store[varname]
+        df = store[sep_prefix + varname]
+        df.name = varname
         df.dropna(inplace=True)
         fig = plt.figure()
         ax = sns.distplot(df.loc[(df.quantile(cutoff) < df) &
                                  (df < df.quantile(1 - cutoff))],
                           hist_kws={'log': False}, kde=True)
+        ax.set_ylabel('Counts [#]')
 
         sns.despine(ax=ax)
         loc = determine_subax_loc(ax)
@@ -71,7 +72,7 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
                            width="30%",
                            height="30%",
                            loc=loc)
-        if 'pf' in df.name:
+        if 'pf' in df.name or is_diffusion(df.name):
             quant_bound = .15
             low_bound = max(-1, df.quantile(quant_bound))
             high_bound = min(1, df.quantile(1 - quant_bound))
@@ -90,8 +91,8 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
         subax.set_xlabel('')
     return fig
 
-def generate_store_name(unstable=True, gen=2, filter_id=7, dim=7):
-    store_name = 'training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(gen, dim, filter_id)
+def generate_store_name(unstable=True, gen=3, filter_id=8, dim=7):
+    store_name = 'training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(gen, dim, filter_id)
     if unstable:
         store_name = '_'.join(['unstable', store_name])
     return store_name
@@ -100,7 +101,7 @@ def plot_pure_network_dataset_dist(self):
     filter_id = self.filter_id
     dim = len(net.feature_names)
     #store_name = 'unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(2, filter_id, dim)
-    store_name = generate_store_name(True, 2, filter_id, dim)
+    store_name = generate_store_name(True, 3, filter_id, dim)
     store = pd.HDFStore(os.path.join(qlknn_root, store_name))
     embed()
     for train_dim in net.target_names:
@@ -111,33 +112,19 @@ def plot_pure_network_dataset_dist(self):
                 plot_dataset_dist(store, sub_dim)
 Network.plot_dataset_dist = plot_pure_network_dataset_dist
 
-def generate_dataset_report(store, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False):
-    is_full = lambda name: all(sub not in name for sub in ['TEM', 'ITG', 'ETG'])
-    is_rot = lambda name: any(sub in name for sub in ['vr', 'vf'])
-    is_diffusion = lambda name: any(sub in name for sub in ['df', 'vc', 'vt'])
-    def is_leading(name):
-        leading = True
-        if not is_full(name):
-            if any(sub in name for sub in ['div', 'plus']):
-                if 'ITG' in name:
-                    if name not in ['efeITG_GB_div_efiITG_GB', 'pfeITG_GB_div_efiITG_GB']:
-                        leading = False
-                elif 'TEM' in name:
-                    if name not in ['efiTEM_GB_div_efeTEM_GB', 'pfeTEM_GB_div_efeTEM_GB']:
-                        leading = False
-            if 'pfi' in name:
-                leading = False
-        return leading
-
+def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle=True, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False):
     with PdfPages('multipage_pdf.pdf') as pdf:
         for varname in store:
-            varname = varname.lstrip('/')
-            if ((varname not in ['input', 'constants']) and
+            varname = varname.lstrip(sep_prefix)
+            if (is_flux(varname) and
+                ((plot_full and is_full(varname)) or not is_full(varname)) and
+                ((plot_pure and is_pure(varname)) or not is_pure(varname)) and
                 ((plot_rot and is_rot(varname)) or
-                 (plot_full and is_full(varname)) or
+                 (plot_heat and is_heat(varname)) or
+                 (plot_particle and is_particle(varname)) or
                  (plot_diffusion and is_diffusion(varname)) or
                  (plot_nonleading and not is_leading(varname)) or
-                 (not is_rot(varname) and not is_full(varname) and not is_diffusion(varname) and is_leading(varname)))):
+                 (not is_rot(varname) and not is_full(varname) and not is_heat(varname) and not is_particle(varname) and not is_diffusion(varname) and is_leading(varname)))):
                 print(varname)
                 fig = plot_dataset_dist(store, varname)
                 pdf.savefig(fig)
@@ -149,6 +136,6 @@ def generate_dataset_report(store, plot_rot=False, plot_full=False, plot_diffusi
 #net = Network.get_by_id(1409)
 
 if __name__ == '__main__':
-    store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name(dim=7)))
+    store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name(dim=7)), 'r')
     generate_dataset_report(store)
     embed()
