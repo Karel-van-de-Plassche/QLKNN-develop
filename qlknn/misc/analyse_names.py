@@ -54,6 +54,44 @@ def split_name(name):
 def is_growth(name):
     return name in ['gam_leq_GB', 'gam_great_GB']
 
+def is_full(name):
+    return all(sub not in name for sub in ['TEM', 'ITG', 'ETG'])
+
+def is_flux_family(name, identifiers):
+    if is_flux(name):
+        flux_family = True
+        for subname in split_name(name):
+            flux_family &= any(sub in name for sub in identifiers)
+    else:
+        flux_family = False
+    return flux_family
+
+def is_diffusion(name):
+    return is_flux_family(name, ['df', 'vc', 'vt'])
+
+def is_heat(name):
+    return is_flux_family(name, ['ef'])
+
+def is_particle(name):
+    return is_flux_family(name, ['pf'])
+
+def is_rot(name):
+    return is_flux_family(name, ['vr', 'vf'])
+
+def is_leading(name):
+    leading = True
+    if not is_full(name):
+        if any(sub in name for sub in ['div', 'plus']):
+            if 'ITG' in name:
+                if name not in ['efeITG_GB_div_efiITG_GB', 'pfeITG_GB_div_efiITG_GB']:
+                    leading = False
+            elif 'TEM' in name:
+                if name not in ['efiTEM_GB_div_efeTEM_GB', 'pfeTEM_GB_div_efeTEM_GB']:
+                    leading = False
+        if 'pfi' in name:
+            leading = False
+    return leading
+
 if __name__ == '__main__':
     print(split_parts('efeITG_GB_div_efiITG_GB_plus_pfeITG_GB'))
     print(split_parts('efeITG_GB_div_efiITG_GB'))
