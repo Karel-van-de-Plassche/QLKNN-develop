@@ -26,8 +26,8 @@ def model_to_json(name, trainable, feature_names, target_names,
     trainable['prescale_bias'] = scale_bias.astype('float64').to_dict()
     trainable['feature_min'] = dict(descale_panda(train_set._features.min(), scale_factor, scale_bias).astype('float64'))
     trainable['feature_max'] = dict(descale_panda(train_set._features.max(), scale_factor, scale_bias).astype('float64'))
-    trainable['feature_names'] = feature_names
-    trainable['target_names'] = target_names
+    trainable['feature_names'] = list(feature_names)
+    trainable['target_names'] = list(target_names)
     trainable['target_min'] = dict(descale_panda(train_set._target.min(), scale_factor, scale_bias).astype('float64'))
     trainable['target_max'] = dict(descale_panda(train_set._target.max(), scale_factor, scale_bias).astype('float64'))
     trainable['hidden_activation'] = settings['hidden_activation']
