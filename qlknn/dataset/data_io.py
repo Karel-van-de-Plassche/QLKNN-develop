@@ -61,7 +61,7 @@ def first(s):
     '''
     return next(iter(s.items()))
 
-def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='/'):
+def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='outer', columns=None, prefix='/', load_input=True):
     if isinstance(columns, str):
         columns = [columns]
     elif isinstance(columns, pd.Series):
@@ -90,7 +90,10 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
         if is_legacy(store):
             warnings.warn('Using legacy datafile!')
             prefix = '/megarun1/'
-        input = store[prefix + 'input']
+        if load_input:
+            input = store[prefix + 'input']
+        else:
+            input = pd.DataFrame()
         try:
             const = store[prefix + 'constants']
         except ValueError as ee:
@@ -105,7 +108,10 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
     else: #If no flattened
         #print('Taking "new" code path')
         const = store[prefix + 'constants']
-        input = store[prefix + 'input']
+        if load_input:
+            input = store[prefix + 'input']
+        else:
+            input = pd.DataFrame()
         if not return_no(columns):
             if fast:
                 output = []
@@ -117,13 +123,15 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
                 del output
             else:
                 if (mode != 'update') and (mode != 'bare'):
-                    data = store[first(names)[0]].reindex(index=input.index).to_frame()
+                    data = store[first(names)[0]].to_frame()
                 elif mode == 'update':
-                    data = pd.DataFrame(columns=names.values(), index=input.index)
                     df = store[first(names)[0]]
+                    data = pd.DataFrame(columns=names.values(), index=df.index)
                     df.name = first(names)[1]
                     data.update(df, raise_conflict=True)
-                else:
+                elif mode == 'bare':
+                    if not load_input:
+                        raise Exception('Need to load input for mode {!s}'.format(mode))
                     raw_data = np.empty([len(input), len(names)])
                     ii = 0
                     varname = first(names)[0]
