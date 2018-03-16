@@ -61,7 +61,7 @@ def first(s):
     '''
     return next(iter(s.items()))
 
-def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='outer', columns=None, prefix='/', load_input=True):
+def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='', load_input=True):
     if isinstance(columns, str):
         columns = [columns]
     elif isinstance(columns, pd.Series):
@@ -76,7 +76,7 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='ou
     is_legacy = lambda store: all(['megarun' in name for name in store.keys()])
     names = store.keys()
     # Associate 'nice' name with 'ugly' HDF5 node path, and only use data columns
-    names = [(name, name.lstrip(prefix + sep_prefix))
+    names = [(name, name.replace(prefix + sep_prefix, '', 1))
                    for name in names
                    if (('input' not in name) and
                        ('constants' not in name) and
