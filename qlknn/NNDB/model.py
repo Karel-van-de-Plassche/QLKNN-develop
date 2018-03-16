@@ -162,16 +162,14 @@ class Network(BaseModel):
         for pure_network_params in query:
             try:
                 cls.divsum_from_div_id(pure_network_params.id)
+            except NotImplementedError:
+                traceback.print_exc()
             except Exception:
                 traceback.print_exc()
+                raise
 
-    @classmethod
-    def divsum_from_div_id(cls, network_id, stop_on_missing=False):
-        nn = cls.get_by_id(network_id)
-        if len(nn.target_names) != 1:
-            raise ValueError('Divsum network needs div network, not {!s}'.format(nn.target_names))
-        target_name = nn.target_names[0]
-        print('Trying to make combine Network {:d} with target {!s}'.format(nn.id, target_name))
+    @staticmethod
+    def generate_divsum_recipes(target_name):
         splitted = re.compile('(.*)_(div|plus)_(.*)').split(target_name)
         if len(splitted) != 5:
             raise ValueError('Could not split {!s} in divsum parts'.format(target_name))
@@ -306,9 +304,53 @@ class Network(BaseModel):
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
             else:
-                raise NotImplementedError("Div style network {:d} with target {!s} and first part '{!s}'".format(network_id, target_name, splitted[0]))
+                raise NotImplementedError("Div style network with target {!s} and first part '{!s}'".format(target_name, splitted[1]))
         else:
-            raise Exception('Divsum network needs div network, not {!s}'.format(nn.target_names))
+            raise Exception('Divsum network needs div network, not {!s}'.format(target_name))
+        return formula_sets, partner_target_sets
+
+    def find_pure_partners(self, partner_target):
+        pure_network_params_id = self.pure_network_params.get().id
+        q1 = PureNetworkParams.find_similar_topology_by_id(pure_network_params_id,
+                                                           match_train_dim=False)
+        q2 = PureNetworkParams.find_similar_networkpar_by_id(pure_network_params_id,
+                                                             match_train_dim=False)
+        q3 = (PureNetworkParams
+             .select()
+             .where(self.__class__.target_names == partner_target)
+             .where(self.__class__.feature_names == self.feature_names)
+             .join(self.__class__)
+             )
+        return q1 & q2 & q3
+
+    @staticmethod
+    def pick_candidate(query):
+        try:
+            candidates = [(el.network.postprocess.get().rms, el.id) for el in query]
+        except Postprocess.DoesNotExist as ee:
+            net_id = re.search('Params: \[(.*)\]', ee.args[0])[1]
+            table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
+            raise Exception('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
+        sort = []
+        for rms, pure_id in candidates:
+            assert len(rms) == 1
+            sort.append([rms[0], pure_id])
+            sort = sorted(sort)
+            print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
+            query = (PureNetworkParams
+                     .select()
+                     .where(PureNetworkParams.id == sort[0][1])
+            )
+        return query
+
+    @classmethod
+    def divsum_from_div_id(cls, network_id, raise_on_missing=False):
+        nn = cls.get_by_id(network_id)
+        if len(nn.target_names) != 1:
+            raise ValueError('Divsum network needs div network, not {!s}'.format(nn.target_names))
+        target_name = nn.target_names[0]
+        print('Trying to combine Network {:d} with target {!s}'.format(nn.id, target_name))
+        formula_sets, partner_target_sets = cls.generate_divsum_recipes(target_name)
 
         for formulas, partner_targets in zip(formula_sets, partner_target_sets):
             nns = [nn]
@@ -316,34 +358,12 @@ class Network(BaseModel):
             for partner_target in partner_targets:
                 if len(partner_target) > 1:
                     raise Exception('Multiple partner targets!')
-                query = PureNetworkParams.find_similar_topology_by_id(nn.pure_network_params.get().id, match_train_dim=False)
-                query &= PureNetworkParams.find_similar_networkpar_by_id(nn.pure_network_params.get().id, match_train_dim=False)
-                query &= (PureNetworkParams
-                     .select()
-                     .where(Network.target_names == partner_target)
-                     .where(Network.feature_names == nn.feature_names)
-                     .join(Network)
-                     )
+                query = nn.find_pure_partners(partner_target)
                 if query.count() > 1:
                     print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
-                    try:
-                        candidates = [(el.network.postprocess.get().rms, el.id) for el in query]
-                    except Postprocess.DoesNotExist as ee:
-                        net_id = re.search('Params: \[(.*)\]', ee.args[0])[1]
-                        table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
-                        raise Exception('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
-                    sort = []
-                    for rms, pure_id in candidates:
-                        assert len(rms) == 1
-                        sort.append([rms[0], pure_id])
-                    sort = sorted(sort)
-                    print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
-                    query = (PureNetworkParams
-                             .select()
-                             .where(PureNetworkParams.id == sort[0][1])
-                    )
+                    query = cls.pick_candidate(query)
                 elif query.count() == 0:
-                    if stop_on_missing:
+                    if raise_on_missing:
                         raise DoesNotExist('No {!s} with target {!s}!'.format(cls, partner_target))
                     print('No {!s} with target {!s}! Skipping..'.format(cls, partner_target))
                     skip = True
@@ -353,10 +373,9 @@ class Network(BaseModel):
                     nns.append(purenet.network)
                     # Sanity check, something weird happening here..
                     if nns[-1].target_names != partner_target:
-                        print('Insanety! Wrong partner found {!s} != {!s}'.format(nns[-1].target_names, partner_target))
+                        print('Insanity! Wrong partner found {!s} != {!s}'.format(nns[-1].target_names, partner_target))
                         embed()
 
-            # TODO: change after PureNetworkParams split
             if skip is not True:
                 recipes = OrderedDict()
                 network_ids = [nn.id for nn in nns]
@@ -365,7 +384,8 @@ class Network(BaseModel):
 
                 nets = []
                 for target, recipe in recipes.items():
-                    if all([el not in recipe for el in ['+', '-', '/', '*']]):
+                    is_pure = lambda recipe: all([el not in recipe for el in ['+', '-', '/', '*']])
+                    if is_pure(recipe):
                         net_num = int(recipe.replace('nn', ''))
                         net_id = network_ids[net_num]
                         nets.append(Network.get_by_id(net_id))
@@ -386,11 +406,10 @@ class Network(BaseModel):
                             combonet = query.get()
                             print('Network with recipe {!s} and networks {!s} already exists! Skipping!'.format(recipe, network_ids))
                         else:
-                            raise NotImplementedError('Duplicate recipies! How could this happen..?')
+                            print('Insanity! Duplicate recipes! How could this happen..?')
+                            embed()
 
                         nets.append(combonet)
-
-                flatten = lambda l: [item for sublist in l for item in sublist]
 
                 try:
                     net = cls.get(
@@ -472,12 +491,6 @@ class PureNetworkParams(BaseModel):
                        sort_keys=True, indent=4)
         with open(os.path.join(root_dir, 'train_NDNN.py'), 'w') as train_file:
             train_file.writelines(self.train_script.get().script)
-
-    @classmethod
-    def find_partners_by_id(cls, pure_network_params_id):
-        q1 = cls.find_similar_topology_by_id(pure_network_params_id, match_train_dim=False)
-        q2 = cls.find_similar_networkpar_by_id(pure_network_params_id, match_train_dim=False)
-        return q1 & q2
 
     @classmethod
     def find_similar_topology_by_settings(cls, settings_path):
