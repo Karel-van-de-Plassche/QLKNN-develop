@@ -9,12 +9,14 @@ from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, Postprocess
 from qlknn.models.ffnn import QuaLiKizNDNN
 from qlknn.plots.slicer import get_similar_not_in_table
 from qlknn.dataset.filtering import regime_filter, stability_filter
+from qlknn.dataset.data_io import sep_prefix, load_from_store
 from qlknn.plots.load_data import load_data, load_nn, prettify_df
 
 def nns_from_nndb(max=20):
     non_processed = get_similar_not_in_table(Postprocess, max,
                                              only_sep=False,
                                              no_particle=False,
+                                             no_divsum=False,
                                              no_mixed=False,
                                              no_gam=False)
 
@@ -35,15 +37,13 @@ def process_nns(nns, root_path, set, filter, leq_bound, less_bound):
     filter_name = set + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter) + '.h5.1'
     filter_path_name = os.path.join(root_path, filter_name)
 
-    store = pd.HDFStore(filter_path_name)
-    regime = regime_filter(pd.concat([store['efe_GB'], store['efi_GB']], axis='columns'), leq_bound, less_bound).index
-    target = store[target_names[0]].to_frame().loc[regime]
-    for name in target_names[1:]:
-        target[name] = store[name].loc[regime]
+    __, regime, __ = load_from_store(store_name=filter_path_name, columns=['efe_GB', 'efi_GB'], load_input=False)
+    regime = regime_filter(regime, leq_bound, less_bound).index
+    input, target, __ =  load_from_store(store_name=filter_path_name, columns=target_names)
+    target = target.loc[regime]
     print('target loaded')
     target.columns = pd.MultiIndex.from_product([['target'], target.columns])
 
-    input = store['input']
     try:
         input['logNustar'] = np.log10(input['Nustar'])
         del input['Nustar']
