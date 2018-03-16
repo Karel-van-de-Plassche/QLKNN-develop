@@ -25,6 +25,7 @@ from playhouse.hybrid import hybrid_property
 from IPython import embed
 
 from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN
+from qlknn.misc.analyse_names import split_name
 
 #class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
 #    pass
@@ -163,7 +164,8 @@ class Network(BaseModel):
             try:
                 cls.divsum_from_div_id(pure_network_params.id)
             except NotImplementedError:
-                traceback.print_exc()
+                formatted_lines = traceback.format_exc().splitlines()
+                print(formatted_lines[-1])
             except Exception:
                 traceback.print_exc()
                 raise
@@ -300,6 +302,70 @@ class Network(BaseModel):
                     (efe, 'nn{1:d}'),
                     (efi, '(nn{1:d} * nn{2:d})'),
                     (pfe, '(nn{0:d} * nn{1:d})')
+                ])
+                partner_target_sets.append(partner_targets)
+                formula_sets.append(formulas)
+            elif splitted[1].startswith('dfe') and splitted[3].startswith('efe'):
+                # If it is dfe / efe
+                efe = splitted[3]
+                transp, species, mode, norm = split_name(efe)
+                efi = ''.join(['efi', mode, '_', norm])
+                dfe = splitted[1]
+                dfi = ''.join(['dfi', mode, '_', norm])
+                vte = ''.join(['vte', mode, '_', norm])
+                vti = ''.join(['vti', mode, '_', norm])
+                vce = ''.join(['vce', mode, '_', norm])
+                vci = ''.join(['vci', mode, '_', norm])
+                # Simple style: dfe/efe == nn0, efe == nn1, efi / efe == nn2, dfi / efe == nn3, vte/efe == nn4, vti/efe == nn5, vce/efe == nn6, vci/efe == nn7
+                partner_targets = [[efe],
+                                   [efi + '_div_' + efe],
+                                   [dfi + '_div_' + efe],
+                                   [vte + '_div_' + efe],
+                                   [vti + '_div_' + efe],
+                                   [vce + '_div_' + efe],
+                                   [vci + '_div_' + efe]
+                                   ]
+                formulas = OrderedDict([
+                    (efe, 'nn{1:d}'),
+                    (efi, '(nn{1:d} * nn{2:d})'),
+                    (dfe, '(nn{0:d} * nn{1:d})'),
+                    (dfi, '(nn{1:d} * nn{3:d})'),
+                    (vte, '(nn{1:d} * nn{4:d})'),
+                    (vti, '(nn{1:d} * nn{5:d})'),
+                    (vce, '(nn{1:d} * nn{6:d})'),
+                    (vci, '(nn{1:d} * nn{7:d})')
+                ])
+                partner_target_sets.append(partner_targets)
+                formula_sets.append(formulas)
+            elif splitted[1].startswith('dfe') and splitted[3].startswith('efi'):
+                # If it is dfe / efe
+                efi = splitted[3]
+                transp, species, mode, norm = split_name(efi)
+                efe = ''.join(['efe', mode, '_', norm])
+                dfe = splitted[1]
+                dfi = ''.join(['dfi', mode, '_', norm])
+                vte = ''.join(['vte', mode, '_', norm])
+                vti = ''.join(['vti', mode, '_', norm])
+                vce = ''.join(['vce', mode, '_', norm])
+                vci = ''.join(['vci', mode, '_', norm])
+                # Simple style: dfe/efi == nn0, efi == nn1, efe / efi == nn2, dfi / efi == nn3, vte/efi == nn4, vti/efi == nn5, vce/efi == nn6, vci/efi == nn7
+                partner_targets = [[efi],
+                                   [efe + '_div_' + efi],
+                                   [dfi + '_div_' + efi],
+                                   [vte + '_div_' + efi],
+                                   [vti + '_div_' + efi],
+                                   [vce + '_div_' + efi],
+                                   [vci + '_div_' + efi]
+                                   ]
+                formulas = OrderedDict([
+                    (efe, '(nn{1:d} * nn{2:d})'),
+                    (efi, 'nn{1:d}'),
+                    (dfe, '(nn{0:d} * nn{1:d})'),
+                    (dfi, '(nn{1:d} * nn{3:d})'),
+                    (vte, '(nn{1:d} * nn{4:d})'),
+                    (vti, '(nn{1:d} * nn{5:d})'),
+                    (vce, '(nn{1:d} * nn{6:d})'),
+                    (vci, '(nn{1:d} * nn{7:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
