@@ -24,7 +24,7 @@ from playhouse.hybrid import hybrid_property
 #from playhouse.shortcuts import RetryOperationalError #peewee==2.10.1
 from IPython import embed
 
-from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN
+from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN, nn_dict_to_matlab
 from qlknn.misc.analyse_names import split_name
 
 #class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
@@ -530,6 +530,31 @@ class Network(BaseModel):
         )
         return query
 
+    def get_pure_children(self):
+        x = Network.alias()
+        y = Network.alias()
+        subx = x.select(x.id, x.networks)
+        suby = y.select(y.id)
+        cls = self.__class__
+
+        subq = (cls.select(Network.id, subx.c.id, suby.c.id)
+         .join(subx, JOIN.LEFT_OUTER, on=subx.c.id == fn.ANY(Network.networks))
+         .join(suby, JOIN.LEFT_OUTER, on=suby.c.id == fn.ANY(subx.c.networks))
+         .join(PureNetworkParams, on=((PureNetworkParams.network_id == Network.id) |
+                                   (PureNetworkParams.network_id == subx.c.id) |
+                                   (PureNetworkParams.network_id == suby.c.id)))
+         .where(Network.id == self.id)
+        )
+        pure_children = {}
+        for entry in subq.tuples():
+            for net_id in reversed(entry):
+                if net_id is not None:
+                    if net_id not in pure_children:
+                        pure_children[net_id] = Network.get_by_id(net_id)
+                    break
+        return list(pure_children.values())
+
+
 
 class PureNetworkParams(BaseModel):
     network = ForeignKeyField(Network, related_name='pure_network_params', unique=True)
@@ -820,12 +845,13 @@ class PureNetworkParams(BaseModel):
 
     to_QuaLiKizNN = to_QuaLiKizNDNN
 
-    def to_matlab(self):
+    def to_matlab_dict(self):
         js = self.network_json.get().network_json
-        newjs = {}
-        for key, val in js.items():
-            newjs[key.replace('/', '_').replace(':', '_')] = val
-        io.savemat('nn' + str(self.id) + '.mat', newjs)
+        matdict = nn_dict_to_matlab(js)
+        return matdict
+
+    def to_matlab(self):
+        io.savemat(str(self.id) + '.mat', self.to_matlab_dict())
 
     def summarize(self):
         net = self.select().get()

@@ -18,6 +18,13 @@ def sigm_tf(x):
 def flatten(l):
     return [item for sublist in l for item in sublist]
 
+def nn_dict_to_matlab(json_file):
+    newjs = {}
+    for key, val in json_file.items():
+        newjs[key.replace('/', '_').replace(':', '_')] = val
+    matdict = {', '.join(newjs['target_names']): newjs}
+    return matdict
+
 class QuaLiKizComboNN():
     def __init__(self, target_names, nns, combo_func):
         self._nns = nns
