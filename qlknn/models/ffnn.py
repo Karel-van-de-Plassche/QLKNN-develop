@@ -46,7 +46,7 @@ class QuaLiKizComboNN():
             self._combo_func(*[nn._target_max.values for nn in nns]),
             index=self._target_names)
 
-    def get_output(self, input, output_pandas=True, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=True, **kwargs):
+    def get_output(self, input, output_pandas=True, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, **kwargs):
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(self, input, safe, clip_low, clip_high, low_bound, high_bound)
         output = self._combo_func(*[nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=False, **kwargs) for nn in self._nns])
@@ -206,7 +206,7 @@ class QuaLiKizNDNN():
         def __str__(self):
             return ('NNLayer shape ' + str(self.shape()))
 
-    def get_output(self, input, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=True, output_pandas=True):
+    def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True):
         """ Calculate the output given a specific input
 
         This function accepts inputs in the form of a dict with
