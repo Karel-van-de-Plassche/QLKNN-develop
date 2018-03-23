@@ -12,21 +12,37 @@ Rmin = a = 1
 Ro = 3
 
 def victor_rule(gamma_0, x, q, s_hat, gamma_E):
+    """ Apply victor rule with x instead of epsilon. See victor_rule_eps."""
     epsilon = x * a / Ro
     return victor_rule_eps(gamma_0, epsilon, q, s_hat, gamma_E)
 
 def victor_func(epsilon, q, s_hat):
+    """ Return f(eps, q, s_hat) as defined by victor rule"""
     c = [0, 0.13, 0.09, 0.41, -1.65]
     n = [0, 1, -1, 1]
     return (c[1] * q ** n[1] + c[2] * epsilon ** n[2] + c[3] * s_hat ** n[3] + c[4])
 
 def victor_rule_eps(gamma_0, epsilon, q, s_hat, gamma_E):
-    print(victor_func(epsilon, q, s_hat))
+    """ Return \gamma_{eff} as defined by victor rule
+    Args:
+        gamma_0: Rotationless growth rate (As defined by Victor)
+        epsilon: Normalized radial location
+        q: Safety factor
+        s_hat: Magnetic shear (As defined by Victor)
+        gamma_E: Parallel flow shear (As defined by Victor)
+    """
     gamma_eff = gamma_0 + victor_func(epsilon, q, s_hat) * gamma_E
     return gamma_eff[:, np.newaxis]
 
 class VictorNN():
     def __init__(self, network, gam_network):
+        """ Initialize a victor network from a general QuaLiKizNDNN
+        Args:
+            network: A QuaLiKizComboNN. Should work for QuaLiKizNDNN, but untested.
+                     Network should only have pure fluxes! No divs or sums!
+            gam_network: A network that predicts gamma_leq_GB, the maximum
+                         ion scale growth rate
+        """
         if nn._feature_names.ne(gam_network._feature_names).any():
             Exception('Supplied NNs have different feature names')
         if not isinstance(network, QuaLiKizNDNN):
@@ -38,7 +54,7 @@ class VictorNN():
         self._target_names = network._target_names
         self._feature_names = self._internal_network._feature_names.append(pd.Series('gamma_E'), ignore_index=True)
 
-    def get_output(self, input, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=False, output_pandas=True):
+    def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=False, output_pandas=True):
         nn = self._internal_network
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(nn, input, safe, clip_low, clip_high, low_bound, high_bound)
@@ -49,14 +65,17 @@ class VictorNN():
             nn_input = np.delete(nn_input, -1, 1)
             if len(nn._feature_names) != nn_input.shape[1]:
                 raise Exception('Mismatch! shape feature names != shape input ({:d} != {:d})'.format(len(nn._feature_names), nn_input.shape[1]))
+        # Get indices for vars that victor rule needs: x, q, smag
         vic_idx = [nn._feature_names[(nn._feature_names == var)].index[0] for var in ['x', 'q', 'smag']]
-
+        # Get output from underlying QuaLiKizNDNN
         output = nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=False)
+        # Get the maximum ion scale growth rate. This is taken as gamma_0 for the victor rule
         gamma_0_idx = nn._target_names[(nn._target_names == 'gam_leq_GB')].index[0]
         gamma_0 = output[:, [gamma_0_idx]]
         output = np.delete(output, gamma_0_idx, 1)
-        gamma_0 = np.clip(gamma_0, 0, None)
+        gamma_0 = np.clip(gamma_0, 0, None) # Growth rate can't be negative, so clip
 
+        # Get the input for victor rule, and calculate gamma_eff
         vic_input = nn_input[:, vic_idx]
         full_vic_input = np.hstack([gamma_0, nn_input[:, vic_idx], gamma_E])
         gamma_eff = victor_rule(*full_vic_input.T)
@@ -65,6 +84,7 @@ class VictorNN():
             if is_flux(name) and not is_pure_flux(name):
                 raise Exception('Cannot apply victor rule to non-pure flux {!s}!'.format(name))
             elif is_pure_flux(name):
+                # Scale flux by max(0, gamma_eff/gamma_0)
                 output[:, [ii]] = output[:, [ii]] * np.clip(gamma_eff/gamma_0, 0, None)
 
         if output_pandas is True:
