@@ -10,11 +10,37 @@ from qlknn.misc.analyse_names import is_pure_flux, is_flux
 
 Rmin = a = 1
 Ro = 3
+mp = 1.672621777e-27
+qe = 1.602176565e-19 #SI electron charge
+mi = lambda Ai: Ai * mp #Ai ion atom number, mp mass proton
+Te_SI = lambda Te: qe * Te * 1e3 # Te keV
+c_sou = lambda Te, Ai0: np.sqrt(Te_SI(Te)/mi(Ai0)) #Te keV, Ai atom number first ion
+gamGB = lambda Te: csou(Te, mi) / Rmin
+c_ref = np.sqrt(qe*1e3/mp)
+eps = lambda x: x * a / Ro
+
+def gamma_E_GB_to_gamma_QLKN_in(gamma_E_GB, Te, Ai0):
+    """
+    Args:
+        gamma_E_GB:   GyroBohm normalized gamma_E
+        Te:           Electron temperature (keV)
+        Ai0:          Massnumber of main ion
+    """
+    gamma_E_denorm = gamma_E_GB * c_sou(Te, Ai0) / Rmin
+    return gamma_E_denorm / (c_ref / Ro)
+
+def gamma_E_QLK_to_gamma_E_GB(gamma_E_QLK, Te, Ai0):
+    """
+    Args:
+        gamma_E_QLK:  gamma_E normalized QLK-style
+        Te:           Electron temperature (keV)
+        Ai0:          Massnumber of main ion
+    """
+    return - (R_GB / R_0) * (c_ref / c_sou(Te, Ai0)) * gamma_E_QLK
 
 def victor_rule(gamma_0, x, q, s_hat, gamma_E):
     """ Apply victor rule with x instead of epsilon. See victor_rule_eps."""
-    epsilon = x * a / Ro
-    return victor_rule_eps(gamma_0, epsilon, q, s_hat, gamma_E)
+    return victor_rule_eps(gamma_0, epsilon(x), q, s_hat, gamma_E)
 
 def victor_func(epsilon, q, s_hat):
     """ Return f(eps, q, s_hat) as defined by victor rule"""
@@ -107,15 +133,26 @@ if __name__ == '__main__':
     #plt.xlim([0, 35])
     #plt.ylim([-1.5, 2.5])
 
-    def plot_victorplot(epsilon, q, s_hat, gamma_0, plotvar):
+    def plot_victorplot(epsilon, q, s_hat, gamma_0, plotvar, qlk_data=None):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        #Prep QuaLiKiz data
+        dim_names = ['epsilon', 'q', 's_hat']
+        if qlk_data is not None:
+            qlk_data['epsilon'] = eps(qlk_data['x'])
+            qlk_data.rename(columns={'smag': 's_hat'}, inplace=True)
+            embed()
+            for name in dim_names:
+                if name != plotvar:
+                    qlk_data = qlk_data.loc[qlk_data[name] == locals()[name]]
         n = 100
-        idx = pd.MultiIndex.from_product([np.linspace(0,1,n), epsilon, q, s_hat], names=['gamma_E', 'epsilon', 'q', 's_hat'])
+        idx = pd.MultiIndex.from_product([np.linspace(0,1,n), epsilon, q, s_hat], names=['gamma_E'] + dim_names)
         data = pd.DataFrame(index=idx)
         data.reset_index(inplace=True)
         data['f_vic'] = victor_func(*data.loc[:, ('epsilon', 'q', 's_hat')].values.T)
         data['gamma_0'] = np.tile(gamma_0, [1, n]).T
         data['line'] = data['gamma_0'] + data['f_vic'] * data['gamma_E']
-        data['line'].clip(0, inplace=True)
+        data['line'] = data['line'].clip(0)
         gamma_E_plot = data.pivot(index='gamma_E', columns=plotvar, values='line')
         if plotvar == 'epsilon':
             gamma_E_plot = gamma_E_plot[gamma_E_plot.columns[::-1]]
@@ -123,12 +160,18 @@ if __name__ == '__main__':
         else:
             cmap = ListedColormap(['C1', 'C2', 'C0', 'C4', 'C3', 'C8'])
         style = [':'] * data[plotvar].unique().size
-        gamma_E_plot.plot(colormap=cmap, style=style)
+        gamma_E_plot.plot(colormap=cmap, style=style, ax=ax)
+        return data, ax
         plt.show()
-    plot_victorplot([0.03, 0.05, 0.1, 0.18, 0.26, 0.35], [1.4], [0.4], [0.22, 0.27, 0.4, 0.57, 0.65, 0.71], 'epsilon')
+
+    qlk_data = None
+    #store = pd.HDFStore('victorrun.h5')
+    #qlk_data = store['flattened']
+    #data, ax = plot_victorplot([0.03, 0.05, 0.1, 0.18, 0.26, 0.35], [1.4], [0.4], [0.22, 0.27, 0.4, 0.57, 0.65, 0.71], 'epsilon', qlk_data=qlk_data)
     plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.4], [0.27, 0.5, 0.64, 0.701, 0.74, 0.76], 'q')
-    plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.8], [0.34, 0.54, 0.64, 0.69, 0.71, 0.73], 'q')
+    plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.8], [0.34, 0.54, 0.64, 0.69, 0.71, 0.73], 'q', qlk_data=qlk_data)
     plot_victorplot([0.18], [1.4], [0.2, 0.7, 1.2, 1.7, 2.2, 2.7], [.92, 1.18, 1.07, 0.85, 0.63, 0.52], 's_hat')
+    plt.show()
 
 
     #input = pd.DataFrame()
@@ -169,7 +212,7 @@ if __name__ == '__main__':
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
     input = input[nn._feature_names]
-    input['gamma_E'] = np.full_like(input['Ati'], 1.0)
+    input['gamma_E_GB'] = np.full_like(input['Ati'], 1.0)
 
     nn = VictorNN(nn, QuaLiKizNDNN.from_json('nn_gam.json', layer_mode='classic'))
     fluxes = nn.get_output(input.values, safe=False)
