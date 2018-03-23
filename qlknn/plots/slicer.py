@@ -25,6 +25,7 @@ from qlknn.models.ffnn import QuaLiKizNDNN
 from qlknn.training.train_NDNN import shuffle_panda
 from qlknn.plots.load_data import load_nn, prettify_df, nameconvert
 from qlknn.dataset.data_io import load_from_store
+from qlknn.misc.analyse_names import split_parts, split_name
 
 if __name__ == '__main__':
     import matplotlib as mpl
@@ -166,13 +167,22 @@ def nns_from_NNDB(dim, max=20, only_dim=None):
     #            raise Exception('non-matching target_names. Not sure what to do.. {s}'
     #                            .format(network.target_names))
     matches = []
+    modes = []
     for target_name in network.target_names:
         matches.extend(re.compile('^.f.(ITG|ETG|TEM)_GB').findall(target_name))
-    if matches[1:] == matches[:-1]:
-        if matches[0] == 'ITG':
+        splitted = split_parts(target_name)
+        if len(splitted) > 1:
+            raise Exception('Error! Can only quickslice pure networks, not {!s}'.format(target_name))
+        __, __, mode, __ = split_name(splitted[0])
+        modes.append(mode)
+    if modes[1:] == modes[:-1]:
+        mode = modes[0]
+        if mode == 'ITG':
             slicedim = 'Ati'
-        elif matches[0] == 'TEM' or matches[0] == 'ETG':
+        elif mode == 'TEM' or mode == 'ETG':
             slicedim = 'Ate'
+        else:
+            raise Exception('Unknown mode {!s}'.format(mode))
     else:
         raise Exception('Unequal stability regime. Cannot determine slicedim')
     nn_list = {network.id: str(network.id) for network in non_sliced}
