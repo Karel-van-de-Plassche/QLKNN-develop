@@ -893,7 +893,7 @@ if __name__ == '__main__':
         plt.style.use('./thesis.mplstyle')
         mpl.rcParams.update({'font.size': 16})
     else:
-        nameconvert = {name: name for name in nameconvert}
+        nameconvert = {name: name for name in df.columns.names +  df.index.names + target_names.tolist()}
 
     if settings['parallel']:
         num_processes = cpu_count()
