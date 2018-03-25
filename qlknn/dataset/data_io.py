@@ -68,37 +68,46 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
         columns = columns.values
     if store_name is not None and store is not None:
         raise Exception('Specified both store and store name!')
+
     if store is None:
         store = pd.HDFStore(store_name, 'r')
+
+    is_legacy = lambda store: all(['megarun' in name for name in store.keys()])
+    if is_legacy(store):
+        warnings.warn('Using legacy datafile!')
+        prefix = '/megarun1/'
+
     has_flattened = lambda store: any(['flattened' in group for group in store.keys()])
+    have_sep = lambda columns: columns is None or (len(names) == len(columns))
     return_all = lambda columns: columns is None
     return_no = lambda columns: columns is False
-    is_legacy = lambda store: all(['megarun' in name for name in store.keys()])
+
     names = store.keys()
-    # Associate 'nice' name with 'ugly' HDF5 node path, and only use data columns
+    # Associate 'nice' name with 'ugly' HDF5 node path
     names = [(name, name.replace(prefix + sep_prefix, '', 1))
                    for name in names
                    if (('input' not in name) and
                        ('constants' not in name) and
                        ('flattened' not in name))]
-    have_sep = lambda columns: columns is None or (len(names) == len(columns))
+    # Only return columns the user asked for
     if not return_all(columns):
         names = [(varname, name) for (varname, name) in names if name in columns]
     names = OrderedDict(names)
+
+    # Load input and constants
+    if load_input:
+        input = store[prefix + 'input']
+    else:
+        input = pd.DataFrame()
+    try:
+        const = store[prefix + 'constants']
+    except ValueError as ee:
+        # If pickled with a too new version, old python version cannot read it
+        warnings.warn('Could not load const.. Skipping for now')
+        const = pd.Series()
+
     if has_flattened(store) and (return_all(columns) or not have_sep(columns)):
         #print('Taking "old" code path')
-        if is_legacy(store):
-            warnings.warn('Using legacy datafile!')
-            prefix = '/megarun1/'
-        if load_input:
-            input = store[prefix + 'input']
-        else:
-            input = pd.DataFrame()
-        try:
-            const = store[prefix + 'constants']
-        except ValueError as ee:
-            warnings.warn('Could not load const.. Skipping for now')
-            const = pd.Series()
         if return_all(columns):
             data = store.select(prefix + 'flattened')
         elif return_no(columns):
@@ -107,11 +116,6 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
             data = store.select(prefix + 'flattened', columns=columns)
     else: #If no flattened
         #print('Taking "new" code path')
-        const = store[prefix + 'constants']
-        if load_input:
-            input = store[prefix + 'input']
-        else:
-            input = pd.DataFrame()
         if not return_no(columns):
             if fast:
                 output = []
