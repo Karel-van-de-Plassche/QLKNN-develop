@@ -64,7 +64,9 @@ def split_name(name):
     if splitted[0] != '' or splitted[-1] != '':
         raise ValueError('Split {!s} in an unexpected way: {!s}'.format(name, splitted))
     del splitted[0], splitted[-1]
-    return splitted
+    #Splitted should be of the form ['vc', 'i', 'ITG', 'GB'] now
+    transp, species, mode, norm = splitted
+    return transp, species, mode, norm
 
 def is_growth(name):
     return name in ['gam_leq_GB', 'gam_great_GB']

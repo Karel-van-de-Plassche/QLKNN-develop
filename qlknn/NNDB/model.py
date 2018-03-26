@@ -401,12 +401,12 @@ class Network(BaseModel):
         for rms, pure_id in candidates:
             assert len(rms) == 1
             sort.append([rms[0], pure_id])
-            sort = sorted(sort)
-            print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
-            query = (PureNetworkParams
-                     .select()
-                     .where(PureNetworkParams.id == sort[0][1])
-            )
+        sort = sorted(sort)
+        print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
+        query = (PureNetworkParams
+                 .select()
+                 .where(PureNetworkParams.id == sort[0][1])
+        )
         return query
 
     @classmethod

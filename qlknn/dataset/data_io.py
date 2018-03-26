@@ -8,6 +8,7 @@ import numpy as np
 from IPython import embed
 
 from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_flux, is_growth
+from qlknn.misc.tools import first
 
 store_format = 'fixed'
 sep_prefix = '/output/'
@@ -53,13 +54,6 @@ def save_to_store(input, data, const, store_name, style='both', zip=False, prefi
         warnings.simplefilter("ignore", pd.errors.PerformanceWarning)
         store.put(prefix + 'constants', const)
     store.close()
-
-def first(s):
-    '''Return the first element from an ordered collection
-       or an arbitrary element from an unordered collection.
-       Raise StopIteration if the collection is empty.
-    '''
-    return next(iter(s.items()))
 
 def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='', load_input=True):
     if isinstance(columns, str):
