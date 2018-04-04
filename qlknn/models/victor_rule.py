@@ -7,7 +7,6 @@ from IPython import embed
 from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN, determine_settings
 from qlknn.misc.analyse_names import is_pure_flux, is_flux
 
-
 Rmin = a = 1
 Ro = 3
 mp = 1.672621777e-27
@@ -26,8 +25,8 @@ def gamma_E_GB_to_gamma_QLKN_in(gamma_E_GB, Te, Ai0):
         Te:           Electron temperature (keV)
         Ai0:          Massnumber of main ion
     """
-    gamma_E_denorm = gamma_E_GB * c_sou(Te, Ai0) / Rmin
-    return gamma_E_denorm / (c_ref / Ro)
+    gamma_E_QLK = gamma_E_GB * (Ro * c_sou(Te, Ai0)) / (a * c_ref)
+    return gamma_E_QLK
 
 def gamma_E_QLK_to_gamma_E_GB(gamma_E_QLK, Te, Ai0):
     """
@@ -36,11 +35,11 @@ def gamma_E_QLK_to_gamma_E_GB(gamma_E_QLK, Te, Ai0):
         Te:           Electron temperature (keV)
         Ai0:          Massnumber of main ion
     """
-    return - (R_GB / R_0) * (c_ref / c_sou(Te, Ai0)) * gamma_E_QLK
+    return gamma_E_QLK * (a * c_ref) / (Ro * c_sou(Te, Ai0))
 
-def victor_rule(gamma_0, x, q, s_hat, gamma_E):
+def victor_rule(gamma_0, x, q, s_hat, gamma_E_GB):
     """ Apply victor rule with x instead of epsilon. See victor_rule_eps."""
-    return victor_rule_eps(gamma_0, epsilon(x), q, s_hat, gamma_E)
+    return victor_rule_eps(gamma_0, eps(x), q, s_hat, gamma_E_GB)
 
 def victor_func(epsilon, q, s_hat):
     """ Return f(eps, q, s_hat) as defined by victor rule"""
@@ -48,7 +47,7 @@ def victor_func(epsilon, q, s_hat):
     n = [0, 1, -1, 1]
     return (c[1] * q ** n[1] + c[2] * epsilon ** n[2] + c[3] * s_hat ** n[3] + c[4])
 
-def victor_rule_eps(gamma_0, epsilon, q, s_hat, gamma_E):
+def victor_rule_eps(gamma_0, epsilon, q, s_hat, gamma_E_GB):
     """ Return \gamma_{eff} as defined by victor rule
     Args:
         gamma_0: Rotationless growth rate (As defined by Victor)
@@ -57,7 +56,7 @@ def victor_rule_eps(gamma_0, epsilon, q, s_hat, gamma_E):
         s_hat: Magnetic shear (As defined by Victor)
         gamma_E: Parallel flow shear (As defined by Victor)
     """
-    gamma_eff = gamma_0 + victor_func(epsilon, q, s_hat) * gamma_E
+    gamma_eff = gamma_0 + victor_func(epsilon, q, s_hat) * gamma_E_GB
     return gamma_eff[:, np.newaxis]
 
 class VictorNN():
@@ -69,7 +68,7 @@ class VictorNN():
             gam_network: A network that predicts gamma_leq_GB, the maximum
                          ion scale growth rate
         """
-        if nn._feature_names.ne(gam_network._feature_names).any():
+        if network._feature_names.ne(gam_network._feature_names).any():
             Exception('Supplied NNs have different feature names')
         if not isinstance(network, QuaLiKizNDNN):
             print('WARNING! Untested for network not QuaLiKizNDNN')
@@ -111,7 +110,8 @@ class VictorNN():
                 raise Exception('Cannot apply victor rule to non-pure flux {!s}!'.format(name))
             elif is_pure_flux(name):
                 # Scale flux by max(0, gamma_eff/gamma_0)
-                output[:, [ii]] = output[:, [ii]] * np.clip(gamma_eff/gamma_0, 0, None)
+                if 'TEM' not in name:
+                    output[:, [ii]] = output[:, [ii]] * np.clip(gamma_eff/gamma_0, 0, None)
 
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
@@ -197,7 +197,11 @@ if __name__ == '__main__':
 
     # Test the function
     root = os.path.dirname(os.path.realpath(__file__))
-    nn = QuaLiKizNDNN.from_json('../../tests/gen2_test_files/network_1393/nn.json', layer_mode='classic')
+    nn_ITG = QuaLiKizNDNN.from_json('../../tests/gen3_test_files/Network_874_efiITG_GB/nn.json', layer_mode='classic')
+    nn_TEM = QuaLiKizNDNN.from_json('../../tests/gen3_test_files/Network_591_efeTEM_GB/nn.json', layer_mode='classic')
+    nn_gam = QuaLiKizNDNN.from_json('../../tests/gen3_test_files/Network_711_gam_leq_GB/nn.json', layer_mode='classic')
+    target_names = nn_ITG._target_names.append(nn_TEM._target_names, ignore_index=True)
+    multi_nn = QuaLiKizComboNN(target_names, [nn_ITG, nn_TEM], lambda *x: np.hstack(x))
 
     scann = 100
     input = pd.DataFrame()
@@ -211,11 +215,13 @@ if __name__ == '__main__':
     input['smag']  = np.full_like(input['Ati'], 0.399902)
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
-    input = input[nn._feature_names]
-    input['gamma_E_GB'] = np.full_like(input['Ati'], 1.0)
+    input = input[nn_ITG._feature_names]
+    input['gamma_E_GB'] = np.full_like(input['Ati'], 0.3)
 
-    nn = VictorNN(nn, QuaLiKizNDNN.from_json('nn_gam.json', layer_mode='classic'))
-    fluxes = nn.get_output(input.values, safe=False)
+    nn = VictorNN(multi_nn, nn_gam)
+    fluxes_novic = multi_nn.get_output(input.values[:, :-1], safe=False)
+    fluxes_vic = nn.get_output(input.values, safe=False)
+    fluxes = fluxes_vic.merge(fluxes_novic, left_index=True, right_index=True, suffixes=('_vic', '_novic'))
 
     print(fluxes)
     embed()
