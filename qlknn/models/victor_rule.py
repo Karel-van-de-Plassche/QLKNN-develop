@@ -37,27 +37,39 @@ def gamma_E_QLK_to_gamma_E_GB(gamma_E_QLK, Te, Ai0):
     """
     return gamma_E_QLK * (a * c_ref) / (Ro * c_sou(Te, Ai0))
 
-def victor_rule(gamma_0, x, q, s_hat, gamma_E_GB):
+def apply_victor_rule(gamma0, x, q, s_hat, gammaE_GB):
     """ Apply victor rule with x instead of epsilon. See victor_rule_eps."""
-    return victor_rule_eps(gamma_0, eps(x), q, s_hat, gamma_E_GB)
+    gamma0_lower_bound = 1e-4
+    gamma0 = np.clip(gamma0, gamma0_lower_bound, None)
+    f_victorthesis = apply_victorthesis(x, q, s_hat)
+    fvic = np.clip(1 + f_victorthesis * gammaE_GB / gamma0, 0, None)
+    fvic[gamma0 == gamma0_lower_bound] = 0
+    return fvic[:, np.newaxis]
 
-def victor_func(epsilon, q, s_hat):
+def apply_victorthesis(x, q, s_hat):
+    f_victorthesis = apply_victorthesis_eps(eps(x), q, s_hat)
+    return f_victorthesis
+
+def apply_victorthesis_eps(epsilon, q, s_hat):
     """ Return f(eps, q, s_hat) as defined by victor rule"""
     c = [0, 0.13, 0.09, 0.41, -1.65]
     n = [0, 1, -1, 1]
     return (c[1] * q ** n[1] + c[2] * epsilon ** n[2] + c[3] * s_hat ** n[3] + c[4])
 
-def victor_rule_eps(gamma_0, epsilon, q, s_hat, gamma_E_GB):
-    """ Return \gamma_{eff} as defined by victor rule
-    Args:
-        gamma_0: Rotationless growth rate (As defined by Victor)
-        epsilon: Normalized radial location
-        q: Safety factor
-        s_hat: Magnetic shear (As defined by Victor)
-        gamma_E: Parallel flow shear (As defined by Victor)
-    """
-    gamma_eff = gamma_0 + victor_func(epsilon, q, s_hat) * gamma_E_GB
-    return gamma_eff[:, np.newaxis]
+#def scale_with_victor(gamma0, x, q, s_hat, gammaE_GB):
+#    fvic = apply_victor_rule(gamma0, x, q, s_hat, gammaE_GB)
+
+#def victor_rule_eps(gamma0, epsilon, q, s_hat, gamma_E_GB):
+#    """ Return \gamma_{eff} as defined by victor rule
+#    Args:
+#        gamma0: Rotationless growth rate (As defined by Victor)
+#        epsilon: Normalized radial location
+#        q: Safety factor
+#        s_hat: Magnetic shear (As defined by Victor)
+#        gamma_E: Parallel flow shear (As defined by Victor)
+#    """
+#    gamma_eff = gamma0 + victor_func(epsilon, q, s_hat) * gamma_E_GB
+#    return gamma_eff[:, np.newaxis]
 
 class VictorNN():
     def __init__(self, network, gam_network):
@@ -94,24 +106,26 @@ class VictorNN():
         vic_idx = [nn._feature_names[(nn._feature_names == var)].index[0] for var in ['x', 'q', 'smag']]
         # Get output from underlying QuaLiKizNDNN
         output = nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=False)
-        # Get the maximum ion scale growth rate. This is taken as gamma_0 for the victor rule
-        gamma_0_idx = nn._target_names[(nn._target_names == 'gam_leq_GB')].index[0]
-        gamma_0 = output[:, [gamma_0_idx]]
-        output = np.delete(output, gamma_0_idx, 1)
-        gamma_0 = np.clip(gamma_0, 0, None) # Growth rate can't be negative, so clip
+        # Get the maximum ion scale growth rate. This is taken as gamma0 for the victor rule
+
+        #gamma0_lower_bound = 1e-4
+        gamma0_idx = nn._target_names[(nn._target_names == 'gam_leq_GB')].index[0]
+        gamma0 = output[:, [gamma0_idx]]
+        output = np.delete(output, gamma0_idx, 1)
+        #gamma0 = np.clip(gamma0, gamma0_lower_bound, None) # Growth rate can't be negative, so clip
 
         # Get the input for victor rule, and calculate gamma_eff
         vic_input = nn_input[:, vic_idx]
-        full_vic_input = np.hstack([gamma_0, nn_input[:, vic_idx], gamma_E])
-        gamma_eff = victor_rule(*full_vic_input.T)
+        full_vic_input = np.hstack([gamma0, nn_input[:, vic_idx], gamma_E])
+        f_vic = apply_victor_rule(*full_vic_input.T)
 
         for ii, name in enumerate(self._target_names):
             if is_flux(name) and not is_pure_flux(name):
                 raise Exception('Cannot apply victor rule to non-pure flux {!s}!'.format(name))
             elif is_pure_flux(name):
-                # Scale flux by max(0, gamma_eff/gamma_0)
-                if 'TEM' not in name:
-                    output[:, [ii]] = output[:, [ii]] * np.clip(gamma_eff/gamma_0, 0, None)
+                # Scale flux by max(0, gamma_eff/gamma0)
+                if 'ETG' not in name:
+                    output[:, [ii]] = output[:, [ii]] * f_vic
 
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
@@ -133,7 +147,7 @@ if __name__ == '__main__':
     #plt.xlim([0, 35])
     #plt.ylim([-1.5, 2.5])
 
-    def plot_victorplot(epsilon, q, s_hat, gamma_0, plotvar, qlk_data=None):
+    def plot_victorplot(epsilon, q, s_hat, gamma0, plotvar, qlk_data=None):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         #Prep QuaLiKiz data
@@ -149,9 +163,9 @@ if __name__ == '__main__':
         idx = pd.MultiIndex.from_product([np.linspace(0,1,n), epsilon, q, s_hat], names=['gamma_E'] + dim_names)
         data = pd.DataFrame(index=idx)
         data.reset_index(inplace=True)
-        data['f_vic'] = victor_func(*data.loc[:, ('epsilon', 'q', 's_hat')].values.T)
-        data['gamma_0'] = np.tile(gamma_0, [1, n]).T
-        data['line'] = data['gamma_0'] + data['f_vic'] * data['gamma_E']
+        data['f_vic'] = apply_victorthesis_eps(*data.loc[:, ('epsilon', 'q', 's_hat')].values.T)
+        data['gamma0'] = np.tile(gamma0, [1, n]).T
+        data['line'] = data['gamma0'] + data['f_vic'] * data['gamma_E']
         data['line'] = data['line'].clip(0)
         gamma_E_plot = data.pivot(index='gamma_E', columns=plotvar, values='line')
         if plotvar == 'epsilon':
@@ -171,7 +185,7 @@ if __name__ == '__main__':
     plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.4], [0.27, 0.5, 0.64, 0.701, 0.74, 0.76], 'q')
     plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.8], [0.34, 0.54, 0.64, 0.69, 0.71, 0.73], 'q', qlk_data=qlk_data)
     plot_victorplot([0.18], [1.4], [0.2, 0.7, 1.2, 1.7, 2.2, 2.7], [.92, 1.18, 1.07, 0.85, 0.63, 0.52], 's_hat')
-    plt.show()
+    #plt.show()
 
 
     #input = pd.DataFrame()
@@ -210,12 +224,12 @@ if __name__ == '__main__':
     input['Zeff']  = np.full_like(input['Ati'], 1.)
     input['An']  = np.full_like(input['Ati'], 2.)
     input['Ate']  = np.full_like(input['Ati'], 5.)
-    #input['q'] = np.full_like(input['Ati'], 0.660156)
-    input['q'] = np.full_like(input['Ati'], 1.4)
+    input['q'] = np.full_like(input['Ati'], 0.660156)
     input['smag']  = np.full_like(input['Ati'], 0.399902)
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
+    input['logNustar']  = np.full_like(input['Ati'], np.log10(0.009995))
     input['x']  = np.full_like(input['Ati'], 0.449951)
-    input = input[nn_ITG._feature_names]
+    input = input.loc[:, nn_ITG._feature_names]
     input['gamma_E_GB'] = np.full_like(input['Ati'], 0.3)
 
     nn = VictorNN(multi_nn, nn_gam)
