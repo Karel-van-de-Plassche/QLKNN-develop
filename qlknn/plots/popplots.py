@@ -14,7 +14,7 @@ import seaborn as sns
 from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice
 from qlknn.models.ffnn import QuaLiKizNDNN
 from qlknn.dataset.data_io import sep_prefix
-from qlknn.misc.analyse_names import is_transport, is_full_transport, is_pure, is_partial_heat, is_partial_particle, is_partial_rot, is_partial_diffusion, is_leading
+from qlknn.misc.analyse_names import is_transport, is_full_transport, is_pure, is_partial_heat, is_partial_particle, is_partial_rot, is_partial_diffusion, is_partial_momentum, is_leading
 qlknn_root = os.path.abspath('../..')
 
 def determine_subax_loc(ax, height_perc=.35, width_perc=.35):
@@ -64,7 +64,7 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
         ax = sns.distplot(df.loc[(df.quantile(cutoff) < df) &
                                  (df < df.quantile(1 - cutoff))],
                           hist_kws={'log': False}, kde=True)
-        ax.set_ylabel('Counts [#]')
+        ax.set_ylabel('density')
 
         sns.despine(ax=ax)
         loc = determine_subax_loc(ax)
@@ -91,9 +91,9 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
         subax.set_xlabel('')
     return fig
 
-def generate_store_name(unstable=True, gen=3, filter_id=8, dim=7):
-    store_name = 'training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(gen, dim, filter_id)
-    if unstable:
+def generate_store_name(set='training', unstable=True, gen=3, filter_id=8, dim=7):
+    store_name = '{!s}_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(set, gen, dim, filter_id)
+    if unstable and set == 'training':
         store_name = '_'.join(['unstable', store_name])
     return store_name
 
@@ -112,10 +112,10 @@ def plot_pure_network_dataset_dist(self):
                 plot_dataset_dist(store, sub_dim)
 Network.plot_dataset_dist = plot_pure_network_dataset_dist
 
-def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle=True, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False, verbose_debug=False):
+def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle=True, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False, plot_momentum=False, verbose_debug=False):
     with PdfPages('multipage_pdf.pdf') as pdf:
         for varname in store:
-            varname = varname.lstrip(sep_prefix)
+            varname = varname.replace(sep_prefix, '', 1)
             if verbose_debug:
                 print(varname)
                 print('is_full_transport', is_full_transport(varname))
@@ -129,18 +129,19 @@ def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle
             if (is_transport(varname) and
                 ((plot_full and is_full_transport(varname)) or not is_full_transport(varname)) and
                 ((plot_pure and is_pure(varname)) or not is_pure(varname)) and
-                ((plot_rot and is_partial_rot(varname)) or
-                 (plot_heat and is_partial_heat(varname)) or
-                 (plot_particle and is_partial_particle(varname)) or
-                 (plot_diffusion and is_partial_diffusion(varname)) or
-                 (plot_nonleading and not is_leading(varname)) or
-                  (not is_full_transport(varname) and
-                   not is_partial_rot(varname) and
-                   not is_partial_heat(varname) and
-                   not is_partial_particle(varname) and
-                   not is_partial_diffusion(varname) and
-                   is_leading(varname)))):
-                print(varname)
+                ((plot_rot and is_partial_rot(varname)) or not is_partial_rot(varname)) and
+                ((plot_heat and is_partial_heat(varname)) or not is_partial_heat(varname)) and
+                ((plot_particle and is_partial_particle(varname)) or not is_partial_particle(varname)) and
+                ((plot_diffusion and is_partial_diffusion(varname)) or not is_partial_diffusion(varname)) and
+                ((plot_momentum and is_partial_momentum(varname)) or not is_partial_momentum(varname)) and
+                ((plot_nonleading and not is_leading(varname)) or is_leading(varname))):
+                  #(not is_full_transport(varname) and
+                  # not is_partial_rot(varname) and
+                  # not is_partial_heat(varname) and
+                  # not is_partial_particle(varname) and
+                  # not is_partial_diffusion(varname) and
+                  # is_leading(varname))):
+                print('Plotting', varname)
                 fig = plot_dataset_dist(store, varname)
                 pdf.savefig(fig)
                 plt.close(fig)
@@ -154,6 +155,6 @@ def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle
 #net = Network.get_by_id(1409)
 
 if __name__ == '__main__':
-    store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name(dim=7)), 'r')
+    store = pd.HDFStore(os.path.join(qlknn_root, generate_store_name(set='sane', unstable=False, dim=7)), 'r')
     generate_dataset_report(store)
     embed()
