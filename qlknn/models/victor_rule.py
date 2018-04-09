@@ -18,24 +18,24 @@ gamGB = lambda Te: csou(Te, mi) / Rmin
 c_ref = np.sqrt(qe*1e3/mp)
 eps = lambda x: x * a / Ro
 
-def gamma_E_GB_to_gamma_QLKN_in(gamma_E_GB, Te, Ai0):
+def gammaE_GB_to_gamma_QLK_in(gammaE_GB, Te, Ai0):
     """
     Args:
-        gamma_E_GB:   GyroBohm normalized gamma_E
+        gammaE_GB:   GyroBohm normalized gammaE
         Te:           Electron temperature (keV)
         Ai0:          Massnumber of main ion
     """
-    gamma_E_QLK = gamma_E_GB * (Ro * c_sou(Te, Ai0)) / (a * c_ref)
-    return gamma_E_QLK
+    gammaE_QLK = gammaE_GB * (Ro * c_sou(Te, Ai0)) / (a * c_ref)
+    return gammaE_QLK
 
-def gamma_E_QLK_to_gamma_E_GB(gamma_E_QLK, Te, Ai0):
+def gammaE_QLK_to_gammaE_GB(gammaE_QLK, Te, Ai0):
     """
     Args:
-        gamma_E_QLK:  gamma_E normalized QLK-style
+        gammaE_QLK:  gammaE normalized QLK-style
         Te:           Electron temperature (keV)
         Ai0:          Massnumber of main ion
     """
-    return gamma_E_QLK * (a * c_ref) / (Ro * c_sou(Te, Ai0))
+    return gammaE_QLK * (a * c_ref) / (Ro * c_sou(Te, Ai0))
 
 def apply_victor_rule(gamma0, x, q, s_hat, gammaE_GB):
     """ Apply victor rule with x instead of epsilon. See victor_rule_eps."""
@@ -89,7 +89,7 @@ class VictorNN():
         self._internal_network = QuaLiKizComboNN(target_names, [network, gam_network], lambda *x: np.hstack(x))
 
         self._target_names = network._target_names
-        self._feature_names = self._internal_network._feature_names.append(pd.Series('gamma_E'), ignore_index=True)
+        self._feature_names = self._internal_network._feature_names.append(pd.Series('gammaE'), ignore_index=True)
 
     def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=False, output_pandas=True):
         nn = self._internal_network
@@ -97,8 +97,8 @@ class VictorNN():
             determine_settings(nn, input, safe, clip_low, clip_high, low_bound, high_bound)
         del input
         if not safe:
-            print('WARNING! Applying victor_rule in unsafe mode. gamma_E should be last column!')
-            gamma_E = nn_input[:, [-1]]
+            print('WARNING! Applying victor_rule in unsafe mode. gammaE should be last column!')
+            gammaE = nn_input[:, [-1]]
             nn_input = np.delete(nn_input, -1, 1)
             if len(nn._feature_names) != nn_input.shape[1]:
                 raise Exception('Mismatch! shape feature names != shape input ({:d} != {:d})'.format(len(nn._feature_names), nn_input.shape[1]))
@@ -116,7 +116,7 @@ class VictorNN():
 
         # Get the input for victor rule, and calculate gamma_eff
         vic_input = nn_input[:, vic_idx]
-        full_vic_input = np.hstack([gamma0, nn_input[:, vic_idx], gamma_E])
+        full_vic_input = np.hstack([gamma0, nn_input[:, vic_idx], gammaE])
         f_vic = apply_victor_rule(*full_vic_input.T)
 
         for ii, name in enumerate(self._target_names):
@@ -147,45 +147,72 @@ if __name__ == '__main__':
     #plt.xlim([0, 35])
     #plt.ylim([-1.5, 2.5])
 
-    def plot_victorplot(epsilon, q, s_hat, gamma0, plotvar, qlk_data=None):
+    def plot_victorplot(epsilon, q, s_hat, gamma0, plotvar, gammaE_GB=None, qlk_data=None):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         #Prep QuaLiKiz data
         dim_names = ['epsilon', 'q', 's_hat']
         if qlk_data is not None:
+            qlk_data = qlk_data.copy()
             qlk_data['epsilon'] = eps(qlk_data['x'])
+            qlk_data['gammaE'] = gammaE_QLK_to_gammaE_GB(qlk_data['gammaE'], Te, Ai0)
+            qlk_data['gam_leq_GB'] = qlk_data['gam_leq_GB'] * 8
             qlk_data.rename(columns={'smag': 's_hat'}, inplace=True)
-            embed()
             for name in dim_names:
                 if name != plotvar:
-                    qlk_data = qlk_data.loc[qlk_data[name] == locals()[name]]
-        n = 100
-        idx = pd.MultiIndex.from_product([np.linspace(0,1,n), epsilon, q, s_hat], names=['gamma_E'] + dim_names)
+                    if len(locals()[name]) == 1:
+                        const_var = locals()[name][0]
+                    qlk_data = qlk_data.loc[np.isclose(qlk_data[name], const_var, rtol=1e-3, atol=1e-5)]
+                else:
+                    idx = qlk_data.isnull()['gam_leq_GB']
+                    for const_var in locals()[name]:
+                        idx |= np.isclose(qlk_data[name], const_var, rtol=1e-3, atol=1e-5)
+                    qlk_data = qlk_data.loc[idx]
+
+            qlk_data = qlk_data.pivot(index='gammaE', columns=plotvar, values='gam_leq_GB')
+
+        if gammaE_GB is None:
+            n = 100
+            gammaE_GB = np.linspace(0,1,n)
+        idx = pd.MultiIndex.from_product([gammaE_GB, epsilon, q, s_hat], names=['gammaE'] + dim_names)
         data = pd.DataFrame(index=idx)
         data.reset_index(inplace=True)
         data['f_vic'] = apply_victorthesis_eps(*data.loc[:, ('epsilon', 'q', 's_hat')].values.T)
         data['gamma0'] = np.tile(gamma0, [1, n]).T
-        data['line'] = data['gamma0'] + data['f_vic'] * data['gamma_E']
+        data['line'] = data['gamma0'] + data['f_vic'] * data['gammaE']
         data['line'] = data['line'].clip(0)
-        gamma_E_plot = data.pivot(index='gamma_E', columns=plotvar, values='line')
+        gammaE_plot = data.pivot(index='gammaE', columns=plotvar, values='line')
         if plotvar == 'epsilon':
-            gamma_E_plot = gamma_E_plot[gamma_E_plot.columns[::-1]]
+            gammaE_plot = gammaE_plot[gammaE_plot.columns[::-1]]
             cmap = ListedColormap(['C1', 'C0', 'C2', 'C4', 'C3', 'C8'])
+            if qlk_data is not None:
+                qlk_data = qlk_data[qlk_data.columns[::-1]]
         else:
             cmap = ListedColormap(['C1', 'C2', 'C0', 'C4', 'C3', 'C8'])
         style = [':'] * data[plotvar].unique().size
-        gamma_E_plot.plot(colormap=cmap, style=style, ax=ax)
+        gammaE_plot.plot(colormap=cmap, style=style, ax=ax)
+        if qlk_data is not None:
+            if np.all(np.isclose(qlk_data.columns, gammaE_plot.columns)):
+                qlk_data.columns = gammaE_plot.columns
+            else:
+                print('Warning! {0!s} qlk != {0!s} scan ({1!s} != {2!s})'.format(plotvar, qlk_data.columns, gammaE_plot.columns))
+            qlk_data.plot(colormap=cmap, ax=ax, marker='o', style=' ')
         return data, ax
         plt.show()
 
+    Ai0 = 2.0
+    Te = 8.0
+    n = 100
+    gammaE_GB = np.linspace(0,1,n)
+    gammaE_QLK = gammaE_GB_to_gamma_QLK_in(gammaE_GB, Te, Ai0)
     qlk_data = None
-    #store = pd.HDFStore('victorrun.h5')
-    #qlk_data = store['flattened']
-    #data, ax = plot_victorplot([0.03, 0.05, 0.1, 0.18, 0.26, 0.35], [1.4], [0.4], [0.22, 0.27, 0.4, 0.57, 0.65, 0.71], 'epsilon', qlk_data=qlk_data)
-    plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.4], [0.27, 0.5, 0.64, 0.701, 0.74, 0.76], 'q')
+    store = pd.HDFStore('victorrun.h5')
+    qlk_data = store['flattened']
+    data, ax = plot_victorplot([0.03, 0.05, 0.1, 0.18, 0.26, 0.35], [1.4], [0.4], [0.22, 0.27, 0.4, 0.57, 0.65, 0.71], 'epsilon', qlk_data=qlk_data)
+    plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.4], [0.27, 0.5, 0.64, 0.701, 0.74, 0.76], 'q', qlk_data=qlk_data)
     plot_victorplot([0.18], [0.73, 1.4, 2.16, 2.88, 3.60, 4.32], [0.8], [0.34, 0.54, 0.64, 0.69, 0.71, 0.73], 'q', qlk_data=qlk_data)
-    plot_victorplot([0.18], [1.4], [0.2, 0.7, 1.2, 1.7, 2.2, 2.7], [.92, 1.18, 1.07, 0.85, 0.63, 0.52], 's_hat')
-    #plt.show()
+    plot_victorplot([0.18], [1.4], [0.2, 0.7, 1.2, 1.7, 2.2, 2.7], [.92, 1.18, 1.07, 0.85, 0.63, 0.52], 's_hat', qlk_data=qlk_data)
+    plt.show()
 
 
     #input = pd.DataFrame()
@@ -230,7 +257,7 @@ if __name__ == '__main__':
     input['logNustar']  = np.full_like(input['Ati'], np.log10(0.009995))
     input['x']  = np.full_like(input['Ati'], 0.449951)
     input = input.loc[:, nn_ITG._feature_names]
-    input['gamma_E_GB'] = np.full_like(input['Ati'], 0.3)
+    input['gammaE_GB'] = np.full_like(input['Ati'], 0.3)
 
     nn = VictorNN(multi_nn, nn_gam)
     fluxes_novic = multi_nn.get_output(input.values[:, :-1], safe=False)
