@@ -45,8 +45,8 @@ def is_flux(name):
 def is_transport(name):
     transport = True
     try:
-        for part_name in split_parts(name):
-            transport &= split_name(name)[0] in heat_vars + particle_vars + momentum_vars
+        for part_name in extract_part_names(split_parts(name)):
+            transport &= split_name(part_name)[0] in heat_vars + particle_vars + momentum_vars
     except ValueError:
         transport = False
     return transport
@@ -65,8 +65,11 @@ def split_name(name):
         raise ValueError('Split {!s} in an unexpected way: {!s}'.format(name, splitted))
     del splitted[0], splitted[-1]
     #Splitted should be of the form ['vc', 'i', 'ITG', 'GB'] now
-    transp, species, mode, norm = splitted
-    return transp, species, mode, norm
+    try:
+        transp, species, mode, norm = splitted
+        return transp, species, mode, norm
+    except ValueError:
+        return name
 
 def is_growth(name):
     return name in ['gam_leq_GB', 'gam_great_GB']
@@ -99,6 +102,9 @@ def is_pure_particle(name):
 def is_pure_rot(name):
     return is_transport_family(name, rotation_vars, lambda x, y: x and y)
 
+def is_pure_momentum(name):
+    return is_transport_family(name, momentum_vars, lambda x, y: x and y)
+
 def is_partial_diffusion(name):
     return is_transport_family(name, particle_diffusion_vars, lambda x, y: x or y)
 
@@ -110,6 +116,9 @@ def is_partial_particle(name):
 
 def is_partial_rot(name):
     return is_transport_family(name, rotation_vars, lambda x, y: x or y)
+
+def is_partial_momentum(name):
+    return is_transport_family(name, momentum_vars, lambda x, y: x or y)
 
 def is_leading(name):
     if is_transport(name):
