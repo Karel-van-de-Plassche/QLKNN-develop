@@ -375,6 +375,87 @@ class Network(BaseModel):
             raise Exception('Divsum network needs div network, not {!s}'.format(target_name))
         return formula_sets, partner_target_sets
 
+    def mixed_nets_from_id(cls, network_id):
+        nn = cls.get_by_id(network_id)
+        if len(nn.target_names) != 1:
+            raise ValueError('Mixed network generation only defined for single target,' +
+                             'not {!s}'.format(nn.target_names))
+        target_name = nn.target_names[0]
+
+        trigger_name = 'vciTEM_GB_div_efeTEM_GB'
+        if target_name != trigger_name:
+            raise ValueError("Target name '{!s}' != trigger name '{!s}'".format(target_name, trigger_name))
+
+        print('Trying to create mega-mixed Network {:d} with target_name {!s}'.format(nn.id, target_name))
+        from qlknn.misc.analyse_names import split_name, split_parts
+        #splitted = split_parts(target_name)
+        #if len(splitted) != 3 or splitted[1] != 'div':
+        #    raise ValueError('Could not split {!s} in div parts'.format(target_name))
+        transp, species, mode, norm = split_name(target_name)
+
+        partner_target_sets = []
+        formula_sets = []
+
+        # These are the pre-defined 'best' networks
+        efeETG = foo
+        efiITG = bar
+        efeTEM = far
+
+        partner_targets = [
+            ['efeITG_GB_div_efiITG_GB'],# 2
+            ['efiTEM_GB_div_efeTEM_GB'],# 5
+            ['pfeITG_GB_div_efiITG_GB'],# 6
+            ['pfeTEM_GB_div_efeTEM_GB'],# 7
+            ['dfeITG_GB_div_efiITG_GB'],# 8
+            ['dfeTEM_GB_div_efeTEM_GB'],# 9
+            ['vteITG_GB_div_efiITG_GB'],# 10
+            ['vteTEM_GB_div_efeTEM_GB'],# 11
+            ['vceITG_GB_div_efiITG_GB'],# 12
+            ['vceTEM_GB_div_efeTEM_GB'],# 13
+            ['dfiITG_GB_div_efiITG_GB'],# 14
+            ['dfiTEM_GB_div_efeTEM_GB'],# 15
+            ['vtiITG_GB_div_efiITG_GB'],# 16
+            ['vtiTEM_GB_div_efeTEM_GB'],# 17
+            ['vciITG_GB_div_efiITG_GB'],# 18
+            #['vciTEM_GB_div_efeTEM_GB']# 19
+        ]
+        formulas = OrderedDict([
+            ('efeETG_GB', 'nn{0:d}') #1
+            ('efeITG_GB', '(nn{1:d} * nn{3:d})'),# 2
+            ('efeTEM_GB', 'nn{2:d}') #3
+            ('efiITG_GB', 'nn{3:d}') #4
+            ('efiTEM_GB', '(nn{4:d} * nn{2:d})'),# 5
+            ('pfeITG_GB', '(nn{5:d} * nn{3:d})'),# 6
+            ('pfeTEM_GB', '(nn{6:d} * nn{2:d})'),# 7
+            ('dfeITG_GB', '(nn{7:d} * nn{3:d})'),# 8
+            ('dfeTEM_GB', '(nn{8:d} * nn{2:d})'),# 9
+            ('vteITG_GB', '(nn{9:d} * nn{3:d})'),# 10
+            ('vteTEM_GB', '(nn{10:d} * nn{2:d})'),# 11
+            ('vceITG_GB', '(nn{11:d} * nn{3:d})'),# 12
+            ('vceTEM_GB', '(nn{12:d} * nn{2:d})'),# 13
+            ('dfiITG_GB', '(nn{13:d} * nn{3:d})'),# 14
+            ('dfiTEM_GB', '(nn{14:d} * nn{2:d})'),# 15
+            ('vtiITG_GB', '(nn{15:d} * nn{3:d})'),# 16
+            ('vtiTEM_GB', '(nn{16:d} * nn{2:d})'),# 17
+            ('vciITG_GB', '(nn{17:d} * nn{3:d})'),# 18
+            ('vciTEM_GB', '(nn{18:d} * nn{2:d})'),#19
+        ])
+
+        nns = [nn]
+        skip_multinet = False
+        for partner_target in partner_targets:
+            # TODO: Change this to ignore one hyperpar. Maybe generalize with divsum_from_div_id? 
+            partner_net = nn.find_single_partner(partner_target, raise_on_missing=raise_on_missing)
+            blerg
+            nns.append(partner_net)
+            if partner_net is None:
+                skip_multinet = True
+
+        network_ids = [nn.id for nn in nns]
+        feature_names = nn.feature_names
+
+        multinet = cls.create_combinets_from_formulas(feature_names, formulas, network_ids, skip_multinet=skip_multinet)
+
     def find_pure_partners(self, partner_target):
         pure_network_params_id = self.pure_network_params.get().id
         q1 = PureNetworkParams.find_similar_topology_by_id(pure_network_params_id,
@@ -409,91 +490,111 @@ class Network(BaseModel):
         )
         return query
 
+    def find_single_partner(self, partner_target, raise_on_missing=False):
+        if len(partner_target) > 1:
+            print('Insanity! Multiple partner targets! Dropping to debugging')
+            embed()
+
+        cls = self.__class__
+
+        query = self.find_pure_partners(partner_target)
+        if query.count() > 1:
+            print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
+            query = cls.pick_candidate(query)
+        elif query.count() == 0:
+            if raise_on_missing:
+                raise DoesNotExist('No {!s} with target {!s}!'.format(cls, partner_target))
+            print('No {!s} with target {!s}! Skip MultiNet creation..'.format(cls, partner_target))
+            partner_net = None
+
+        if query.count() == 1:
+            purenet = query.get()
+            partner_net = purenet.network
+            # Sanity check, something weird happening here..
+            if partner_net.target_names != partner_target:
+                print('Insanity! Wrong partner found {!s} != {!s}'.format(nns[-1].target_names, partner_target))
+                embed()
+        return partner_net
+
     @classmethod
     def divsum_from_div_id(cls, network_id, raise_on_missing=False):
         nn = cls.get_by_id(network_id)
         if len(nn.target_names) != 1:
             raise ValueError('Divsum network needs div network, not {!s}'.format(nn.target_names))
         target_name = nn.target_names[0]
+        print()
         print('Trying to combine Network {:d} with target {!s}'.format(nn.id, target_name))
         formula_sets, partner_target_sets = cls.generate_divsum_recipes(target_name)
 
         for formulas, partner_targets in zip(formula_sets, partner_target_sets):
             nns = [nn]
-            skip = False
+            skip_multinet = False
             for partner_target in partner_targets:
-                if len(partner_target) > 1:
-                    raise Exception('Multiple partner targets!')
-                query = nn.find_pure_partners(partner_target)
-                if query.count() > 1:
-                    print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
-                    query = cls.pick_candidate(query)
-                elif query.count() == 0:
-                    if raise_on_missing:
-                        raise DoesNotExist('No {!s} with target {!s}!'.format(cls, partner_target))
-                    print('No {!s} with target {!s}! Skipping..'.format(cls, partner_target))
-                    skip = True
+                partner_net = nn.find_single_partner(partner_target, raise_on_missing=raise_on_missing)
+                nns.append(partner_net)
+                if partner_net is None:
+                    skip_multinet = True
 
-                if query.count() == 1:
-                    purenet = query.get()
-                    nns.append(purenet.network)
-                    # Sanity check, something weird happening here..
-                    if nns[-1].target_names != partner_target:
-                        print('Insanity! Wrong partner found {!s} != {!s}'.format(nns[-1].target_names, partner_target))
-                        embed()
+            network_ids = [nn.id for nn in nns]
+            feature_names = nn.feature_names
 
-            if skip is not True:
-                recipes = OrderedDict()
-                network_ids = [nn.id for nn in nns]
-                for target, formula in formulas.items():
-                    recipes[target] = formula.format(*list(range(len(nns))))
+            multinet = cls.create_combinets_from_formulas(feature_names, formulas, network_ids, skip_multinet=skip_multinet)
 
-                nets = []
-                for target, recipe in recipes.items():
-                    is_pure = lambda recipe: all([el not in recipe for el in ['+', '-', '/', '*']])
-                    if is_pure(recipe):
-                        net_num = int(recipe.replace('nn', ''))
-                        net_id = network_ids[net_num]
-                        nets.append(Network.get_by_id(net_id))
-                    else:
-                        query = (Network.select()
-                                 .where((Network.recipe == recipe) &
-                                        (Network.networks == network_ids))
-                                 )
-                        if query.count() == 0:
-                            combonet = cls(target_names=[target],
-                                           feature_names=nn.feature_names,
-                                           recipe=recipe,
-                                           networks=network_ids)
-                            #raise Exception(combonet.recipe + ' ' + str(combonet.networks))
-                            combonet.save()
-                            print('Created ComboNetwork {:d} with recipe {!s} and networks {!s}'.format(combonet.id, recipe, network_ids))
-                        elif query.count() == 1:
-                            combonet = query.get()
-                            print('Network with recipe {!s} and networks {!s} already exists! Skipping!'.format(recipe, network_ids))
-                        else:
-                            print('Insanity! Duplicate recipes! How could this happen..?')
-                            embed()
+    @classmethod
+    def create_combinets_from_formulas(cls, feature_names, formulas, network_ids, skip_multinet=False):
+        recipes = OrderedDict()
+        for target, formula in formulas.items():
+            recipes[target] = formula.format(*list(range(len(network_ids))))
 
-                        nets.append(combonet)
-
-                try:
-                    net = cls.get(
-                        cls.recipe == 'np.hstack(args)',
-                        cls.networks == [net.id for net in nets],
-                        cls.target_names == list(recipes.keys()),
-                        cls.feature_names == nn.feature_names
-                    )
-                except Network.DoesNotExist:
-                    net = cls.create(
-                        recipe = 'np.hstack(args)',
-                        networks = [net.id for net in nets],
-                        target_names = list(recipes.keys()),
-                        feature_names = nn.feature_names
-                    )
-                    print('Created MultiNetwork with id: {:d}'.format(net.id))
+        nets = []
+        for target, recipe in recipes.items():
+            is_pure = lambda recipe: all([el not in recipe for el in ['+', '-', '/', '*']])
+            if is_pure(recipe):
+                net_num = int(recipe.replace('nn', ''))
+                net_id = network_ids[net_num]
+                nets.append(Network.get_by_id(net_id))
+            else:
+                query = (Network.select()
+                         .where((Network.recipe == recipe) &
+                                (Network.networks == network_ids))
+                         )
+                if query.count() == 0:
+                    combonet = cls(target_names=[target],
+                                   feature_names=feature_names,
+                                   recipe=recipe,
+                                   networks=network_ids)
+                    #raise Exception(combonet.recipe + ' ' + str(combonet.networks))
+                    combonet.save()
+                    print('Created ComboNetwork {:d} with recipe {!s} and networks {!s}'.format(combonet.id, recipe, network_ids))
+                elif query.count() == 1:
+                    combonet = query.get()
+                    print('Network with recipe {!s} and networks {!s} already exists with id {!s}! Skip combonet creation!'.format(recipe, network_ids, combonet.id))
                 else:
-                    print('MultiNetwork with Networks {!s} already exists with id: {:d}'.format([net.id for net in nets], net.id))
+                    print('Insanity! Duplicate recipes! How could this happen..?')
+                    embed()
+
+                nets.append(combonet)
+
+        multinet = None
+        if not skip_multinet:
+            try:
+                multinet = cls.get(
+                    cls.recipe == 'np.hstack(args)',
+                    cls.networks == [net.id for net in nets],
+                    cls.target_names == list(recipes.keys()),
+                    cls.feature_names == feature_names
+                )
+            except Network.DoesNotExist:
+                multinet = cls.create(
+                    recipe = 'np.hstack(args)',
+                    networks = [net.id for net in nets],
+                    target_names = list(recipes.keys()),
+                    feature_names = feature_names
+                )
+                print('Created MultiNetwork with id: {:d}'.format(multinet.id))
+            else:
+                print('Network with Networks {!s} already exists with id: {:d}. Skipping MultiNetwork creation'.format([net.id for net in nets], multinet.id))
+        return multinet
 
     def to_QuaLiKizNDNN(self, **nn_kwargs):
         return self.pure_network_params.get().to_QuaLiKizNDNN(**nn_kwargs)
@@ -648,14 +749,14 @@ class PureNetworkParams(BaseModel):
         return query
 
     @classmethod
-    def find_similar_networkpar_by_id(cls, pure_network_params_id, match_train_dim=True):
+    def find_similar_networkpar_by_id(cls, pure_network_params_id, ignore_pars=None, match_train_dim=True):
+        if ignore_pars is None:
+            ignore_pars = []
+        networkpars = ['goodness', 'cost_l2_scale', 'cost_l1_scale', 'early_stop_measure', 'early_stop_after']
+        select_pars = [getattr(Hyperparameters, par) for par in networkpars if par not in ignore_pars]
+
         query = (cls
-                 .select(
-                         Hyperparameters.goodness,
-                         Hyperparameters.cost_l2_scale,
-                         Hyperparameters.cost_l1_scale,
-                         Hyperparameters.early_stop_measure,
-                         Hyperparameters.early_stop_after)
+                 .select(*select_pars)
                  .where(cls.id == pure_network_params_id)
                  .join(Hyperparameters)
         )
@@ -669,26 +770,20 @@ class PureNetworkParams(BaseModel):
         if match_train_dim is not True:
             train_dim = None
 
-        query = cls.find_similar_networkpar_by_values(*query.tuples().get(), filter_id=filter_id, train_dim=train_dim)
+        query = cls.find_similar_networkpar_by_values(query.dicts().get(), filter_id=filter_id, train_dim=train_dim)
         query = query.where(cls.id != pure_network_params_id)
         return query
 
     @classmethod
-    def find_similar_networkpar_by_values(cls, goodness, cost_l2_scale, cost_l1_scale, early_stop_measure, early_stop_after, filter_id=None, train_dim=None):
+    def find_similar_networkpar_by_values(cls, networkpar_dict, filter_id=None, train_dim=None):
         # TODO: Add new hyperparameters here?
-        query = (cls.select()
-                 .join(Hyperparameters)
-                 .where(Hyperparameters.goodness ==
-                        goodness)
-                 .where(Hyperparameters.cost_l2_scale.cast('numeric') ==
-                        cost_l2_scale)
-                 .where(Hyperparameters.cost_l1_scale.cast('numeric') ==
-                        cost_l1_scale)
-                 .where(Hyperparameters.early_stop_measure ==
-                        early_stop_measure)
-                 .where(Hyperparameters.early_stop_after ==
-                        early_stop_after)
-                 )
+        query = (cls.select().join(Hyperparameters))
+        for parname, val in networkpar_dict.items():
+            attr = getattr(Hyperparameters, parname)
+            if isinstance(val, float):
+                attr = attr.cast('numeric')
+            query = query.where(attr == val)
+
         if train_dim is not None:
             query = (query.where(Network.target_names ==
                                  train_dim)
