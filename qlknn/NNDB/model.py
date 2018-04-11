@@ -12,6 +12,7 @@ from functools import reduce
 from itertools import chain
 from collections import OrderedDict
 import itertools
+import copy
 
 import numpy as np
 import scipy.io as io
@@ -375,7 +376,8 @@ class Network(BaseModel):
             raise Exception('Divsum network needs div network, not {!s}'.format(target_name))
         return formula_sets, partner_target_sets
 
-    def mixed_nets_from_id(cls, network_id):
+    @classmethod
+    def mixed_nets_from_id(cls, network_id, raise_on_missing=False):
         nn = cls.get_by_id(network_id)
         if len(nn.target_names) != 1:
             raise ValueError('Mixed network generation only defined for single target,' +
@@ -391,18 +393,13 @@ class Network(BaseModel):
         #splitted = split_parts(target_name)
         #if len(splitted) != 3 or splitted[1] != 'div':
         #    raise ValueError('Could not split {!s} in div parts'.format(target_name))
-        transp, species, mode, norm = split_name(target_name)
-
-        partner_target_sets = []
-        formula_sets = []
-
-        # These are the pre-defined 'best' networks
-        efeETG = foo
-        efiITG = bar
-        efeTEM = far
+        #transp, species, mode, norm = split_name(target_name)
 
         partner_targets = [
+            ['efeETG_GB'], #1
             ['efeITG_GB_div_efiITG_GB'],# 2
+            ['efeTEM_GB'], #3
+            ['efiITG_GB'], #4
             ['efiTEM_GB_div_efeTEM_GB'],# 5
             ['pfeITG_GB_div_efiITG_GB'],# 6
             ['pfeTEM_GB_div_efeTEM_GB'],# 7
@@ -419,11 +416,35 @@ class Network(BaseModel):
             ['vciITG_GB_div_efiITG_GB'],# 18
             #['vciTEM_GB_div_efeTEM_GB']# 19
         ]
+
+        partner_targets_todo = copy.deepcopy(partner_targets)
+
+        # These are the pre-defined 'best' networks
+        cost_l2_scales = {'efeETG_GB': 5e-5,
+                          'efiITG_GB': 5e-5,
+                          'efeTEM_GB': 5e-5}
+
+        # Find the three leading flux networks
+        unordered_partners = {}
+        for name, val in cost_l2_scales.items():
+            query = nn.find_pure_partners([name],
+                                      ignore_networkpars=['cost_l2_scale'])
+            query = query.where(Hyperparameters.cost_l2_scale == val)
+            query &= (PureNetworkParams.select()
+                      .where(Hyperparameters.cost_l2_scale.cast('numeric') ==
+                             val)
+                      .join(Hyperparameters)
+                     )
+            unordered_partners[name] = \
+                    cls.find_single_partner_from_query(query,
+                                                       partner_target=name)
+            partner_targets_todo.remove([name])
+
         formulas = OrderedDict([
-            ('efeETG_GB', 'nn{0:d}') #1
+            ('efeETG_GB', 'nn{0:d}'), #1
             ('efeITG_GB', '(nn{1:d} * nn{3:d})'),# 2
-            ('efeTEM_GB', 'nn{2:d}') #3
-            ('efiITG_GB', 'nn{3:d}') #4
+            ('efeTEM_GB', 'nn{2:d}'), #3
+            ('efiITG_GB', 'nn{3:d}'), #4
             ('efiTEM_GB', '(nn{4:d} * nn{2:d})'),# 5
             ('pfeITG_GB', '(nn{5:d} * nn{3:d})'),# 6
             ('pfeTEM_GB', '(nn{6:d} * nn{2:d})'),# 7
@@ -441,27 +462,34 @@ class Network(BaseModel):
             ('vciTEM_GB', '(nn{18:d} * nn{2:d})'),#19
         ])
 
-        nns = [nn]
+        # Find the divsum networks that match the trigger network (nn)
         skip_multinet = False
         for partner_target in partner_targets:
-            # TODO: Change this to ignore one hyperpar. Maybe generalize with divsum_from_div_id? 
-            partner_net = nn.find_single_partner(partner_target, raise_on_missing=raise_on_missing)
-            blerg
-            nns.append(partner_net)
+            if len(partner_target) > 1:
+                raise NotImplementedError('Multi-D target networks')
+            query = nn.find_pure_partners(partner_target)
+            partner_net = nn.find_single_partner_from_query(query, partner_target, raise_on_missing=raise_on_missing)
+            unordered_partners[partner_target[0]] = partner_net
             if partner_net is None:
                 skip_multinet = True
 
-        network_ids = [nn.id for nn in nns]
+        # Order matters here! Our trigger network is the last one
+        network_ids = [unordered_partners[target[0]].id for target in partner_targets]
+        network_ids.append(nn.id)
         feature_names = nn.feature_names
 
+        # Now create all networks
         multinet = cls.create_combinets_from_formulas(feature_names, formulas, network_ids, skip_multinet=skip_multinet)
 
-    def find_pure_partners(self, partner_target):
+    def find_pure_partners(self, partner_target, ignore_networkpars=None):
         pure_network_params_id = self.pure_network_params.get().id
-        q1 = PureNetworkParams.find_similar_topology_by_id(pure_network_params_id,
-                                                           match_train_dim=False)
-        q2 = PureNetworkParams.find_similar_networkpar_by_id(pure_network_params_id,
-                                                             match_train_dim=False)
+        q1 = PureNetworkParams.find_similar_topology_by_id(
+            pure_network_params_id,
+            match_train_dim=False)
+        q2 = PureNetworkParams.find_similar_networkpar_by_id(
+            pure_network_params_id,
+            ignore_pars=ignore_networkpars,
+            match_train_dim=False)
         q3 = (PureNetworkParams
              .select()
              .where(self.__class__.target_names == partner_target)
@@ -490,14 +518,11 @@ class Network(BaseModel):
         )
         return query
 
-    def find_single_partner(self, partner_target, raise_on_missing=False):
-        if len(partner_target) > 1:
-            print('Insanity! Multiple partner targets! Dropping to debugging')
-            embed()
+    @classmethod
+    def find_single_partner_from_query(cls, query, partner_target=None, raise_on_missing=False):
+        if partner_target is None:
+            partner_target = query.sql()
 
-        cls = self.__class__
-
-        query = self.find_pure_partners(partner_target)
         if query.count() > 1:
             print('Found {:d} matches for {!s}'.format(query.count(), partner_target))
             query = cls.pick_candidate(query)
@@ -510,10 +535,6 @@ class Network(BaseModel):
         if query.count() == 1:
             purenet = query.get()
             partner_net = purenet.network
-            # Sanity check, something weird happening here..
-            if partner_net.target_names != partner_target:
-                print('Insanity! Wrong partner found {!s} != {!s}'.format(nns[-1].target_names, partner_target))
-                embed()
         return partner_net
 
     @classmethod
@@ -530,7 +551,9 @@ class Network(BaseModel):
             nns = [nn]
             skip_multinet = False
             for partner_target in partner_targets:
-                partner_net = nn.find_single_partner(partner_target, raise_on_missing=raise_on_missing)
+
+                query = nn.find_pure_partners(partner_target)
+                partner_net = nn.find_single_partner_from_query(query, partner_target=partner_target, raise_on_missing=False)
                 nns.append(partner_net)
                 if partner_net is None:
                     skip_multinet = True
