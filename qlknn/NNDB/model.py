@@ -111,27 +111,54 @@ class Network(BaseModel):
     networks = ArrayField(IntegerField, null=True)
 
 
-    def flat_recursive_property(self, property):
-        subq = Network.get_recursive_subquery(property)
-        query = (self.select(getattr(subq.c, property))
-                 .join(subq, on=(subq.c.id == Network.id))
-                 .where(Network.id == self.id)
-                 )
-        if query.count() == 1:
-            prop_list = query.tuples().get()[0]
-        else:
-            raise Exception
+    @classmethod
+    def get_recursive_subquery(cls, params, table=None, distinct=True):
+        if table is None:
+            table = Hyperparameters
+        if not isinstance(params, list):
+            params = [params]
+        from peewee import CTE, Table, Select
+        #params = ['cost_l2_scale', 'hidden_neurons']
+        recursetree = Table('recursetree')
+        non_rec = (Network.select(Network.id, Network.networks, Network.id.alias('root'))
+                   #.where(Network.recipe == 'np.hstack(args)')
+                   .where((Network.networks.is_null(False)))
+                   )
+        rec = (Network.select(Network.id, Network.networks, recursetree.c.root)
+               .from_(Network, recursetree)
+               .where(Network.id == fn.ANY(recursetree.c.children)))
+        cte = (non_rec + rec).cte('recursetree', recursive=True, columns=['net_id', 'children', 'root'])
+        subquery_params = [getattr(table, param) for param in params]
 
-        if isinstance(prop_list, list):
-            if np.array_equal(prop_list[1:], prop_list[:-1]):
-                return prop_list[0]
-            else:
-                raise Exception('Unequal values for {!s}={!s}'.format(property, prop_list))
-        else:
-            return prop_list
+        subquery = (Select(columns=[cte.c.net_id, cte.c.root] + subquery_params)
+                 .from_(cte)
+                 .bind(db)
+                 .join(PureNetworkParams, on=(PureNetworkParams.network == cte.c.net_id))
+                 .join(table,   on=(table.pure_network_params == PureNetworkParams.id))
+                 .group_by([cte.c.net_id, cte.c.root] + subquery_params)
+                 .where((cte.c.children.is_null(True)))
+                 )
+
+        query_params = [getattr(subquery.c, param) for param in params]
+        if distinct:
+            query_params = [qp.distinct() for qp in query_params]
+        query_params = [fn.ARRAY_AGG(qp, coerce=False).alias(param) for param, qp in zip(params, query_params)]
+        root = fn.int8(subquery.c.root).alias('root')
+        children = fn.ARRAY_AGG(subquery.c.net_id).alias('children')
+        #*[fn.ARRAY_AGG(getattr(cls, name)) for name in cls._meta.fields.keys()], 
+        netself = cls.alias('net')
+        query = (cls.select(root, children, netself, *query_params)
+                 .from_(subquery)
+                 .group_by(subquery.c.root, *[getattr(netself, name) for name in netself._meta.fields.keys()])
+                 .join(cls, on=(subquery.c.net_id == cls.id))
+                 .join(netself, on=(subquery.c.root == netself.id))
+                 .with_cte(cte)
+                 )
+                 #.join(subquery, on=(Network.id == subquery.c.net_id))
+        return query
 
     @classmethod
-    def get_recursive_subquery(cls, params, table=None):
+    def get_double_subquery(cls, params, table=None):
         if table is None:
             table = Hyperparameters
         if not isinstance(params, list):
@@ -464,7 +491,7 @@ class Network(BaseModel):
 
         # Find the divsum networks that match the trigger network (nn)
         skip_multinet = False
-        for partner_target in partner_targets:
+        for partner_target in partner_targets_todo:
             if len(partner_target) > 1:
                 raise NotImplementedError('Multi-D target networks')
             query = nn.find_pure_partners(partner_target)
@@ -629,7 +656,8 @@ class Network(BaseModel):
         networks = [Network.get_by_id(num).to_QuaLiKizNN(**nn_kwargs) for num in network_ids]
         recipe = self.recipe
         for ii in range(len(network_ids)):
-            recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
+            #recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
+            recipe = re.sub('nn(\d*)', 'args[\\1]', recipe)
         exec('def combo_func(*args): return ' + recipe, globals())
         return QuaLiKizComboNN(self.target_names, networks, combo_func, **combo_kwargs)
 
