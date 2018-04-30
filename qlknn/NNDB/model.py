@@ -17,7 +17,7 @@ import copy
 import numpy as np
 import scipy.io as io
 import pandas as pd
-from peewee import (Model,
+from peewee import (Model, prefetch,
                     FloatField, FloatField, IntegerField, BooleanField, TextField, ForeignKeyField, DateTimeField,
                     ProgrammingError, AsIs, fn, SQL, DoesNotExist, JOIN)
 from playhouse.postgres_ext import PostgresqlExtDatabase, ArrayField, BinaryJSONField, JSONField, HStoreField
@@ -126,8 +126,8 @@ class Network(BaseModel):
                    )
         rec = (Network.select(Network.id, Network.networks, recursetree.c.root)
                .from_(Network, recursetree)
-               .where(Network.id == fn.ANY(recursetree.c.children)))
-        cte = (non_rec + rec).cte('recursetree', recursive=True, columns=['net_id', 'children', 'root'])
+               .where(Network.id == fn.ANY(recursetree.c.pure_children)))
+        cte = (non_rec + rec).cte('recursetree', recursive=True, columns=['net_id', 'pure_children', 'root'])
         subquery_params = [getattr(table, param) for param in params]
 
         subquery = (Select(columns=[cte.c.net_id, cte.c.root] + subquery_params)
@@ -136,7 +136,7 @@ class Network(BaseModel):
                  .join(PureNetworkParams, on=(PureNetworkParams.network == cte.c.net_id))
                  .join(table,   on=(table.pure_network_params == PureNetworkParams.id))
                  .group_by([cte.c.net_id, cte.c.root] + subquery_params)
-                 .where((cte.c.children.is_null(True)))
+                 .where((cte.c.pure_children.is_null(True)))
                  )
 
         query_params = [getattr(subquery.c, param) for param in params]
@@ -144,10 +144,10 @@ class Network(BaseModel):
             query_params = [qp.distinct() for qp in query_params]
         query_params = [fn.ARRAY_AGG(qp, coerce=False).alias(param) for param, qp in zip(params, query_params)]
         root = fn.int8(subquery.c.root).alias('root')
-        children = fn.ARRAY_AGG(subquery.c.net_id).alias('children')
+        pure_children = fn.ARRAY_AGG(subquery.c.net_id).alias('pure_children')
         #*[fn.ARRAY_AGG(getattr(cls, name)) for name in cls._meta.fields.keys()], 
         netself = cls.alias('net')
-        query = (cls.select(root, children, netself, *query_params)
+        query = (cls.select(root, pure_children, netself, *query_params)
                  .from_(subquery)
                  .group_by(subquery.c.root, *[getattr(netself, name) for name in netself._meta.fields.keys()])
                  .join(cls, on=(subquery.c.net_id == cls.id))
@@ -649,28 +649,67 @@ class Network(BaseModel):
                 print('Network with Networks {!s} already exists with id: {:d}. Skipping MultiNetwork creation'.format([net.id for net in nets], multinet.id))
         return multinet
 
-    def to_QuaLiKizNDNN(self, **nn_kwargs):
-        return self.pure_network_params.get().to_QuaLiKizNDNN(**nn_kwargs)
+    def to_QuaLiKizNDNN(self, cached_purenets=None, **nn_kwargs):
+        if cached_purenets is None:
+            cached_purenets= {}
+        if not cached_purenets:
+            pure_params = self.pure_network_params.get()
+            json_dict = pure_params.network_json.get().network_json
+        else:
+            json_dict = cached_purenets[self.id]['network_json']
+        qlknet = QuaLiKizNDNN(json_dict, **nn_kwargs)
+        return qlknet
+    #cached_purenets[self.id]['network_json'].to_QuaLiKizNDNN(**nn_kwargs)
 
-    def to_QuaLiKizComboNN(self, combo_kwargs=None, **nn_kwargs):
+    def to_QuaLiKizComboNN(self, combo_kwargs=None, cached_purenets=None, **nn_kwargs):
         if combo_kwargs is None:
             combo_kwargs = {}
+        if cached_purenets is None:
+            cached_purenets= {}
+
         network_ids = self.networks
-        networks = [Network.get_by_id(num).to_QuaLiKizNN(**nn_kwargs) for num in network_ids]
+        # Hackish way to get all pure children of this network
+        if not all(id in cached_purenets for id in self.networks):
+            subq = self.get_recursive_subquery('cost_l2_scale')
+            subq = subq.having(SQL('root') == self.id).dicts()
+            if len(subq) == 1:
+                res = subq.get()
+                pure_children = res['pure_children']
+                nets = (Network.select()
+                        .where(Network.id.in_(pure_children))
+                        )
+                pures = PureNetworkParams.select()
+                jsons = NetworkJSON.select()
+                pures_and_nets = prefetch(nets, pures, jsons)
+                cached_purenets.update({network.id: {'net': network,
+                                                     'pure_net':network.pure_network_params[0],
+                                                     'network_json': network.pure_network_params[0].network_json[0].network_json}
+                                        for network in pures_and_nets})
+
+        networks = []
+        if all(id in cached_purenets for id in self.networks):
+            for id in self.networks:
+                qlknet = cached_purenets[id]['net'].to_QuaLiKizNN(cached_purenets=cached_purenets)
+                networks.append(qlknet)
+        else:
+            nets = {net.id: net for net in Network.select().where(Network.id.in_(network_ids))}
+            for id in self.networks:
+                qlknet = nets[id].to_QuaLiKizNN(cached_purenets=cached_purenets)
+                networks.append(qlknet)
+
         recipe = self.recipe
         for ii in range(len(network_ids)):
-            #recipe = recipe.replace('nn' + str(ii), 'args[' + str(ii) + ']')
             recipe = re.sub('nn(\d*)', 'args[\\1]', recipe)
         exec('def combo_func(*args): return ' + recipe, globals())
         return QuaLiKizComboNN(self.target_names, networks, combo_func, **combo_kwargs)
 
-    def to_QuaLiKizNN(self, combo_kwargs=None, **nn_kwargs):
+    def to_QuaLiKizNN(self, cached_purenets=None, combo_kwargs=None, **nn_kwargs):
         if combo_kwargs is None:
             combo_kwargs = {}
         if self.networks is None:
-            net = self.to_QuaLiKizNDNN(**nn_kwargs)
+            net = self.to_QuaLiKizNDNN(cached_purenets=cached_purenets, **nn_kwargs)
         else:
-            net = self.to_QuaLiKizComboNN(combo_kwargs=combo_kwargs, **nn_kwargs)
+            net = self.to_QuaLiKizComboNN(cached_purenets=cached_purenets, combo_kwargs=combo_kwargs, **nn_kwargs)
         return net
 
     @classmethod
@@ -987,12 +1026,12 @@ class PureNetworkParams(BaseModel):
             settings_json=settings)
         return network
 
-    def to_QuaLiKizNDNN(self, **nn_kwargs):
-        json_dict = self.network_json.get().network_json
-        nn = QuaLiKizNDNN(json_dict, **nn_kwargs)
-        return nn
+    #def to_QuaLiKizNDNN(self, **nn_kwargs):
+    #    json_dict = self.network_json.get().network_json
+    #    nn = QuaLiKizNDNN(json_dict, **nn_kwargs)
+    #    return nn
 
-    to_QuaLiKizNN = to_QuaLiKizNDNN
+    #to_QuaLiKizNN = to_QuaLiKizNDNN
 
     def to_matlab_dict(self):
         js = self.network_json.get().network_json
