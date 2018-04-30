@@ -305,12 +305,40 @@ class TestPureNetworkPartnerFinding(ModelTestCase):
             self.assertNotEqual(net1.id, nn.id)
 
     @db.atomic()
-    def test_find_partners_by_id(self):
+    def test_find_similar_networkpar_by_id_no_match(self):
+        net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
+        net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'hyperparameters': {'hidden_neurons': [10, 10, 10]}})
+        net3 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'hyperparameters': {'early_stop_after': 200}})
+        query = PureNetworkParams.find_similar_networkpar_by_id(net1.pure_network_params.get().id)
+        self.assertEqual(query.count(), 1)
+
+    @db.atomic()
+    def test_find_similar_networkpar_by_id_multi_match_2(self):
+        net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
+        net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
+        net3 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
+                {'network': {'target_names': ['efiITG_GB']}})
+
+        query = PureNetworkParams.find_similar_networkpar_by_id(net1.pure_network_params.get().id)
+        self.assertEqual(query.count(), 1)
+
+        for nn in query:
+            for quantity in ['goodness', 'cost_l2_scale', 'cost_l1_scale', 'early_stop_measure', 'early_stop_after']:
+                hyperpar1 = net1.pure_network_params.get().hyperparameters.get()
+                self.assertEqual(getattr(hyperpar1, quantity),
+                                 getattr(nn.hyperparameters.get(), quantity))
+            self.assertNotEqual(net1.pure_network_params.get().id, nn.id)
+            self.assertNotEqual(net1.id, nn.id)
+
+    @db.atomic()
+    def test_find_pure_partners(self):
         net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
         net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
                 {'network': {'target_names': ['efiITG_GB']}})
 
-        query = PureNetworkParams.find_partners_by_id(net1.pure_network_params.get().id)
+        query = net1.find_pure_partners(['efiITG_GB'])
 
         self.assertEqual(query.count(), 1)
         self.assertNotEqual(net1.target_names, net2.target_names)
@@ -323,33 +351,6 @@ class TestPureNetworkPartnerFinding(ModelTestCase):
         self.assertNotEqual(net1.pure_network_params.get().id, nn.id)
         self.assertNotEqual(net1.id, nn.id)
 
-    @db.atomic()
-    def test_find_similar_networkpar_by_id_no_match(self):
-        net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
-        net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
-                {'hyperparameters': {'hidden_neurons': [10, 10, 10]}})
-        net3 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
-                {'hyperparameters': {'early_stop_after': 200}})
-        query = PureNetworkParams.find_partners_by_id(net1.pure_network_params.get().id)
-        self.assertEqual(query.count(), 0)
-
-    @db.atomic()
-    def test_find_similar_networkpar_by_id_multi_match(self):
-        net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
-        net2 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
-        net3 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
-                {'network': {'target_names': ['efiITG_GB']}})
-
-        query = PureNetworkParams.find_partners_by_id(net1.pure_network_params.get().id)
-        self.assertEqual(query.count(), 2)
-
-        for nn in query:
-            for quantity in ['goodness', 'cost_l2_scale', 'cost_l1_scale', 'early_stop_measure', 'early_stop_after']:
-                hyperpar1 = net1.pure_network_params.get().hyperparameters.get()
-                self.assertEqual(getattr(hyperpar1, quantity),
-                                 getattr(nn.hyperparameters.get(), quantity))
-            self.assertNotEqual(net1.pure_network_params.get().id, nn.id)
-            self.assertNotEqual(net1.id, nn.id)
 
 class TestDivsumCreation(ModelTestCase):
     requires = require_lists['pure_network_params'] + [Hyperparameters]
@@ -385,12 +386,12 @@ class TestDivsumCreation(ModelTestCase):
         net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
                 {'network': {'target_names': ['efe_GB_div_efi_GB']}})
         with self.assertRaises(DoesNotExist):
-            Network.divsum_from_div_id(net1.id, stop_on_missing=True)
+            Network.divsum_from_div_id(net1.id, raise_on_missing=True)
 
     def test_efe_div_efi_not_exist_continue_to_divsum(self):
         net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script,
                 {'network': {'target_names': ['efe_GB_div_efi_GB']}})
-        Network.divsum_from_div_id(net1.id, stop_on_missing=False)
+        Network.divsum_from_div_id(net1.id, raise_on_missing=False)
         self.assertEqual(Network.select().count(), 1)
 
     @db.atomic()

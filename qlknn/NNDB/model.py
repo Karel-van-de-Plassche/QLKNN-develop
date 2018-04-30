@@ -580,15 +580,18 @@ class Network(BaseModel):
             for partner_target in partner_targets:
 
                 query = nn.find_pure_partners(partner_target)
-                partner_net = nn.find_single_partner_from_query(query, partner_target=partner_target, raise_on_missing=False)
+                partner_net = nn.find_single_partner_from_query(query, partner_target=partner_target, raise_on_missing=raise_on_missing)
                 nns.append(partner_net)
                 if partner_net is None:
                     skip_multinet = True
 
-            network_ids = [nn.id for nn in nns]
+            network_ids = [nn.id if nn is not None else None for nn in nns]
             feature_names = nn.feature_names
 
-            multinet = cls.create_combinets_from_formulas(feature_names, formulas, network_ids, skip_multinet=skip_multinet)
+            if not None in network_ids:
+                #Skip everything if one network could not be found
+                # TODO: decide if we allow for creation of 'partial' networks
+                multinet = cls.create_combinets_from_formulas(feature_names, formulas, network_ids, skip_multinet=skip_multinet)
 
     @classmethod
     def create_combinets_from_formulas(cls, feature_names, formulas, network_ids, skip_multinet=False):
