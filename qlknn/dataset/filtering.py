@@ -31,6 +31,8 @@ def div_filter(store):
     for group in store:
         if isinstance(store, pd.HDFStore):
             name = group.lstrip(sep_prefix)
+        else:
+            name = group
 
         if name in filter_defaults['div']:
             low, high = filter_defaults['div'][name]

@@ -27,8 +27,8 @@ class TestFilters(DataSetTestCase):
     def test_ck_filter(self):
         ck_filter(self.data, 50)
 
-    def test_totsep_filter(self):
-        totsep_filter(self.data, 1.5)
+    def test_septot_filter(self):
+        septot_filter(self.data, 1.5)
 
     def test_ambipolar_filter(self):
         ambipolar_filter(self.data, 1.5)

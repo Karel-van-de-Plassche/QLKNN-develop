@@ -110,6 +110,8 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
             data = store.select(prefix + 'flattened', columns=columns)
     else: #If no flattened
         #print('Taking "new" code path')
+        if not have_sep(columns):
+            raise Exception('Could not find {!s} in store {!s}'.format(columns, store))
         if not return_no(columns):
             if fast:
                 output = []

@@ -7,12 +7,12 @@ from IPython import embed
 
 from qlknn.training.train_NDNN import *
 
-test_files_dir = os.path.abspath(os.path.join(__file__, '../../gen2_test_files'))
+test_files_dir = os.path.abspath(os.path.join(__file__, '../../gen3_test_files'))
 efi_network_path = os.path.join(test_files_dir, 'network_1393')
 
 class TrainNDNNTestCase(TestCase):
     def setUp(self):
-        self.settings = {'dataset_path': os.path.join(test_files_dir, 'unstable_training_gen2_4D_nions0_flat_filter8.h5'),
+        self.settings = {'dataset_path': os.path.join(test_files_dir, 'unstable_training_gen3_4D_nions0_flat_filter8.h5.1'),
                     'drop_outlier_above': 0.999,
                     'drop_outlier_below': 0.001,
                     'hidden_neurons': [16, 16],
