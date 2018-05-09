@@ -82,8 +82,6 @@ class VictorNN():
         """
         if network._feature_names.ne(gam_network._feature_names).any():
             Exception('Supplied NNs have different feature names')
-        if not isinstance(network, QuaLiKizNDNN):
-            print('WARNING! Untested for network not QuaLiKizNDNN')
 
         target_names = network._target_names.append(gam_network._target_names, ignore_index=True)
         self._internal_network = QuaLiKizComboNN(target_names, [network, gam_network], lambda *x: np.hstack(x))
@@ -91,17 +89,21 @@ class VictorNN():
         self._target_names = network._target_names
         self._feature_names = self._internal_network._feature_names.append(pd.Series('gammaE'), ignore_index=True)
 
-    def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=False, output_pandas=True):
+    def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True):
         nn = self._internal_network
+        if safe:
+            gammaE = np.expand_dims(input['gammaE'].values, 1)
+            input = input.drop('gammaE', axis=1)
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(nn, input, safe, clip_low, clip_high, low_bound, high_bound)
         del input
         if not safe:
-            print('WARNING! Applying victor_rule in unsafe mode. gammaE should be last column!')
             gammaE = nn_input[:, [-1]]
             nn_input = np.delete(nn_input, -1, 1)
             if len(nn._feature_names) != nn_input.shape[1]:
                 raise Exception('Mismatch! shape feature names != shape input ({:d} != {:d})'.format(len(nn._feature_names), nn_input.shape[1]))
+        else:
+            nn_input = nn_input.values
         # Get indices for vars that victor rule needs: x, q, smag
         vic_idx = [nn._feature_names[(nn._feature_names == var)].index[0] for var in ['x', 'q', 'smag']]
         # Get output from underlying QuaLiKizNDNN

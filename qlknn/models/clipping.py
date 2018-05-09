@@ -42,7 +42,7 @@ class LeadingFluxNN():
         self._target_names = self._internal_network._target_names
         self._feature_names = self._internal_network._feature_names
 
-    def get_output(self, input, clip_low=True, clip_high=True, low_bound=None, high_bound=None, safe=False, output_pandas=True):
+    def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True):
         nn = self._internal_network
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(nn, input, safe, clip_low, clip_high, low_bound, high_bound)
