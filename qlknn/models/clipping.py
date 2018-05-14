@@ -19,7 +19,7 @@ def xorxor(list_of_arrays):
 leading_flux_dict = {'ETG': 'efeETG',
                      'ITG': 'efiITG',
                      'TEM': 'efeTEM'}
-class LeadingFluxNN():
+class LeadingFluxNN(QuaLiKizNDNN):
     def __init__(self, network):
         if not isinstance(network, QuaLiKizComboNN):
             print('WARNING! Untested for network not QuaLiKizCombo')
@@ -39,8 +39,13 @@ class LeadingFluxNN():
                             .format(leading_fluxes, network._target_names.tolist()))
         self._internal_network = network
 
+        # Copy parts of internal network
         self._target_names = self._internal_network._target_names
         self._feature_names = self._internal_network._feature_names
+        self._feature_min = self._internal_network._feature_min
+        self._feature_max = self._internal_network._feature_max
+        self._target_min = self._internal_network._target_min
+        self._target_max = self._internal_network._target_max
 
     def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True):
         nn = self._internal_network

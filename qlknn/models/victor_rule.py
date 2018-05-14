@@ -89,6 +89,16 @@ class VictorNN():
         self._target_names = network._target_names
         self._feature_names = self._internal_network._feature_names.append(pd.Series('gammaE'), ignore_index=True)
 
+        # Copy parts of internal network
+        self._feature_min = self._internal_network._feature_min
+        self._feature_min['gammaE'] = -np.inf
+        self._feature_max = self._internal_network._feature_max
+        self._feature_max['gammaE'] = np.inf
+        self._target_min = self._internal_network._target_min
+        self._target_max = self._internal_network._target_max
+        self._target_min = self._target_min.drop('gam_leq_GB')
+        self._target_max = self._target_max.drop('gam_leq_GB')
+
     def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True):
         nn = self._internal_network
         if safe:
