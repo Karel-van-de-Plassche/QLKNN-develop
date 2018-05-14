@@ -1,13 +1,26 @@
 import pandas as pd
 import numpy as np
+from tensorflow.python.ops.random_ops import random_shuffle
 class Dataset():
     def __init__(self, features, target):
+        from IPython import embed
+        if not isinstance(features, np.ndarray):
+            features = np.array(features)
+        if not isinstance(target, np.ndarray):
+            target = np.array(target)
         self._epochs_completed = 0
         self._index_in_epoch = 0
-        self._features = features
-        self._target = target
-        assert self._features.shape[0] == self._target.shape[0]
-        self._num_examples = features.shape[0]
+        self._data = np.hstack([features, target])
+        self._num_features = features.shape[1]
+        self._num_examples = self._data.shape[0]
+
+    @property
+    def _features(self):
+        return self._data[:, :self._num_features]
+
+    @property
+    def _target(self):
+        return self._data[:, self._num_features:]
 
     @property
     def epochs_completed(self):
@@ -17,7 +30,7 @@ class Dataset():
     def num_examples(self):
         return self._num_examples
 
-    def next_batch(self, batch_size, shuffle=True, pandas=False):
+    def next_batch(self, batch_size, shuffle=True):
         start = self._index_in_epoch
         if batch_size == -1:
             batch_size = self._num_examples
@@ -26,24 +39,24 @@ class Dataset():
             # Finished epoch
             self._epochs_completed += 1
             # Shuffle the data
-            # TODO: Use panda_shuffle function
             if shuffle:
+                #from IPython import embed
+                #embed()
+                #print(self._data[:10, :])
                 perm = np.arange(self._num_examples)
+                #print('C', self._data.flags['C_CONTIGUOUS'])
+                #print('F', self._data.flags['F_CONTIGUOUS'])
                 np.random.shuffle(perm)
-                self._features = self._features.iloc[perm]
-                self._target = self._target.iloc[perm]
+                #self._data = self._data[np.random.permutation(self._num_examples), :]
+                self._data = np.take(self._data, perm, axis=0)
+                #print(self._data[:10, :])
             # Start next epoch
             start = 0
             self._index_in_epoch = batch_size
             assert batch_size <= self._num_examples, \
                 'Batch size asked bigger than number of samples'
         end = self._index_in_epoch
-        if pandas is True:
-            batch = (self._features.iloc[start:end], self._target.iloc[start:end])
-        else:
-            batch = (self._features._data.blocks[0].get_values()[:, start:end].T, self._target._data.blocks[0].get_values()[:, start:end].T)
-
-
+        batch = (self._data[start:end, :self._num_features], self._data[start:end, self._num_features:])
         return batch
 
     def to_hdf(self, file, key):
