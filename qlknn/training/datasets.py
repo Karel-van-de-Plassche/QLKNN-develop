@@ -1,6 +1,12 @@
 import pandas as pd
 import numpy as np
 from tensorflow.python.ops.random_ops import random_shuffle
+
+try:
+    profile
+except NameError:
+    profile = lambda x: x
+
 class Dataset():
     def __init__(self, features, target):
         from IPython import embed
@@ -101,22 +107,21 @@ class Datasets():
             setattr(self, name, getattr(self, name).astype(dtype))
         return self
 
-def convert_panda(features_df, targets_df, frac_validation, frac_test, shuffle=True):
-    panda = pd.concat([features_df, targets_df], axis=1)
-    feature_names = features_df.columns
-    target_names = targets_df.columns
-    total_size = features_df.shape[0]
+@profile
+def convert_panda(data_df, feature_names, target_names, frac_validation, frac_test, shuffle=True):
+    #data_df = pd.concat(input_df, target_df, axis=1)
+    total_size = len(data_df)
     # Dataset might be ordered. Shuffle to be sure
     if shuffle:
-        panda = shuffle_panda(panda)
+        data_df = shuffle_panda(data_df)
     validation_size = int(frac_validation * total_size)
     test_size = int(frac_test * total_size)
     train_size = total_size - validation_size - test_size
 
     datasets = []
-    for slice_ in [panda.iloc[:train_size],
-                   panda.iloc[train_size:train_size + validation_size],
-                   panda.iloc[train_size + validation_size:]]:
+    for slice_ in [data_df.iloc[:train_size],
+                   data_df.iloc[train_size:train_size + validation_size],
+                   data_df.iloc[train_size + validation_size:]]:
         datasets.append(Dataset(slice_[feature_names],
                                 slice_[target_names]))
 

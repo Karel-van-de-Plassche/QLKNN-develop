@@ -7,6 +7,11 @@ import pandas as pd
 import numpy as np
 from IPython import embed
 
+try:
+    profile
+except NameError:
+    profile = lambda x: x
+
 from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_flux, is_growth
 from qlknn.misc.tools import first
 
@@ -55,6 +60,7 @@ def save_to_store(input, data, const, store_name, style='both', zip=False, prefi
         store.put(prefix + 'constants', const)
     store.close()
 
+@profile
 def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='', load_input=True):
     if isinstance(columns, str):
         columns = [columns]
