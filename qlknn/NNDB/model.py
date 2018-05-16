@@ -259,7 +259,7 @@ class Network(BaseModel):
                                    [efe + '_div_' + efi]
                                    ]
                 formulas = OrderedDict([
-                    (efe, '(nn{1:d} * nn{2:d})'),
+                    (efe, '(nn{2:d} * nn{1:d})'),
                     (efi, 'nn{1:d}'),
                     (pfe, '(nn{0:d} * nn{1:d})')
                 ])
@@ -328,7 +328,7 @@ class Network(BaseModel):
                                    ]
                 formulas = OrderedDict([
                     (efe, 'nn{1:d}'),
-                    (efi, '(nn{1:d} * nn{2:d})'),
+                    (efi, '(nn{2:d} * nn{1:d})'),
                     (pfe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
@@ -355,13 +355,13 @@ class Network(BaseModel):
                                    ]
                 formulas = OrderedDict([
                     (efe, 'nn{1:d}'),
-                    (efi, '(nn{1:d} * nn{2:d})'),
+                    (efi, '(nn{2:d} * nn{1:d})'),
                     (dfe, '(nn{0:d} * nn{1:d})'),
-                    (dfi, '(nn{1:d} * nn{3:d})'),
-                    (vte, '(nn{1:d} * nn{4:d})'),
-                    (vti, '(nn{1:d} * nn{5:d})'),
-                    (vce, '(nn{1:d} * nn{6:d})'),
-                    (vci, '(nn{1:d} * nn{7:d})')
+                    (dfi, '(nn{3:d} * nn{1:d})'),
+                    (vte, '(nn{4:d} * nn{1:d})'),
+                    (vti, '(nn{5:d} * nn{1:d})'),
+                    (vce, '(nn{6:d} * nn{1:d})'),
+                    (vci, '(nn{7:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -386,14 +386,14 @@ class Network(BaseModel):
                                    [vci + '_div_' + efi]
                                    ]
                 formulas = OrderedDict([
-                    (efe, '(nn{1:d} * nn{2:d})'),
+                    (efe, '(nn{2:d} * nn{1:d})'),
                     (efi, 'nn{1:d}'),
                     (dfe, '(nn{0:d} * nn{1:d})'),
-                    (dfi, '(nn{1:d} * nn{3:d})'),
-                    (vte, '(nn{1:d} * nn{4:d})'),
-                    (vti, '(nn{1:d} * nn{5:d})'),
-                    (vce, '(nn{1:d} * nn{6:d})'),
-                    (vci, '(nn{1:d} * nn{7:d})')
+                    (dfi, '(nn{3:d} * nn{1:d})'),
+                    (vte, '(nn{4:d} * nn{1:d})'),
+                    (vti, '(nn{5:d} * nn{1:d})'),
+                    (vce, '(nn{6:d} * nn{1:d})'),
+                    (vci, '(nn{7:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
