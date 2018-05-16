@@ -137,7 +137,7 @@ class Network(BaseModel):
                  .join(table,   on=(table.pure_network_params == PureNetworkParams.id))
                  .group_by([cte.c.net_id, cte.c.root] + subquery_params)
                  .where((cte.c.pure_children.is_null(True)))
-                 )
+                 ).alias('childq')
 
         query_params = [getattr(subquery.c, param) for param in params]
         if distinct:
@@ -527,21 +527,25 @@ class Network(BaseModel):
 
     @staticmethod
     def pick_candidate(query):
+        cls = query.model
         try:
-            candidates = [(el.network.postprocess.get().rms, el.id) for el in query]
+            if cls == Network:
+                candidates = [(el.postprocess.get().rms, el.id) for el in query]
+            elif cls == PureNetworkParams:
+                candidates = [(el.network.postprocess.get().rms, el.id) for el in query]
         except Postprocess.DoesNotExist as ee:
             net_id = re.search('Params: \[(.*)\]', ee.args[0])[1]
             table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
             raise Exception('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
         sort = []
-        for rms, pure_id in candidates:
+        for rms, cls_id in candidates:
             assert len(rms) == 1
-            sort.append([rms[0], pure_id])
+            sort.append([rms[0], cls_id])
         sort = sorted(sort)
         print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
-        query = (PureNetworkParams
+        query = (cls
                  .select()
-                 .where(PureNetworkParams.id == sort[0][1])
+                 .where(cls.id == sort[0][1])
         )
         return query
 
@@ -1246,6 +1250,33 @@ class PostprocessSlice(BaseModel):
 class PostprocessSlice_9D(PostprocessSlice):
     pass
 
+### A few convinience functions to select a network by (nested) cost_l2_scale
+def select_from_candidate_query(candidates_query):
+    if len(candidates_query) < 1:
+        raise Exception('No candidates found')
+    elif len(candidates_query) == 1:
+        return candidates_query.get()
+    else:
+        return Network.pick_candidate(candidates_query).get()
+
+def get_from_cost_l2_scale_array(target_name, cost_l2_scale_array):
+    subq = Network.get_recursive_subquery('cost_l2_scale')
+    subq2 = (subq
+             .having(fn.ARRAY_AGG(SQL("DISTINCT childq.cost_l2_scale"), coerce=False) == SQL("'" + cost_l2_scale_array + "'"))
+             .having(SQL("net.target_names = '{" + target_name + "}'"))
+             )
+    candidate_ids = [el['root'] for el in subq2.dicts()]
+    candidates_query = Network.select().where(Network.id.in_(candidate_ids))
+    return select_from_candidate_query(candidates_query)
+
+def get_pure_from_cost_l2_scale(target_name, cost_l2_scale):
+    candidates_query = (Network.select()
+                        .where(Hyperparameters.cost_l2_scale.cast('numeric') == cost_l2_scale)
+                        .where(Network.target_names == [target_name])
+                        .join(PureNetworkParams)
+                        .join(Hyperparameters)
+                        )
+    return select_from_candidate_query(candidates_query)
 def create_schema():
     db.execute_sql('SET ROLE developer;')
     db.execute_sql('CREATE SCHEMA develop AUTHORIZATION developer;')
