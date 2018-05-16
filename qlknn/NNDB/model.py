@@ -597,25 +597,31 @@ class Network(BaseModel):
     def create_combinets_from_formulas(cls, feature_names, formulas, network_ids, skip_multinet=False):
         recipes = OrderedDict()
         for target, formula in formulas.items():
-            recipes[target] = formula.format(*list(range(len(network_ids))))
+            recipes[target] = formula.format(*network_ids)
+            #recipes[target] = formula.format(*list(range(len(network_ids))))
 
         nets = []
         for target, recipe in recipes.items():
             is_pure = lambda recipe: all([el not in recipe for el in ['+', '-', '/', '*']])
             if is_pure(recipe):
-                net_num = int(recipe.replace('nn', ''))
-                net_id = network_ids[net_num]
+                net_id = int(recipe.replace('nn', ''))
+                #net_id = network_ids[net_num]
                 nets.append(Network.get_by_id(net_id))
             else:
+                net_idx = [int(id) for id in re.findall('nn(\d*)', recipe)]
+                new_recipe = recipe
+                for ii, net_id in enumerate(net_idx):
+                    new_recipe = new_recipe.replace('nn' + str(net_id), 'nn' + str(ii))
+                #child_nets = [network_ids[id] for id in net_idx]
                 query = (Network.select()
-                         .where((Network.recipe == recipe) &
-                                (Network.networks == network_ids))
+                         .where((Network.recipe == new_recipe) &
+                                (Network.networks == net_idx))
                          )
                 if query.count() == 0:
                     combonet = cls(target_names=[target],
                                    feature_names=feature_names,
-                                   recipe=recipe,
-                                   networks=network_ids)
+                                   recipe=new_recipe,
+                                   networks=net_idx)
                     #raise Exception(combonet.recipe + ' ' + str(combonet.networks))
                     combonet.save()
                     print('Created ComboNetwork {:d} with recipe {!s} and networks {!s}'.format(combonet.id, recipe, network_ids))
@@ -725,30 +731,17 @@ class Network(BaseModel):
         return query
 
     def get_pure_children(self):
-        x = Network.alias()
-        y = Network.alias()
-        subx = x.select(x.id, x.networks)
-        suby = y.select(y.id)
-        cls = self.__class__
-
-        subq = (cls.select(Network.id, subx.c.id, suby.c.id)
-         .join(subx, JOIN.LEFT_OUTER, on=subx.c.id == fn.ANY(Network.networks))
-         .join(suby, JOIN.LEFT_OUTER, on=suby.c.id == fn.ANY(subx.c.networks))
-         .join(PureNetworkParams, on=((PureNetworkParams.network_id == Network.id) |
-                                   (PureNetworkParams.network_id == subx.c.id) |
-                                   (PureNetworkParams.network_id == suby.c.id)))
-         .where(Network.id == self.id)
-        )
-        pure_children = {}
-        for entry in subq.tuples():
-            for net_id in reversed(entry):
-                if net_id is not None:
-                    if net_id not in pure_children:
-                        pure_children[net_id] = Network.get_by_id(net_id)
-                    break
-        return list(pure_children.values())
-
-
+        if self.networks is None:
+            return [self]
+        else:
+            subq = self.get_recursive_subquery('cost_l2_scale')
+            subq = subq.having(SQL('root') == self.id)
+            if len(subq) == 1:
+                pure_ids = subq.get().pure_children
+                query = Network.select().where(Network.id.in_(pure_ids))
+                return [net for net in query]
+            else:
+                raise
 
 class PureNetworkParams(BaseModel):
     network = ForeignKeyField(Network, related_name='pure_network_params', unique=True)
