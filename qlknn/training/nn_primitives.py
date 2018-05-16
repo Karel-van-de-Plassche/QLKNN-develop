@@ -21,15 +21,18 @@ def descale_panda(panda, factor, bias):
     return panda
 
 def model_to_json(name, trainable, feature_names, target_names,
-                  train_set, scale_factor, scale_bias, l2_scale, settings):
-    trainable['prescale_factor'] = scale_factor.astype('float64').to_dict()
-    trainable['prescale_bias'] = scale_bias.astype('float64').to_dict()
-    trainable['feature_min'] = dict(descale_panda(train_set._features.min(), scale_factor, scale_bias).astype('float64'))
-    trainable['feature_max'] = dict(descale_panda(train_set._features.max(), scale_factor, scale_bias).astype('float64'))
-    trainable['feature_names'] = list(feature_names)
-    trainable['target_names'] = list(target_names)
-    trainable['target_min'] = dict(descale_panda(train_set._target.min(), scale_factor, scale_bias).astype('float64'))
-    trainable['target_max'] = dict(descale_panda(train_set._target.max(), scale_factor, scale_bias).astype('float64'))
+                  train_set,
+                  feature_scale_factor, feature_scale_bias,
+                  target_scale_factor, target_scale_bias,
+                  l2_scale, settings):
+    trainable['prescale_factor'] = dict(zip(feature_names + target_names, feature_scale_factor + target_scale_factor))
+    trainable['prescale_bias'] = dict(zip(feature_names + target_names, feature_scale_bias + target_scale_bias))
+    trainable['feature_min'] = dict(zip(feature_names, (train_set._features.min() - target_scale_bias) / target_scale_factor))
+    trainable['feature_min'] = dict(zip(feature_names, (train_set._features.max() - target_scale_bias) / target_scale_factor))
+    trainable['feature_names'] = feature_names
+    trainable['target_names'] = target_names
+    trainable['target_min'] = dict(zip(target_names, (train_set._target.min() - target_scale_bias) / target_scale_factor))
+    trainable['target_min'] = dict(zip(target_names, (train_set._target.max() - target_scale_bias) / target_scale_factor))
     trainable['hidden_activation'] = settings['hidden_activation']
     trainable['output_activation'] = settings['output_activation']
 

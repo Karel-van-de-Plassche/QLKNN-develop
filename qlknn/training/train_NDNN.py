@@ -187,7 +187,7 @@ def train(settings, warm_start_nn=None):
 
     # Input placeholders
     with tf.name_scope('input'):
-        x = tf.placeholder(datasets.train._target.dtypes.iloc[0],
+        x = tf.placeholder(datasets.train._target.dtype,
                            [None, len(scan_dims)], name='x-input')
         y_ds = tf.placeholder(x.dtype, [None, len(train_dims)], name='y-input')
 
@@ -456,8 +456,11 @@ def train(settings, warm_start_nn=None):
                                   trainable,
                                   scan_dims.values.tolist(),
                                   train_dims.values.tolist(),
-                                  datasets.train, scale_factor.astype('float64'),
-                                  scale_bias.astype('float64'),
+                                  datasets.train,
+                                  scale_factor[scan_dims].astype('float64').tolist(),
+                                  scale_bias[scan_dims].astype('float64').tolist(),
+                                  scale_factor[train_dims].astype('float64').tolist(),
+                                  scale_bias[train_dims].astype('float64').tolist(),
                                   l2_scale,
                                   settings)
                 not_improved = 0
@@ -473,8 +476,11 @@ def train(settings, warm_start_nn=None):
                                   trainable,
                                   scan_dims.values.tolist(),
                                   train_dims.values.tolist(),
-                                  datasets.train, scale_factor.astype('float64'),
-                                  scale_bias.astype('float64'),
+                                  datasets.train,
+                                  scale_factor[scan_dims].astype('float64').tolist(),
+                                  scale_bias[scan_dims].astype('float64').tolist(),
+                                  scale_factor[train_dims].astype('float64').tolist(),
+                                  scale_bias[train_dims].astype('float64').tolist(),
                                   l2_scale,
                                   settings)
 
@@ -512,13 +518,16 @@ def train(settings, warm_start_nn=None):
     del validation_log
 
     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
+
     model_to_json('nn.json',
                   trainable,
                   scan_dims.values.tolist(),
                   train_dims.values.tolist(),
                   datasets.train,
-                  scale_factor,
-                  scale_bias.astype('float64'),
+                  scale_factor[scan_dims].astype('float64').tolist(),
+                  scale_bias[scan_dims].astype('float64').tolist(),
+                  scale_factor[train_dims].astype('float64').tolist(),
+                  scale_bias[train_dims].astype('float64').tolist(),
                   l2_scale,
                   settings)
 
