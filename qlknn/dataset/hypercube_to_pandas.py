@@ -6,9 +6,14 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 from IPython import embed
+try:
+    profile
+except NameError:
+    from qlknn.misc.tools import profile
 
 from qualikiz_tools.qualikiz_io.outputfiles import xarray_to_pandas
 
+@profile
 def metadatize(ds):
     """ Move all non-axis dims to metadata """
     scan_dims = [dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim != 'numsols']
@@ -20,6 +25,7 @@ def metadatize(ds):
     ds.attrs = metadata
     return ds
 
+@profile
 def absambi(ds):
     """ Calculate absambi; ambipolairity check for two ions"""
     # TODO: Generalize for >2 ions
@@ -37,6 +43,7 @@ def absambi(ds):
     ds = ds.drop('n')
     return ds
 
+@profile
 def calculate_grow_vars(ds):
     """ Calculate maxiumum growth-rate based variables """
     gam = ds['gam_GB']
@@ -47,6 +54,7 @@ def calculate_grow_vars(ds):
     ds['gam_leq_GB'] = gam_leq.max('kthetarhos')
     return ds
 
+@profile
 def determine_stability(ds):
     """ Determine if a point is TEM or ITG unstable """
     ome = ds['ome_GB']
@@ -69,11 +77,13 @@ def prep_totflux(ds):
     ds = ds.drop(['gam_GB', 'ome_GB'])
     return ds
 
+@profile
 def sum_pf(df=None, vt=None, vr=0, vc=None, An=None):
     """ Calculate particle flux from diffusivity and pinch"""
     pf = df * An + vt + vr + vc
     return pf
 
+@profile
 def calculate_particle_sepfluxes(ds):
     """ Calculate pf[i|e][ITG|TEM] from diffusivity and pinch
 
@@ -93,12 +103,14 @@ def calculate_particle_sepfluxes(ds):
         ds[pf.name] = pf
     return ds
 
+@profile
 def prep_sepflux(ds):
     """ Prepare variables in 'sepflux' dataset for NN training """
     ds = metadatize(ds)
     ds = calculate_particle_sepfluxes(ds)
     return ds
 
+@profile
 def remove_rotation(ds):
     for value in ['vfiTEM_GB', 'vfiITG_GB', 'vriTEM_GB', 'vriITG_GB']:
         try:
@@ -107,6 +119,7 @@ def remove_rotation(ds):
             print('{!s} already removed'.format(value))
     return ds
 
+@profile
 def load_totsepset():
     ds = xr.open_dataset('Zeffcombo.nc.1')
     ds = prep_totflux(ds)
@@ -115,6 +128,7 @@ def load_totsepset():
     ds_tot = ds.merge(ds_sep)
     return ds_tot
 
+@profile
 def prep_megarun1_ds(starttime=None):
     if starttime is None:
         starttime = time.time()
@@ -131,6 +145,20 @@ def prep_megarun1_ds(starttime=None):
     ds_tot.to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
     return ds_tot
 
+@profile
+def extract_trainframe(dfs):
+    store = pd.HDFStore('./gen3_9D_nions0_flat.h5')
+    dfs[scan_dims].reset_index(inplace=True)
+    dfs[scan_dims].index.name = 'dimx'
+    return dfs[scan_dims], dfs['constants']
+
+@profile
+def save_trainframe(df, constants):
+    store['/megarun1/input'] = df.iloc[:, :len(scan_dims)]
+    print('Input stored after', time.time() - starttime)
+    store['/megarun1/flattened'] = df.iloc[:, len(scan_dims):]
+    store['/megarun1/constants'] = constants
+
 if __name__ == '__main__':
     starttime = time.time()
     ds_tot = prep_megarun1_ds(starttime=starttime)
@@ -138,17 +166,11 @@ if __name__ == '__main__':
 
     # Convert to pandas
     print('Starting pandaization after', time.time() - starttime)
-    dfs = xarray_to_pandas(ds_tot)
+    dfs = profile(xarray_to_pandas(ds_tot))
     print('Xarray pandaized after', time.time() - starttime)
     del ds_tot
     gc.collect()
-
-    store = pd.HDFStore('./gen3_9D_nions0_flat.h5')
-    dfs[scan_dims].reset_index(inplace=True)
-    dfs[scan_dims].index.name = 'dimx'
-    print('Index reset after', time.time() - starttime)
-    store['/megarun1/input'] = dfs[scan_dims].iloc[:, :len(scan_dims)]
-    print('Input stored after', time.time() - starttime)
-    store['/megarun1/flattened'] = dfs[scan_dims].iloc[:, len(scan_dims):]
-    store['/megarun1/constants'] = dfs['constants']
+    df, constants = extract_trainframe(dfs)
+    print('Trainframe extracted after', time.time() - starttime)
+    save_trainframe(df, constants)
     print('Done after', time.time() - starttime)
