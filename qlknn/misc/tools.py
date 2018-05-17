@@ -14,3 +14,6 @@ def first(s):
     '''
     return next(iter(s.items()))
 
+def profile(x):
+    """ Placeholder decorator for memory profiling """
+    return x

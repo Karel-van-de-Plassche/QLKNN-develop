@@ -10,7 +10,7 @@ from IPython import embed
 try:
     profile
 except NameError:
-    profile = lambda x: x
+    from qlknn.misc.tools import profile
 
 from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_flux, is_growth
 from qlknn.misc.tools import first

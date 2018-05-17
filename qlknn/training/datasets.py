@@ -5,7 +5,7 @@ from tensorflow.python.ops.random_ops import random_shuffle
 try:
     profile
 except NameError:
-    profile = lambda x: x
+    from qlknn.misc.tools import profile
 
 class Dataset():
     def __init__(self, features, target):

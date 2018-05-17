@@ -1,9 +1,3 @@
-"""A simple MNIST classifier which displays summaries in TensorBoard.
- This is an unimpressive MNIST model, but it is a good example of using
-tf.name_scope to make a graph legible in the TensorBoard graph explorer, and of
-naming summary tags so that they are grouped meaningfully in TensorBoard.
-It demonstrates the functionality of every TensorBoard dashboard.
-"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -31,8 +25,7 @@ from IPython import embed
 try:
     profile
 except NameError:
-    profile = lambda x: x
-
+    from qlknn.misc.tools import profile
 
 from qlknn.training.datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
 from qlknn.training.nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
