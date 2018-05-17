@@ -28,6 +28,11 @@ import numpy as np
 import pandas as pd
 from IPython import embed
 
+try:
+    profile
+except NameError:
+    profile = lambda x: x
+
 
 from qlknn.training.datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
 from qlknn.training.nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
@@ -44,6 +49,43 @@ def print_last_row(df, header=False):
                                   col_space=12,
                                   justify='left'))
 
+@profile
+def convert_nustar(input_df):
+    # Nustar relates to the targets with a log
+    try:
+        input_df['logNustar'] = np.log10(input_df['Nustar'])
+        del input_df['Nustar']
+    except KeyError:
+        print('No Nustar in dataset')
+    return input_df
+
+@profile
+def drop_outliers(target_df, settings):
+    if settings['drop_outlier_above'] < 1:
+        target_df = target_df[target_df < target_df.quantile(settings['drop_outlier_above'])]
+    if settings['drop_outlier_below'] > 0:
+        target_df = target_df[target_df > target_df.quantile(settings['drop_outlier_below'])]
+    return target_df
+
+@profile
+def drop_nans(target_df):
+    # Remove NaNs
+    target_df.dropna(axis=0, inplace=True)
+    return target_df
+
+@profile
+def filter_input(input_df, target_df):
+    # Use only samples in the feature set that are in the target set
+    #input_df = input_df.reindex(target_df.index, copy=False)
+    data_df = pd.concat((input_df, target_df), join='inner', copy=False, axis=1)
+    return data_df
+
+@profile
+def convert_dtype(data_df, settings):
+    # Convert to dtype in settings file. Usually float32 or float64
+    data_df = data_df.astype(settings['dtype'])
+    return data_df
+
 def prep_dataset(settings):
     train_dims = settings['train_dims']
     # Open HDF store. This is usually a soft link to our filtered dataset
@@ -54,50 +96,36 @@ def prep_dataset(settings):
     except KeyError:
         pass
 
-    # Nustar relates to the targets with a log
-    try:
-        input_df['logNustar'] = np.log10(input_df['Nustar'])
-        del input_df['Nustar']
-    except KeyError:
-        print('No Nustar in dataset')
 
-    if settings['drop_outlier_above'] < 1:
-        target_df = target_df[target_df < target_df.quantile(settings['drop_outlier_above'])]
-    if settings['drop_outlier_below'] > 0:
-        target_df = target_df[target_df > target_df.quantile(settings['drop_outlier_below'])]
 
-    # Remove NaNs
-    target_df = target_df.loc[(target_df.dropna()).index]
+    target_df = drop_nans(target_df)
 
-    # Use only samples in the feature set that are in the target set
-    input_df = input_df.loc[target_df.index]
+    data_df = filter_input(input_df, target_df)
+    del target_df, input_df
+    data_df = convert_dtype(data_df, settings)
 
-    # Convert to dtype in settings file. Usually float32 or float64
-    input_df = input_df.astype(settings['dtype'])
-    target_df = target_df.astype(settings['dtype'])
+    return data_df
 
-    return input_df, target_df
-
-def standardize(input_df, target_df, settings, warm_start_nn):
+@profile
+def standardize(data_df, settings, warm_start_nn):
     if warm_start_nn is None:
         if settings['standardization'].startswith('minmax'):
             min = float(settings['standardization'].split('_')[-2])
             max = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normab(pd.concat([input_df, target_df], axis=1), min, max)
+            scale_factor, scale_bias = normab(data_df, min, max)
 
         if settings['standardization'].startswith('normsm'):
             s_t = float(settings['standardization'].split('_')[-2])
             m_t = float(settings['standardization'].split('_')[-1])
-            scale_factor, scale_bias = normsm(pd.concat([input_df, target_df], axis=1), s_t, m_t)
+            scale_factor, scale_bias = normsm(data_df, s_t, m_t)
     else:
         scale_factor = pd.concat([warm_start_nn._feature_prescale_factor,
                                   warm_start_nn._target_prescale_factor])
         scale_bias = pd.concat([warm_start_nn._feature_prescale_bias,
                                   warm_start_nn._target_prescale_bias])
 
-    input_df = scale_panda(input_df, scale_factor, scale_bias)
-    target_df = scale_panda(target_df, scale_factor, scale_bias)
-    return input_df, target_df, scale_factor, scale_bias
+    data_df = scale_panda(data_df, scale_factor, scale_bias)
+    return data_df, scale_factor, scale_bias
 
 class QLKNet:
     def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None):
@@ -168,33 +196,36 @@ def train(settings, warm_start_nn=None):
     tf.reset_default_graph()
     start = time.time()
 
-    input_df, target_df = prep_dataset(settings)
-    input_df, target_df, scale_factor, scale_bias = standardize(input_df, target_df, settings, warm_start_nn=warm_start_nn)
+    data_df = prep_dataset(settings)
+    data_df, scale_factor, scale_bias = standardize(data_df, settings, warm_start_nn=warm_start_nn)
 
     # Standardize input
     timediff(start, 'Scaling defined')
 
-    train_dims = target_df.columns
-    scan_dims = input_df.columns
+    target_names = settings['train_dims']
+    feature_names = list(data_df.columns)
+    for dim in feature_names:
+        feature_names.remove(dim)
 
-    datasets = convert_panda(input_df, target_df, settings['validation_fraction'], settings['test_fraction'])
+    datasets = convert_panda(data_df, feature_names, target_names, settings['validation_fraction'], settings['test_fraction'])
 
     # Start tensorflow session
-    config = tf.ConfigProto()
+    config = tf.ConfigProto(inter_op_parallelism_threads=int(os.environ['NUM_INTER_THREADS']),
+                                                                    intra_op_parallelism_threads=int(os.environ['NUM_INTRA_THREADS']))
     #config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, \
     #                    allow_soft_placement=True, device_count = {'CPU': 1})
     sess = tf.Session(config=config)
 
     # Input placeholders
     with tf.name_scope('input'):
-        x = tf.placeholder(datasets.train._target.dtypes.iloc[0],
-                           [None, len(scan_dims)], name='x-input')
-        y_ds = tf.placeholder(x.dtype, [None, len(train_dims)], name='y-input')
+        x = tf.placeholder(datasets.train._target.dtype,
+                           [None, len(feature_names)], name='x-input')
+        y_ds = tf.placeholder(x.dtype, [None, len(target_names)], name='y-input')
 
-    net = QLKNet(x, len(train_dims), settings, warm_start_nn=warm_start_nn)
+    net = QLKNet(x, len(target_names), settings, warm_start_nn=warm_start_nn)
     y = net.y
-    y_descale = (net.y - scale_bias[train_dims].values) / scale_factor[train_dims].values
-    y_ds_descale = (y_ds - scale_bias[train_dims].values) / scale_factor[train_dims].values
+    y_descale = (net.y - scale_bias[target_names].values) / scale_factor[target_names].values
+    y_ds_descale = (y_ds - scale_bias[target_names].values) / scale_factor[target_names].values
     is_train = net.is_train
 
 
@@ -347,6 +378,7 @@ def train(settings, warm_start_nn=None):
                 # Extra debugging every steps_per_report
                 if not step % steps_per_report and steps_per_report != np.inf:
                     print('debug!', epoch, step)
+                    print('is', step % steps_per_report)
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
@@ -454,10 +486,13 @@ def train(settings, warm_start_nn=None):
                     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
                     model_to_json(nn_best_file, 
                                   trainable,
-                                  scan_dims.values.tolist(),
-                                  train_dims.values.tolist(),
-                                  datasets.train, scale_factor.astype('float64'),
-                                  scale_bias.astype('float64'),
+                                  feature_names,
+                                  target_names,
+                                  datasets.train,
+                                  scale_factor[feature_names].astype('float64').tolist(),
+                                  scale_bias[feature_names].astype('float64').tolist(),
+                                  scale_factor[target_names].astype('float64').tolist(),
+                                  scale_bias[target_names].astype('float64').tolist(),
                                   l2_scale,
                                   settings)
                 not_improved = 0
@@ -471,10 +506,13 @@ def train(settings, warm_start_nn=None):
                     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
                     model_to_json(nn_checkpoint_file,
                                   trainable,
-                                  scan_dims.values.tolist(),
-                                  train_dims.values.tolist(),
-                                  datasets.train, scale_factor.astype('float64'),
-                                  scale_bias.astype('float64'),
+                                  feature_names,
+                                  target_names,
+                                  datasets.train,
+                                  scale_factor[feature_names].astype('float64').tolist(),
+                                  scale_bias[feature_names].astype('float64').tolist(),
+                                  scale_factor[target_names].astype('float64').tolist(),
+                                  scale_bias[target_names].astype('float64').tolist(),
                                   l2_scale,
                                   settings)
 
@@ -512,13 +550,16 @@ def train(settings, warm_start_nn=None):
     del validation_log
 
     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
+
     model_to_json('nn.json',
                   trainable,
-                  scan_dims.values.tolist(),
-                  train_dims.values.tolist(),
+                  feature_names,
+                  target_names,
                   datasets.train,
-                  scale_factor,
-                  scale_bias.astype('float64'),
+                  scale_factor[feature_names].astype('float64').tolist(),
+                  scale_bias[feature_names].astype('float64').tolist(),
+                  scale_factor[target_names].astype('float64').tolist(),
+                  scale_bias[target_names].astype('float64').tolist(),
                   l2_scale,
                   settings)
 

@@ -137,7 +137,7 @@ class Network(BaseModel):
                  .join(table,   on=(table.pure_network_params == PureNetworkParams.id))
                  .group_by([cte.c.net_id, cte.c.root] + subquery_params)
                  .where((cte.c.pure_children.is_null(True)))
-                 )
+                 ).alias('childq')
 
         query_params = [getattr(subquery.c, param) for param in params]
         if distinct:
@@ -259,7 +259,7 @@ class Network(BaseModel):
                                    [efe + '_div_' + efi]
                                    ]
                 formulas = OrderedDict([
-                    (efe, '(nn{1:d} * nn{2:d})'),
+                    (efe, '(nn{2:d} * nn{1:d})'),
                     (efi, 'nn{1:d}'),
                     (pfe, '(nn{0:d} * nn{1:d})')
                 ])
@@ -328,7 +328,7 @@ class Network(BaseModel):
                                    ]
                 formulas = OrderedDict([
                     (efe, 'nn{1:d}'),
-                    (efi, '(nn{1:d} * nn{2:d})'),
+                    (efi, '(nn{2:d} * nn{1:d})'),
                     (pfe, '(nn{0:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
@@ -355,13 +355,13 @@ class Network(BaseModel):
                                    ]
                 formulas = OrderedDict([
                     (efe, 'nn{1:d}'),
-                    (efi, '(nn{1:d} * nn{2:d})'),
+                    (efi, '(nn{2:d} * nn{1:d})'),
                     (dfe, '(nn{0:d} * nn{1:d})'),
-                    (dfi, '(nn{1:d} * nn{3:d})'),
-                    (vte, '(nn{1:d} * nn{4:d})'),
-                    (vti, '(nn{1:d} * nn{5:d})'),
-                    (vce, '(nn{1:d} * nn{6:d})'),
-                    (vci, '(nn{1:d} * nn{7:d})')
+                    (dfi, '(nn{3:d} * nn{1:d})'),
+                    (vte, '(nn{4:d} * nn{1:d})'),
+                    (vti, '(nn{5:d} * nn{1:d})'),
+                    (vce, '(nn{6:d} * nn{1:d})'),
+                    (vci, '(nn{7:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -386,14 +386,14 @@ class Network(BaseModel):
                                    [vci + '_div_' + efi]
                                    ]
                 formulas = OrderedDict([
-                    (efe, '(nn{1:d} * nn{2:d})'),
+                    (efe, '(nn{2:d} * nn{1:d})'),
                     (efi, 'nn{1:d}'),
                     (dfe, '(nn{0:d} * nn{1:d})'),
-                    (dfi, '(nn{1:d} * nn{3:d})'),
-                    (vte, '(nn{1:d} * nn{4:d})'),
-                    (vti, '(nn{1:d} * nn{5:d})'),
-                    (vce, '(nn{1:d} * nn{6:d})'),
-                    (vci, '(nn{1:d} * nn{7:d})')
+                    (dfi, '(nn{3:d} * nn{1:d})'),
+                    (vte, '(nn{4:d} * nn{1:d})'),
+                    (vti, '(nn{5:d} * nn{1:d})'),
+                    (vce, '(nn{6:d} * nn{1:d})'),
+                    (vci, '(nn{7:d} * nn{1:d})')
                 ])
                 partner_target_sets.append(partner_targets)
                 formula_sets.append(formulas)
@@ -527,21 +527,25 @@ class Network(BaseModel):
 
     @staticmethod
     def pick_candidate(query):
+        cls = query.model
         try:
-            candidates = [(el.network.postprocess.get().rms, el.id) for el in query]
+            if cls == Network:
+                candidates = [(el.postprocess.get().rms, el.id) for el in query]
+            elif cls == PureNetworkParams:
+                candidates = [(el.network.postprocess.get().rms, el.id) for el in query]
         except Postprocess.DoesNotExist as ee:
             net_id = re.search('Params: \[(.*)\]', ee.args[0])[1]
             table_field = re.search('WHERE \("t1"."(.*)"', ee.args[0])[1]
             raise Exception('{!s} {!s} does not exist! Run postprocess.py'.format(table_field, net_id))
         sort = []
-        for rms, pure_id in candidates:
+        for rms, cls_id in candidates:
             assert len(rms) == 1
-            sort.append([rms[0], pure_id])
+            sort.append([rms[0], cls_id])
         sort = sorted(sort)
         print('Selected {1:d} with RMS val {0:.2f}'.format(*sort[0]))
-        query = (PureNetworkParams
+        query = (cls
                  .select()
-                 .where(PureNetworkParams.id == sort[0][1])
+                 .where(cls.id == sort[0][1])
         )
         return query
 
@@ -597,25 +601,31 @@ class Network(BaseModel):
     def create_combinets_from_formulas(cls, feature_names, formulas, network_ids, skip_multinet=False):
         recipes = OrderedDict()
         for target, formula in formulas.items():
-            recipes[target] = formula.format(*list(range(len(network_ids))))
+            recipes[target] = formula.format(*network_ids)
+            #recipes[target] = formula.format(*list(range(len(network_ids))))
 
         nets = []
         for target, recipe in recipes.items():
             is_pure = lambda recipe: all([el not in recipe for el in ['+', '-', '/', '*']])
             if is_pure(recipe):
-                net_num = int(recipe.replace('nn', ''))
-                net_id = network_ids[net_num]
+                net_id = int(recipe.replace('nn', ''))
+                #net_id = network_ids[net_num]
                 nets.append(Network.get_by_id(net_id))
             else:
+                net_idx = [int(id) for id in re.findall('nn(\d*)', recipe)]
+                new_recipe = recipe
+                for ii, net_id in enumerate(net_idx):
+                    new_recipe = new_recipe.replace('nn' + str(net_id), 'nn' + str(ii))
+                #child_nets = [network_ids[id] for id in net_idx]
                 query = (Network.select()
-                         .where((Network.recipe == recipe) &
-                                (Network.networks == network_ids))
+                         .where((Network.recipe == new_recipe) &
+                                (Network.networks == net_idx))
                          )
                 if query.count() == 0:
                     combonet = cls(target_names=[target],
                                    feature_names=feature_names,
-                                   recipe=recipe,
-                                   networks=network_ids)
+                                   recipe=new_recipe,
+                                   networks=net_idx)
                     #raise Exception(combonet.recipe + ' ' + str(combonet.networks))
                     combonet.save()
                     print('Created ComboNetwork {:d} with recipe {!s} and networks {!s}'.format(combonet.id, recipe, network_ids))
@@ -725,30 +735,17 @@ class Network(BaseModel):
         return query
 
     def get_pure_children(self):
-        x = Network.alias()
-        y = Network.alias()
-        subx = x.select(x.id, x.networks)
-        suby = y.select(y.id)
-        cls = self.__class__
-
-        subq = (cls.select(Network.id, subx.c.id, suby.c.id)
-         .join(subx, JOIN.LEFT_OUTER, on=subx.c.id == fn.ANY(Network.networks))
-         .join(suby, JOIN.LEFT_OUTER, on=suby.c.id == fn.ANY(subx.c.networks))
-         .join(PureNetworkParams, on=((PureNetworkParams.network_id == Network.id) |
-                                   (PureNetworkParams.network_id == subx.c.id) |
-                                   (PureNetworkParams.network_id == suby.c.id)))
-         .where(Network.id == self.id)
-        )
-        pure_children = {}
-        for entry in subq.tuples():
-            for net_id in reversed(entry):
-                if net_id is not None:
-                    if net_id not in pure_children:
-                        pure_children[net_id] = Network.get_by_id(net_id)
-                    break
-        return list(pure_children.values())
-
-
+        if self.networks is None:
+            return [self]
+        else:
+            subq = self.get_recursive_subquery('cost_l2_scale')
+            subq = subq.having(SQL('root') == self.id)
+            if len(subq) == 1:
+                pure_ids = subq.get().pure_children
+                query = Network.select().where(Network.id.in_(pure_ids))
+                return [net for net in query]
+            else:
+                raise
 
 class PureNetworkParams(BaseModel):
     network = ForeignKeyField(Network, related_name='pure_network_params', unique=True)
@@ -1253,6 +1250,33 @@ class PostprocessSlice(BaseModel):
 class PostprocessSlice_9D(PostprocessSlice):
     pass
 
+### A few convinience functions to select a network by (nested) cost_l2_scale
+def select_from_candidate_query(candidates_query):
+    if len(candidates_query) < 1:
+        raise Exception('No candidates found')
+    elif len(candidates_query) == 1:
+        return candidates_query.get()
+    else:
+        return Network.pick_candidate(candidates_query).get()
+
+def get_from_cost_l2_scale_array(target_name, cost_l2_scale_array):
+    subq = Network.get_recursive_subquery('cost_l2_scale')
+    subq2 = (subq
+             .having(fn.ARRAY_AGG(SQL("DISTINCT childq.cost_l2_scale"), coerce=False) == SQL("'" + cost_l2_scale_array + "'"))
+             .having(SQL("net.target_names = '{" + target_name + "}'"))
+             )
+    candidate_ids = [el['root'] for el in subq2.dicts()]
+    candidates_query = Network.select().where(Network.id.in_(candidate_ids))
+    return select_from_candidate_query(candidates_query)
+
+def get_pure_from_cost_l2_scale(target_name, cost_l2_scale):
+    candidates_query = (Network.select()
+                        .where(Hyperparameters.cost_l2_scale.cast('numeric') == cost_l2_scale)
+                        .where(Network.target_names == [target_name])
+                        .join(PureNetworkParams)
+                        .join(Hyperparameters)
+                        )
+    return select_from_candidate_query(candidates_query)
 def create_schema():
     db.execute_sql('SET ROLE developer;')
     db.execute_sql('CREATE SCHEMA develop AUTHORIZATION developer;')
