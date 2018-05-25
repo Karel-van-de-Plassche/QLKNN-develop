@@ -132,24 +132,54 @@ def save_to_disk(gam_leq, gam_great, orig_dims, backend, file_prefix='benchmark'
 
 file_dir = '../../../qlk_data'
 file_dir = '.'
+gen_files = False
+gen_files = True
+do_regression_check = True
 result_folder = 'bench_results'
-shutil.rmtree(result_folder)
-os.mkdir(result_folder)
-filepath = os.path.join(file_dir, 'Zeffcombo_rerechunk.nc.1')
-backends = ['h5py', 'netcdf4', 'xarray_dask', 'xarray']
-#backend = 'h5py'
-#backend = 'netcdf4'
-#backend = 'xarray_dask'
-#for backend in backends:
-#    dsets, orig_dims = load_var(filepath, backend)
-#    try:
-#        gam_leq, gam_great = process_var(dsets, backend)
-#        gam_leq, gam_great = doit(gam_leq, gam_great, backend, result_folder=result_folder)
-#    except MemoryError:
-#        print('Not enough memory to use backend {!s}'.format(backend))
-#    else:
-#        save_to_disk(gam_leq, gam_great, orig_dims, backend, result_folder=result_folder)
-print('Done generating files')
-for filename in os.listdir(result_folder):
-    if filename.endswith('.nc'):
-        print(filename)
+
+if gen_files:
+    shutil.rmtree(result_folder)
+    os.mkdir(result_folder)
+    filepath = os.path.join(file_dir, 'Zeffcombo_rerechunk.nc.1')
+    backends = ['h5py', 'netcdf4', 'xarray_dask', 'xarray']
+    #backends = backends[0]
+
+    for backend in backends:
+        dsets, orig_dims = load_var(filepath, backend)
+        try:
+            gam_leq, gam_great = process_var(dsets, backend)
+            gam_leq, gam_great = doit(gam_leq, gam_great, backend, result_folder=result_folder)
+        except MemoryError:
+            print('Not enough memory to use backend {!s}'.format(backend))
+        else:
+            save_to_disk(gam_leq, gam_great, orig_dims, backend, result_folder=result_folder)
+    print('Done generating files')
+
+# Now do a regression check on all generated files
+if do_regression_check:
+    dss = {}
+    for filename in os.listdir(result_folder):
+        if filename.endswith('.nc'):
+            ds = xr.open_dataset(os.path.join(result_folder, filename))
+            noext_name = os.path.splitext(filename)[0]
+            backend = noext_name.replace('benchmark_', '', 1)
+            dss[backend] = ds
+            print(filename)
+            print(noext_name)
+            print(backend)
+    is_equal = True
+    orig_gam_leq = dss.pop('xarray')['gam_leq']
+    for backend, ds in dss.items():
+        print(backend)
+        #is_equal &= orig_gam_leq.equals(ds['gam_leq'])
+        #For now, just compare the values
+        is_equal &= np.all(np.equal(orig_gam_leq, ds['gam_leq']))
+        if not is_equal:
+            print('Is not equal!')
+            break
+
+    if is_equal:
+        print('Regression check success!')
+    else:
+        print('Regression check failed')
+
