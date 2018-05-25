@@ -1,8 +1,10 @@
 import os
 import time
+import shutil
 
 import numpy as np
 from IPython import embed
+import xarray as xr
 
 def load_var(filepath, backend):
     if backend == 'h5py':
@@ -21,7 +23,6 @@ def load_var(filepath, backend):
         ds = nc4.Dataset(filepath, mode=mode, **kwargs)
         var =  ds.variables['gam_GB']
     elif backend == 'xarray' or backend == 'xarray_dask':
-        import xarray as xr
         ds = xr.open_dataset(filepath)
         var = ds['gam_GB']
 
@@ -30,7 +31,8 @@ def load_var(filepath, backend):
         chunks = dict(zip(dims, chunk_sizes))
         ds = xr.open_dataset(filepath, chunks=chunks)
         var = ds['gam_GB']
-    return var
+    dims, chunk_sizes = get_dims_chunks(var, backend)
+    return var, dims
 
 def get_dims_chunks(var, backend):
     if backend == 'h5py':
@@ -86,7 +88,7 @@ def process_var(var, backend, do_gam_great=False):
 def print_done(backend, starttime):
     print('{!s} done after {:.0f}s'.format(backend, time.time() - starttime))
 
-def doit(gam_leq, gam_great, backend, do_gam_great=False):
+def doit(gam_leq, gam_great, backend, do_gam_great=False, result_folder='.'):
     from dask.distributed import Client
     from dask.diagnostics import visualize
     from dask.diagnostics import Profiler, ResourceProfiler, CacheProfiler
@@ -102,21 +104,52 @@ def doit(gam_leq, gam_great, backend, do_gam_great=False):
         else:
             gam_great_out = None
 
-    visualize([prof, rprof, cprof], file_path='profile_' + backend + '.html')
+    visualize([prof, rprof, cprof],
+              file_path=os.path.join(result_folder, 'profile_' + backend + '.html'),
+              show=False)
     print_done(backend, starttime)
     client.close()
     return gam_leq_out, gam_great_out
 
+def save_to_disk(gam_leq, gam_great, orig_dims, backend, file_prefix='benchmark', do_gam_great=False, result_folder='.'):
+    print(backend)
+    print(type(gam_leq))
+    filename = os.path.join(result_folder, file_prefix + '_' + backend)
+    if isinstance(gam_leq, np.ndarray):
+        dims = set(dim for dim in orig_dims if dim not in ['kthetarhos', 'numsols'])
+        ds = xr.Dataset()
+        ds['gam_leq'] = xr.DataArray(gam_leq, dims=dims)
+        if do_gam_great:
+            ds['gam_great'] = xr.DataArray(gam_great, dims=dims)
+        ds.to_netcdf(filename + '.nc')
+        return
+    elif isinstance(gam_leq, xr.DataArray):
+        ds = xr.Dataset()
+        ds['gam_leq'] = gam_leq
+        if do_gam_great:
+            ds['gam_great'] = gam_great
+        ds.to_netcdf(filename + '.nc')
+
 file_dir = '../../../qlk_data'
+file_dir = '.'
+result_folder = 'bench_results'
+shutil.rmtree(result_folder)
+os.mkdir(result_folder)
 filepath = os.path.join(file_dir, 'Zeffcombo_rerechunk.nc.1')
 backends = ['h5py', 'netcdf4', 'xarray_dask', 'xarray']
 #backend = 'h5py'
 #backend = 'netcdf4'
 #backend = 'xarray_dask'
-for backend in backends:
-    dsets = load_var(filepath, backend)
-    try:
-        gam_leq, gam_great = process_var(dsets, backend)
-        doit(gam_leq, gam_great, backend)
-    except MemoryError:
-        print('Not enough memory to use backend {!s}'.format(backend))
+#for backend in backends:
+#    dsets, orig_dims = load_var(filepath, backend)
+#    try:
+#        gam_leq, gam_great = process_var(dsets, backend)
+#        gam_leq, gam_great = doit(gam_leq, gam_great, backend, result_folder=result_folder)
+#    except MemoryError:
+#        print('Not enough memory to use backend {!s}'.format(backend))
+#    else:
+#        save_to_disk(gam_leq, gam_great, orig_dims, backend, result_folder=result_folder)
+print('Done generating files')
+for filename in os.listdir(result_folder):
+    if filename.endswith('.nc'):
+        print(filename)
