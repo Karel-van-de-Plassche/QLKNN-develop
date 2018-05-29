@@ -1,11 +1,16 @@
 import time
 from itertools import product
 import gc
+import os
 
 import xarray as xr
 import numpy as np
 import pandas as pd
+from dask.distributed import Client
+from dask.diagnostics import visualize
+from dask.diagnostics import Profiler, ResourceProfiler, CacheProfiler
 from IPython import embed
+
 try:
     profile
 except NameError:
@@ -13,12 +18,14 @@ except NameError:
 
 from qualikiz_tools.qualikiz_io.outputfiles import xarray_to_pandas
 
+GAM_LEQ_GB_TMP_PATH = 'gam_leq_GB.nc'
+
 @profile
 def metadatize(ds):
     """ Move all non-axis dims to metadata """
     scan_dims = [dim for dim in ds.dims if dim != 'kthetarhos' and dim != 'nions' and dim != 'numsols']
     metadata = {}
-    for name in ds:
+    for name in ds.coords:
         if (all([dim not in scan_dims for dim in ds[name].dims]) and name != 'kthetarhos' and name != 'nions' and name !='numsols'):
             metadata[name] = ds[name].values
             ds = ds.drop(name)
@@ -28,40 +35,42 @@ def metadatize(ds):
 @profile
 def absambi(ds):
     """ Calculate absambi; ambipolairity check for two ions"""
-    # TODO: Generalize for >2 ions
-    n0, n1 = [-(ds['Zi'].sel(nions=1) - ds['Zeff']) / ( ds['Zi'].sel(nions=0) * (ds['Zi'].sel(nions=0) - ds['Zi']
-    .sel(nions=1))), (ds['Zi'].sel(nions=0) - ds['Zeff']) / ( ds['Zi'].sel(nions=1) * (ds['Zi'].sel(nions=0) - ds
-    ['Zi'].sel(nions=1)))]
-    n0 = xr.DataArray(n0, coords={'Zeff': n0['Zeff'], 'nions': 0}, name='n0')
-    n1 = xr.DataArray(n1, coords={'Zeff': n1['Zeff'], 'nions': 1}, name='n1')
-    ds['n'] = xr.concat([n0, n1], dim='nions')
-    ds['absambi'] = np.abs(((ds['pfi_GB'] * ds['n'] * ds['Zi']).sum('nions') / ds['pfe_GB'])) 
-    if (ds['absambi'].isnull() & (ds['pfe_GB'] != 0)).sum() == 0:
-        ds['absambi'] = ds['absambi'].fillna(1)
-    else:
-        raise Exception
-    ds = ds.drop('n')
+    ds['absambi'] = (ds['pfi_GB'] * ds['normni'] * ds['Zi']).sum('nions') / ds['pfe_GB']
+    ds['absambi'] = xr.where(ds['pfe_GB'] == 0, 1, ds['absambi'])
     return ds
 
 @profile
 def calculate_grow_vars(ds):
     """ Calculate maxiumum growth-rate based variables """
+
+    kthetarhos = ds['kthetarhos']
+    bound_idx = len(kthetarhos[kthetarhos <= 2])
+
     gam = ds['gam_GB']
-    gam = gam.max(dim='numsols')
-    gam_great = gam.where(gam.kthetarhos>2, drop=True)
-    ds['gam_great_GB'] = gam_great.max('kthetarhos')
-    gam_leq = gam.where(gam.kthetarhos<=2, drop=True)
-    ds['gam_leq_GB'] = gam_leq.max('kthetarhos')
+    gam = gam.max('numsols')
+    gam_leq = gam.isel(kthetarhos=slice(None, bound_idx))
+    gam_leq = gam_leq.max('kthetarhos')
+    gam_great = gam.isel(kthetarhos=slice(bound_idx + 1, None))
+    gam_great = gam_great.max('kthetarhos')
+
+    ds['gam_great_GB'] = gam_great
+    ds['gam_leq_GB'] = gam_leq
     return ds
 
 @profile
 def determine_stability(ds):
     """ Determine if a point is TEM or ITG unstable """
+    kthetarhos = ds['kthetarhos']
+    bound_idx = len(kthetarhos[kthetarhos <= 2])
     ome = ds['ome_GB']
-    ome = ome.where(ome.kthetarhos <= 2, drop=True)
+
+    gam_leq = ds['gam_leq_GB']
+    ome = ome.isel(kthetarhos=slice(None, bound_idx))
+
     ion_unstable = (gam_leq != 0)
-    ds['TEM'] = (ion_unstable & (ome > 0).any(dim='numsols')).any(dim='kthetarhos')
-    ds['ITG'] = (ion_unstable & (ome < 0).any(dim='numsols')).any(dim='kthetarhos')
+    embed()
+    ds['TEM'] = ((ion_unstable & (ome > 0)).astype('bool').any(dim='numsols')).any(dim='kthetarhos')
+    ds['ITG'] = ((ion_unstable & (ome < 0)).astype('bool').any(dim='numsols')).any(dim='kthetarhos')
     return ds
 
 def prep_totflux(ds):
@@ -70,7 +79,7 @@ def prep_totflux(ds):
 
     ds = metadatize(ds)
 
-    ds = calculate_grow_vars(ds)
+    #ds = calculate_grow_vars(ds)
 
     ds = determine_stability(ds)
 
@@ -120,30 +129,66 @@ def remove_rotation(ds):
     return ds
 
 @profile
-def load_totsepset():
-    ds = xr.open_dataset('Zeffcombo.nc.1')
-    ds = prep_totflux(ds)
-    ds_sep = xr.open_dataset('Zeffcombo.sep.nc.1')
-    ds_sep = prep_sepflux(ds_sep)
-    ds_tot = ds.merge(ds_sep)
-    return ds_tot
+def load_megarun1_ds(rootdir='.'):
+    # Determine the on-disk chunk sizes
+    ds = xr.open_dataset(os.path.join(rootdir, 'Zeffcombo.nc.1'))
+    chunk_sizes = ds['gam_GB']._variable._encoding['chunksizes']
+    dims = ds['gam_GB']._variable.dims
+    ds.close()
+
+    # Re-open dataset with on-disk chunksizes
+    ds_kwargs = {
+        'chunks': dict(zip(dims, chunk_sizes)),
+        #'cache': True
+        #'lock': lock
+              }
+    ds = xr.open_dataset(os.path.join(rootdir, 'Zeffcombo.nc.1'),
+                         **ds_kwargs)
+    ds_sep = xr.open_dataset(os.path.join(rootdir, 'Zeffcombo.sep.nc.1'),
+                             **ds_kwargs)
+    ds_tot = ds.merge(ds_sep.data_vars)
+    return ds_tot, ds_kwargs
 
 @profile
 def prep_megarun1_ds(starttime=None):
     if starttime is None:
         starttime = time.time()
 
-    ds_tot = load_totsepset()
+    client = Client(processes=False)
+    #client = Client()
+    rootdir = '../../../qlk_data'
+    ds, ds_kwargs = load_megarun1_ds(rootdir)
     print('Datasets merged after', time.time() - starttime)
+    use_cached_gam_leq = True
+    if not use_cached_gam_leq:
+        ds = calculate_grow_vars(ds)
+        ds_leq = ds['gam_leq_GB'].to_dataset()
+        ds_leq = ds_leq.merge(ds.coords) # Save all coords
+        ds_leq = profile(ds_leq.compute()) # Pre-compute, way faster as this fits in RAM!
+        ds_leq.to_netcdf(os.path.join(rootdir, GAM_LEQ_GB_TMP_PATH))
+    ds_leq = xr.open_dataset(os.path.join(rootdir, GAM_LEQ_GB_TMP_PATH),
+                             **ds_kwargs)
+    ds = ds.merge(ds, ds.data_vars)
+    print('gam_leq_GB written after', time.time() - starttime)
 
-    ds_tot = remove_rotation(ds_tot)
-    ds_tot.to_netcdf('Zeffcombo.combo.nc', format='NETCDF4', engine='netcdf4')
-    print('Checkpoint ds_tot saved after', time.time() - starttime)
+    ds = prep_totflux(ds)
+    print('Computed totflux after', time.time() - starttime)
+    ds = prep_sepflux(ds)
+    print('Computed sepflux after', time.time() - starttime)
+
+    ds = remove_rotation(ds)
+    #ds.to_netcdf('Zeffcombo.combo.nc', format='NETCDF4', engine='netcdf4')
 
     # Remove all but first ion
-    ds_tot = ds_tot.sel(nions=0)
-    ds_tot.to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
-    return ds_tot
+    ds = ds.sel(nions=0)
+
+    print('starting after {:.0f}s'.format(time.time() - starttime))
+    with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
+        ds.to_netcdf('Zeffcombo.combo.nions0.nc', format='NETCDF4', engine='netcdf4')
+    print('prep_megarun1 done after {:.0f}s'.format(time.time() - starttime))
+    visualize([prof, rprof, cprof], file_path='profile_' + backend + '.html')
+    client.close()
+    return ds
 
 @profile
 def extract_trainframe(dfs):
