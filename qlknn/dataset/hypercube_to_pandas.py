@@ -200,11 +200,8 @@ def compute_and_save(ds, new_ds_path, chunks=None):
     data_vars = list(ds.data_vars)
     calced_dims = ['gam_leq_GB', 'gam_great_GB', 'TEM', 'ITG', 'absambi']
     for spec, mode in product(['e', 'i'], ['ITG', 'TEM']):
-        fluxes = ['df', 'vt', 'vc']
-        if spec == 'i':
-            fluxes.append('vr')
-        for flux in fluxes:
-            calced_dims.append(flux + spec + mode + '_GB')
+        flux = 'pf'
+        calced_dims.append(flux + spec + mode + '_GB')
 
     for calced_dim in reversed(calced_dims):
         if calced_dim in ds:
