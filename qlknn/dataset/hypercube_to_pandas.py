@@ -6,9 +6,10 @@ import copy
 
 import xarray as xr
 import pandas as pd
-from dask.distributed import Client
+from dask.distributed import Client, get_client
 from dask.diagnostics import visualize
 from dask.diagnostics import Profiler, ResourceProfiler, CacheProfiler
+from dask.distributed import fire_and_forget
 from IPython import embed
 
 try:
@@ -17,6 +18,7 @@ except NameError:
     from qlknn.misc.tools import profile
 
 from qualikiz_tools.qualikiz_io.outputfiles import xarray_to_pandas
+from qlknn.misc.tools import notify_task_done
 
 GAM_LEQ_GB_TMP_PATH = 'gam_cache.nc'
 
@@ -36,7 +38,14 @@ def metadatize(ds):
 
 @profile
 def absambi(ds):
-    """ Calculate absambi; ambipolairity check for two ions"""
+    """ Calculate absambi; ambipolairity check (d(charge)/dt ~ 0)
+
+    Args:
+        ds:    Dataset containing pf[i|e]_GB, normni and Zi
+
+    Returns:
+        ds:    ds with absambi: sum(pfi * normni * Zi) / pfe
+    """
     ds['absambi'] = ((ds['pfi_GB'] * ds['normni'] * ds['Zi']).sum('nions')
                      / ds['pfe_GB'])
     ds['absambi'] = xr.where(ds['pfe_GB'] == 0, 1, ds['absambi'])
@@ -44,7 +53,7 @@ def absambi(ds):
 
 @profile
 def determine_stability(ds):
-    """ Determine if a point is TEM or ITG unstable """
+    """ Determine if a point is TEM or ITG unstable. True if unstable """
     kthetarhos = ds['kthetarhos']
     bound_idx = len(kthetarhos[kthetarhos <= 2])
     ome = ds['ome_GB']
@@ -71,17 +80,20 @@ def calculate_particle_sepfluxes(ds):
     This is needed because of a bug in QuaLiKiz 2.4.0 in which
     pf[i|e][ITG|TEM] was not written to file. Fortunately,
     this can be re-calculated from the saved diffusivity
-    and pinch files: df,vt,vc, and vr
+    and pinch files: df,vt,vc, and vr. Will not do anything
+    if already contained in ds.
     """
     for spec, mode in product(['e', 'i'], ['ITG', 'TEM']):
-        fluxes = ['df', 'vt', 'vc']
-        if spec == 'i':
-            fluxes.append('vr')
-        parts = {flux: flux + spec + mode + '_GB' for flux in fluxes}
-        parts = {flux: ds[part] for flux, part in parts.items()}
-        pf = sum_pf(**parts, An=ds['An'])
-        pf.name = 'pf' + spec + mode + '_GB'
-        ds[pf.name] = pf
+        pf_name = 'pf' + spec + mode + '_GB'
+        if pf_name not in ds:
+            fluxes = ['df', 'vt', 'vc']
+            if spec == 'i':
+                fluxes.append('vr')
+            parts = {flux: flux + spec + mode + '_GB' for flux in fluxes}
+            parts = {flux: ds[part] for flux, part in parts.items()}
+            pf = sum_pf(**parts, An=ds['An'])
+            pf.name = pf_name
+            ds[pf.name] = pf
     return ds
 
 
@@ -232,8 +244,37 @@ def merge_gam_leq_great(ds, ds_kwargs=None, rootdir='.', use_disk_cache=False, s
     ds = ds.merge(ds_gam.data_vars)
     return ds
 
+def compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=None):
+    if starttime is None:
+        starttime = time.time()
+
+    print('starting', varname)
+    #var = ds[varname]
+    encoding = {varname: {'chunksizes':  [chunks[dim] for dim in ds[varname].dims], 'zlib': True}}
+    #var.load()
+    ds[varname].to_netcdf(new_ds_path, 'a',
+                  encoding=encoding)
+    notify_task_done(varname + ' saved', starttime)
+
 @profile
 def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
+    """ Sequentially load all data_vars in RAM and write to new dataset
+    This function forcibly loads variables in RAM, also triggering any
+    lazy-loaded dask computations. We thus assume the result of each of
+    these calculations fits in RAM. This is done because as of xarray
+    '0.10.4', aligning on-disk chunks and dask chunks is still work in
+    progress.
+
+    Args:
+        ds:          Dataset to write to new dataset
+        new_ds_path: Absolute path to of the netCDF4 file that will
+                     be generated
+
+    Kwargs:
+        chunks:      Dict with the dimension: chunksize for the new ds file
+        starttime:   Time the script was started. All debug timetraces will be
+                     relative to this point. [Default: current time]
+    """
     if starttime is None:
         starttime = time.time()
 
@@ -241,7 +282,7 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
     for coord in ds.coords:
         new_ds.coords[coord] = ds[coord]
     new_ds.to_netcdf(new_ds_path)
-    print('Coords saved after', time.time() - starttime)
+    notify_task_done('Coords saving', starttime)
     print(chunks)
 
     data_vars = list(ds.data_vars)
@@ -255,12 +296,8 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
             data_vars.insert(0, data_vars.pop(data_vars.index(calced_dim)))
 
     for varname in data_vars:
-        print('starting', varname)
-        encoding = {varname: {'chunksizes':  [chunks[dim] for dim in var.dims], 'zlib': True}
-        var = ds[varname]
-        var.to_netcdf(new_ds_path, 'a',
-                      encoding=encoding)
-        print(varname + ' saved after', time.time() - starttime)
+        #fire_and_forget(compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=starttime))
+        compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=starttime)
 
 @profile
 def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader=load_megarun1_ds):
@@ -287,9 +324,8 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
     if not use_disk_cache:
         # Load the dataset
         ds, ds_kwargs = ds_loader(rootdir)
-        print(ds_kwargs)
-        print('Datasets merged after', time.time() - starttime)
-        #use_disk_cache = True
+        notify_task_done('Datasets merging', starttime)
+        use_disk_cache = True
         use_disk_cache = False
         # Calculate gam_leq and gam_great and cache to disk
         ds = merge_gam_leq_great(ds,
@@ -297,15 +333,16 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
                                  rootdir=rootdir,
                                  use_disk_cache=use_disk_cache,
                                  starttime=starttime)
-        print('gam_[leq,great]_GB written after', time.time() - starttime)
+        notify_task_done('gam_[leq,great]_GB cache creation', starttime)
 
         ds = determine_stability(ds)
+        notify_task_done('[ITG|TEM] calculation', starttime)
 
         ds = absambi(ds)
-        print('Computed absambi after', time.time() - starttime)
+        notify_task_done('absambi calculation', starttime)
 
         ds = calculate_particle_sepfluxes(ds)
-        print('Computed particle sepfluxes after', time.time() - starttime)
+        notify_task_done('pf[i|e][ITG|TEM] calculation', starttime)
         # Remove variables and coordinates we do not need for NN training
         ds = ds.drop(['gam_GB', 'ome_GB'])
         ds = remove_rotation(ds)
@@ -316,14 +353,16 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
             ds.attrs['normni'] = ds['normni']
             ds = ds.drop('normni')
 
+        notify_task_done('Bookkeeping', starttime)
+
         # Remove all but first ion
         ds = ds.sel(nions=0)
 
         # Save prepared dataset to disk
-        print('starting after {:.0f}s'.format(time.time() - starttime))
+        notify_task_done('Pre-disk write dataset preparation', starttime)
         with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
-            compute_and_save(ds, prepared_ds_path, chunks=ds_kwargs['chunks'])
-        print('prep_megarun done after {:.0f}s'.format(time.time() - starttime))
+            compute_and_save(ds, prepared_ds_path, chunks=ds_kwargs['chunks'], starttime=starttime)
+        notify_task_done('prep_megarun', starttime)
         visualize([prof, rprof, cprof], file_path='profile_prep.html')
     else:
         ds, __ = open_with_disk_chunks(prepared_ds_path)

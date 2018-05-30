@@ -1,3 +1,4 @@
+import time
 def str_to_int_or_float(string):
     if not isinstance(string):
         raise ValueError('Please input a string')
@@ -17,3 +18,9 @@ def first(s):
 def profile(x):
     """ Placeholder decorator for memory profiling """
     return x
+
+def notify_task_done(task, starttime=None):
+    msg = '{!s} done'.format(task)
+    if starttime != None:
+        msg += ' after {:.0f}s'.format(time.time() - starttime)
+    print(msg)
