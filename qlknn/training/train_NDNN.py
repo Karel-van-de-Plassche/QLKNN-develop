@@ -203,8 +203,16 @@ def train(settings, warm_start_nn=None):
     datasets = convert_panda(data_df, feature_names, target_names, settings['validation_fraction'], settings['test_fraction'])
 
     # Start tensorflow session
-    config = tf.ConfigProto(inter_op_parallelism_threads=int(os.environ['NUM_INTER_THREADS']),
-                                                                    intra_op_parallelism_threads=int(os.environ['NUM_INTRA_THREADS']))
+    if 'NUM_INTER_THREADS' in os.environ:
+        NUM_INTER_THREADS = int(os.environ['NUM_INTER_THREADS'])
+    else:
+        NUM_INTER_THREADS = None
+    if 'NUM_INTRA_THREADS' in os.environ:
+        NUM_INTRA_THREADS = int(os.environ['NUM_INTRA_THREADS'])
+    else:
+        NUM_INTRA_THREADS = None
+    config = tf.ConfigProto(inter_op_parallelism_threads=NUM_INTER_THREADS,
+                            intra_op_parallelism_threads=NUM_INTRA_THREADS)
     #config = tf.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1, \
     #                    allow_soft_placement=True, device_count = {'CPU': 1})
     sess = tf.Session(config=config)
