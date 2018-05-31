@@ -29,6 +29,7 @@ except NameError:
 
 from qlknn.training.datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
 from qlknn.training.nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
+from qlknn.training.profiling import TimeLiner
 from qlknn.dataset.data_io import load_from_store
 
 FLAGS = None
@@ -361,6 +362,7 @@ def train(settings, warm_start_nn=None):
     save_checkpoint_networks = setting(settings.get('save_checkpoint_networks'), False)
     save_best_networks = setting(settings.get('save_best_networks'), False)
     track_training_time = setting(settings.get('track_training_time'), False)
+    full_timeline = TimeLiner()
 
     # Set up log files
     train_log_file = open('train_log.csv', 'a', 1)
@@ -414,8 +416,9 @@ def train(settings, warm_start_nn=None):
                 if not step % steps_per_report and steps_per_report != np.inf:
                     tl = timeline.Timeline(run_metadata.step_stats)
                     ctf = tl.generate_chrome_trace_format()
-                    with open('timeline_run.json', 'w') as f:
-                        f.write(ctf)
+                    #with open('timeline_run.json', 'w') as f:
+                    #    f.write(ctf)
+                    full_timeline.update_timeline(ctf)
 
                     train_writer.add_run_metadata(run_metadata, 'epoch%d step%d' % (epoch, step))
                 # Add to CSV log buffer
@@ -452,8 +455,9 @@ def train(settings, warm_start_nn=None):
             if not epoch % epochs_per_report and epochs_per_report != np.inf:
                 tl = timeline.Timeline(run_metadata.step_stats)
                 ctf = tl.generate_chrome_trace_format()
-                with open('timeline.json', 'w') as f:
-                    f.write(ctf)
+                full_timeline.update_timeline(ctf)
+                #with open('timeline.json', 'w') as f:
+                #    f.write(ctf)
 
                 validation_writer.add_run_metadata(run_metadata, 'epoch%d' % epoch)
 
@@ -549,6 +553,8 @@ def train(settings, warm_start_nn=None):
     del train_log
     validation_log_file.close()
     del validation_log
+
+    full_timeline.save('full_timeline.json')
 
     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
 
