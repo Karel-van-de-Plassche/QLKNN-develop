@@ -270,6 +270,12 @@ def train(settings, warm_start_nn=None):
             tf.summary.scalar('l1_norm', l1_norm)
             tf.summary.scalar('l1_scale', l1_scale)
             tf.summary.scalar('l1_loss', l1_loss)
+        with tf.name_scope('stable_positive'):
+            stable_positive_scale = tf.Variable(settings['cost_stable_positive_scale'], dtype=x.dtype, trainable=False)
+            orig_is_stable = tf.less_equal(y_ds_descale, 0)
+            nn_pred_unstable = tf.greater(y, 0)
+            punish_unstable_pred = tf.logical_and(orig_is_stable, nn_pred_unstable)
+            stable_positive_loss = tf.reduce_sum(stable_positive_scale * tf.cast(punish_unstable_pred, x.dtype))
 
         if settings['goodness'] == 'mse':
             loss = mse
@@ -279,6 +285,8 @@ def train(settings, warm_start_nn=None):
             loss += l1_loss
         if settings['cost_l2_scale'] != 0:
             loss += l2_loss
+        if settings['cost_stable_positive_scale'] != 0:
+            loss += stable_positive_loss
         tf.summary.scalar('loss', loss)
 
     optimizer = None
@@ -338,7 +346,7 @@ def train(settings, warm_start_nn=None):
     timediff(start, 'Starting loss calculation')
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
-    summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
+    summary, lo, meanse, meanabse, l1norm, l2norm, __  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, stable_positive_loss],
                                                               feed_dict=feed_dict)
     train_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
     validation_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
