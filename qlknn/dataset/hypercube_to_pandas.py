@@ -6,10 +6,9 @@ import copy
 
 import xarray as xr
 import pandas as pd
-from dask.distributed import Client, get_client
+#from dask.distributed import Client, get_client
 from dask.diagnostics import visualize
 from dask.diagnostics import Profiler, ResourceProfiler, CacheProfiler
-from dask.distributed import fire_and_forget
 from IPython import embed
 
 try:
@@ -248,7 +247,6 @@ def compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=None):
     if starttime is None:
         starttime = time.time()
 
-    print('starting', varname)
     #var = ds[varname]
     encoding = {varname: {'chunksizes':  [chunks[dim] for dim in ds[varname].dims], 'zlib': True}}
     #var.load()
@@ -283,7 +281,6 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
         new_ds.coords[coord] = ds[coord]
     new_ds.to_netcdf(new_ds_path)
     notify_task_done('Coords saving', starttime)
-    print(chunks)
 
     data_vars = list(ds.data_vars)
     calced_dims = ['gam_leq_GB', 'gam_great_GB', 'TEM', 'ITG', 'absambi']
@@ -295,8 +292,8 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
         if calced_dim in ds:
             data_vars.insert(0, data_vars.pop(data_vars.index(calced_dim)))
 
-    for varname in data_vars:
-        #fire_and_forget(compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=starttime))
+    for ii, varname in enumerate(data_vars):
+        print('starting {:2d}/{:2d}: {!s}'.format(ii, len(data_vars), varname))
         compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=starttime)
 
 @profile
@@ -356,14 +353,17 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
         notify_task_done('Bookkeeping', starttime)
 
         # Remove all but first ion
+        # TODO: Check for Aarons case!
         ds = ds.sel(nions=0)
+        ds.attrs['nions'] = ds['nions']
+        ds = ds.drop('nions')
 
         # Save prepared dataset to disk
         notify_task_done('Pre-disk write dataset preparation', starttime)
         with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
             compute_and_save(ds, prepared_ds_path, chunks=ds_kwargs['chunks'], starttime=starttime)
         notify_task_done('prep_megarun', starttime)
-        visualize([prof, rprof, cprof], file_path='profile_prep.html')
+        visualize([prof, rprof, cprof], file_path='profile_prep.html', show=False)
     else:
         ds, __ = open_with_disk_chunks(prepared_ds_path)
     return ds
@@ -383,7 +383,8 @@ def save_trainframe(df, constants):
     store['/megarun1/constants'] = constants
 
 if __name__ == '__main__':
-    client = Client(processes=False)
+    #client = Client(processes=False)
+    #client = Client()
     starttime = time.time()
     rootdir = '../../../qlk_data'
     use_disk_cache = True
@@ -392,9 +393,7 @@ if __name__ == '__main__':
                          rootdir=rootdir,
                          use_disk_cache=use_disk_cache,
                          ds_loader=load_megarun1_ds)
-    client.close()
-    print('Done')
-    embed()
+    notify_task_done('Preparing dataset', starttime)
     exit()
     #scan_dims = tuple(dim for dim in ds_tot.dims if dim != 'kthetarhos' and dim != 'nions' and dim != 'numsols')
 
