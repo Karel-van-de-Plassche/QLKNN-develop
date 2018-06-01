@@ -7,7 +7,7 @@ import copy
 import xarray as xr
 import pandas as pd
 #from dask.distributed import Client, get_client
-from dask.diagnostics import visualize
+from dask.diagnostics import visualize, ProgressBar
 from dask.diagnostics import Profiler, ResourceProfiler, CacheProfiler
 from IPython import embed
 
@@ -121,6 +121,7 @@ def open_with_disk_chunks(path):
 
     # Re-open dataset with on-disk chunksizes
     chunks = dict(zip(dims, chunk_sizes))
+    chunks = {dim: length for dim, length in ds.dims.items()} #One big chunk
     ds_kwargs = {
         'chunks': chunks,
         #'cache': True
@@ -388,19 +389,122 @@ if __name__ == '__main__':
     starttime = time.time()
     rootdir = '../../../qlk_data'
     use_disk_cache = True
-    use_disk_cache = False
+    #use_disk_cache = False
     ds = prep_megarun_ds(starttime=starttime,
                          rootdir=rootdir,
                          use_disk_cache=use_disk_cache,
                          ds_loader=load_megarun1_ds)
     notify_task_done('Preparing dataset', starttime)
-    exit()
     #scan_dims = tuple(dim for dim in ds_tot.dims if dim != 'kthetarhos' and dim != 'nions' and dim != 'numsols')
 
     # Convert to pandas
-    print('Starting pandaization after', time.time() - starttime)
-    dfs = profile(xarray_to_pandas(ds_tot))
-    print('Xarray pandaized after', time.time() - starttime)
+    ds = ds.drop(['kthetarhos', 'numsols'])
+    varnames = list(ds.data_vars)
+    input_names = list(ds[varnames[0]].dims)
+    def save(file_path, ddf, hdf_root):
+        del ddf
+        pass
+    ds = ds.chunk(ds.dims)
+
+    #dddfs = ddfs.to_delayed()
+    from dask.delayed import delayed
+    import dask.dataframe as dd
+    from dask.distributed import Client
+    #client = Client()
+
+
+    #da = ds.variables[varnames[0]].data
+    #caster = dd.from_array(da.reshape(-1), columns=[varnames[0]])
+    #das = []
+    #for varname in input_names:
+    #    #ddf = ds[[varname]].to_dask_dataframe()
+    #    da = ds.variables[varname].data
+    #    ddf = dd.from_array(da.reshape(-1), columns=[varname])
+    #    ddf = dd.concat([caster, ddf], axis=1)
+    #    ddf = ddf.drop(caster.columns, axis=1)
+    #    embed()
+    #    exit()
+    #    das.append(ddf)
+
+    #input_ddf = dd.concat(das, axis=1)
+    #input_ddf = input_ddf.drop(varnames[0], axis=1)
+    create_input_cache = False
+    create_input_cache = True
+    cachedir = 'cache'
+    if create_input_cache:
+        input_df = ds[varnames[0]].to_dataframe()
+        input_df.drop(input_df.columns[0], axis=1, inplace=True)
+        import shutil
+        if os.path.exists(cachedir):
+            shutil.rmtree(cachedir)
+        os.mkdir(cachedir)
+        for ii in range(len(input_df.index.levels)):
+            input_df.reset_index(level=0, inplace=True)
+            varname = input_df.columns[0]
+            print(varname)
+            df = input_df[varname].to_frame()
+            del input_df[varname]
+            df.reset_index(inplace=True, drop=True)
+            df = df.astype(ds[varname].dtype, copy=False)
+            df.values.tofile(os.path.join(cachedir, varname + '.bin'))
+            df.drop(varname, axis=1, inplace=True)
+            #ddf = dd.from_pandas(df, npartitions=20)
+            #ddf.to_hdf('test.h5', '/input/' + varname,compression='gzip')
+            #ddf.to_parquet('test.parq')
+            del df
+            gc.collect()
+        #    pass
+        del input_df
+        gc.collect()
+
+    #input_df.reset_index(inplace=True)
+    import dask
+    import dask.array as da
+
+    import numpy as np
+    fromfile = dask.delayed(np.fromfile, pure=True)
+    lazy_inps = [fromfile(os.path.join(cachedir, dim + '.bin'),
+                        dtype=ds[varnames[0]].dtype) for dim in input_names]
+    ds[varnames[0]].size
+    arrays = [da.from_delayed(lazy_inp,           # Construct a small Dask array
+                              dtype=ds[varnames[0]].dtype,   # for every lazy value
+                              shape=(ds[varnames[0]].size,))
+              for lazy_inp in lazy_inps]
+    for dim in input_names:
+        print(dim)
+    inp = da.stack(arrays, axis=1)
+    inp = inp.to_dask_dataframe()
+    inp.columns = input_names
+    #inp.to_hdf5('test.h5', '/input', mode='w', compression='gzip')
+    embed()
+    #inp.to_hdf('test.h5.1', '/input', mode='w', complib='zlib')
+    exit()
+
+    for varname in varnames:
+        ddf = ds[[varname]].to_dask_dataframe()
+        da = ds.variables[varname].data
+        embed()
+        exit()
+        da.to_hdf5('test.h5', '/output/' + varname, compression='gzip')
+
+    #with ProgressBar():
+    #    ddf['efeETG_GB'].to_hdf('test.h5', '*')
+    #for ii, varname in enumerate(ds.data_vars):
+    #    print('starting {:2d}/{:2d}: {!s}'.format(ii, len(ds.data_vars), varname))
+    #    dff.
+    #self = ds
+    #ordered_dims = self.dims
+    #columns = [k for k in self.variables if k not in self.dims]
+    embed()
+    exit()
+    #data = [self._variables[k].set_dims(ordered_dims).values.reshape(-1)
+    #        for k in columns]
+    #index = self.coords.to_index(ordered_dims)
+    #df = pd.DataFrame(OrderedDict(zip(columns, data)), index=index)
+
+    dfs = profile(xarray_to_pandas(ds))
+    notify_task_done('Dataset pandaized', starttime)
+    embed()
     del ds_tot
     gc.collect()
     df, constants = extract_trainframe(dfs)
