@@ -11,6 +11,8 @@ from dask.diagnostics import visualize, ProgressBar
 from dask.diagnostics import Profiler, ResourceProfiler, CacheProfiler
 from IPython import embed
 
+from qlknn.dataset.data_io import store_format, sep_prefix
+
 try:
     profile
 except NameError:
@@ -409,6 +411,7 @@ if __name__ == '__main__':
     #dddfs = ddfs.to_delayed()
     from dask.delayed import delayed
     import dask.dataframe as dd
+    import dask.array as da
     from dask.distributed import Client
     #client = Client()
 
@@ -428,11 +431,17 @@ if __name__ == '__main__':
 
     #input_ddf = dd.concat(das, axis=1)
     #input_ddf = input_ddf.drop(varnames[0], axis=1)
-    create_input_cache = False
+    dummy_var = varnames[0]
+    dtype = ds[dummy_var].dtype
+    numel = ds[dummy_var].size
     create_input_cache = True
+    #create_input_cache = False
     cachedir = 'cache'
+    style='lazy parquet'
+    #style='lazy np.bin'
+    ddfs = []
     if create_input_cache:
-        input_df = ds[varnames[0]].to_dataframe()
+        input_df = ds[dummy_var].to_dataframe()
         input_df.drop(input_df.columns[0], axis=1, inplace=True)
         import shutil
         if os.path.exists(cachedir):
@@ -445,9 +454,17 @@ if __name__ == '__main__':
             df = input_df[varname].to_frame()
             del input_df[varname]
             df.reset_index(inplace=True, drop=True)
-            df = df.astype(ds[varname].dtype, copy=False)
-            df.values.tofile(os.path.join(cachedir, varname + '.bin'))
-            df.drop(varname, axis=1, inplace=True)
+            df = df.astype(dtype, copy=False)
+            cachefile = os.path.join(cachedir, varname)
+
+            if style == 'lazy parquet':
+                ddf = dd.from_array(df.values, chunksize=len(df) // 10, columns=[varname])
+                #ddf.to_parquet(cachefile + '.parquet', write_index=False)
+                ddfs.append(ddf)
+                del ddf
+            elif style.endswith('np.bin'):
+                df.values.tofile(cachefile + '.bin')
+            #df.drop(varname, axis=1, inplace=True)
             #ddf = dd.from_pandas(df, npartitions=20)
             #ddf.to_hdf('test.h5', '/input/' + varname,compression='gzip')
             #ddf.to_parquet('test.parq')
@@ -458,25 +475,43 @@ if __name__ == '__main__':
         gc.collect()
 
     #input_df.reset_index(inplace=True)
-    import dask
-    import dask.array as da
-
     import numpy as np
-    fromfile = dask.delayed(np.fromfile, pure=True)
-    lazy_inps = [fromfile(os.path.join(cachedir, dim + '.bin'),
-                        dtype=ds[varnames[0]].dtype) for dim in input_names]
-    ds[varnames[0]].size
-    arrays = [da.from_delayed(lazy_inp,           # Construct a small Dask array
-                              dtype=ds[varnames[0]].dtype,   # for every lazy value
-                              shape=(ds[varnames[0]].size,))
-              for lazy_inp in lazy_inps]
-    for dim in input_names:
-        print(dim)
-    inp = da.stack(arrays, axis=1)
-    inp = inp.to_dask_dataframe()
-    inp.columns = input_names
+    if style == 'lazy np.bin':
+        import dask
+        import dask.array as da
+
+        fromfile = dask.delayed(np.fromfile, pure=True)
+        lazy_inps = [fromfile(os.path.join(cachedir, dim + '.bin'),
+                            dtype=dtype) for dim in input_names]
+        arrays = [da.from_delayed(lazy_inp,           # Construct a small Dask array
+                                  dtype=dtype,   # for every lazy value
+                                  shape=(numel,))
+                  for lazy_inp in lazy_inps]
+        for dim in input_names:
+            print(dim)
+        inp = da.stack(arrays, axis=1)
+        inp = inp.to_dask_dataframe()
+        inp.columns = input_names
+        inp.to_hdf('testje.h5', 'input')
+    elif style == 'lazy parquet':
+        #files = [os.path.join(cachedir, name) for name in os.listdir(cachedir)]
+        #ddfs = [dd.read_parquet(name) for name in files]
+        input_ddf = dd.concat(ddfs, axis=1)
+        input_ddf.to_hdf('testje.h5', 'input')
+    elif style == 'np.bin':
+        inp = np.zeros((len(input_names), numel), dtype=dtype, order='C')
+        for ii, dim in enumerate(input_names):
+            print(dim)
+            inp[ii, :] = np.fromfile(os.path.join(cachedir, dim + '.bin'), dtype=dtype)
+#        arrays = [np.fromfile(os.path.join(cachedir, dim + '.bin')) for dim in input_names]
+        import h5py
+        hf = h5py.File('data.h5', 'w')
+        hf.create_dataset('input', data=inp)
+        #df = pd.DataFrame(inp)
+        #embed()
+        #df = pd.DataFrame(inp.T, columns=input_names)
+        #df.to_hdf('test.h5', 'input', mode='w', format=store_format, complib='zlib', complevel=1)
     #inp.to_hdf5('test.h5', '/input', mode='w', compression='gzip')
-    embed()
     #inp.to_hdf('test.h5.1', '/input', mode='w', complib='zlib')
     exit()
 
