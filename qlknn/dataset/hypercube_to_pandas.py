@@ -422,10 +422,9 @@ def create_input_cache(ds, cachedir):
     for ii in range(num_levels):
         input_df.reset_index(level=0, inplace=True)
         varname = input_df.columns[0]
-        print('starting {:2d}/{:2d}: {!s}'.format(ii, num_levels, varname))
+        print('starting {:2d}/{:2d}: {!s}'.format(ii + 1, num_levels, varname))
         df = input_df[varname].to_frame()
         del input_df[varname]
-        print(input_df.columns)
         df.reset_index(inplace=True, drop=True)
         df = df.astype(dtype, copy=False)
         cachefile = os.path.join(cachedir, varname)
@@ -436,7 +435,7 @@ def create_input_cache(ds, cachedir):
         gc.collect()
 
 @profile
-def input_hdf5_from_cache(store_name, cachedir, mode='w', compress=True):
+def input_hdf5_from_cache(store_name, cachedir, columns=None, mode='w', compress=True):
     """ Create HDF5 file using cache from `create_input_cache`
 
     The contents of cachedir are read into memory, then they are
@@ -457,6 +456,7 @@ def input_hdf5_from_cache(store_name, cachedir, mode='w', compress=True):
     ddfs = [dd.read_parquet(name) for name in files]
     input_ddf = dd.concat(ddfs, axis=1)
     input_ddf.index.rename('dimx', inplace=True)
+    input_ddf = input_ddf.loc[:, columns]
     input_ddf.to_hdf(store_name, 'input', mode=mode, **panda_kwargs)
 
 @profile
@@ -476,10 +476,10 @@ def data_hdf5_from_ds(ds, store_name, compress=True):
         print('starting {:2d}/{:2d}: {!s}'.format(ii + 1, len(ds.data_vars), varname))
         #ddf = ds[[varname]].to_dask_dataframe()
         #da = ds.variables[varname].data
-        df = var.to_dataframe()
+        df = ds[[varname]].to_dataframe()
         df.reset_index(inplace=True, drop=True)
         df.index.name = 'dimx'
-        df.to_hdf(store_name, sep_prefix + varname , mode=mode, **panda_kwargs)
+        df.to_hdf(store_name, sep_prefix + varname , **panda_kwargs)
         #da.to_hdf5(store_name, '/output/' + varname, compression=compress)
 
 def save_attrs(attrs, store_name):
@@ -511,9 +511,8 @@ if __name__ == '__main__':
         create_input_cache(ds, cachedir)
 
     store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
-    input_hdf5_from_cache(store_name, cachedir)
+    dummy_var = list(ds.data_vars)[0]
+    input_hdf5_from_cache(store_name, cachedir, columns=list(ds[dummy_var].dims), mode='a')
     save_attrs(ds.attrs, store_name)
 
     data_hdf5_from_ds(ds, store_name)
-
-    store = pd.HDFStore(store_name)
