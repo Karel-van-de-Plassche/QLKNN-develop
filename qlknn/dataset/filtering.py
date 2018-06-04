@@ -5,6 +5,7 @@ import gc
 import os
 import warnings
 from collections import OrderedDict
+import copy
 
 from IPython import embed
 import pandas as pd
@@ -13,44 +14,96 @@ import numpy as np
 from qlknn.dataset.data_io import put_to_store_or_df, save_to_store, load_from_store, sep_prefix
 from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_partial_diffusion, is_partial_particle
 
-def drop_start_with(data, start_with):
-    droplist = []
-    for col in data.columns:
-        if any(col.startswith(part) for part in start_with):
-            droplist.append(col)
-    data.drop(droplist, axis='columns', inplace=True)
+def regime_filter(data, geq, less):
+    """ Filter the dataset based on the total ion/electron heat flux
+    This filter is used to constain the dataset to experimentally relevant
+    fluxes. We have an estimate for the expected total heat flux, and
+    filter out the full datapoint.
 
-def regime_filter(data, leq, less):
-    bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
-    bool &= (data['efe_GB'] < less) & (data['efi_GB'] < less)
-    bool &= (data['efe_GB'] >= leq) & (data['efi_GB'] >= leq)
-    data = data.loc[bool]
+    Args:
+        data: The dataset to filter. Usually `pandas.DataFrame`. Needs to
+              contain 'efi_GB' and 'efe_GB'.
+        geq:  Lower bound on ef[i|e] heat flux. Inclusive bound.
+        less: Upper bound on ef[i|e] heat flux. Exclusive bound.
+    """
+    within = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
+    within &= (data['efe_GB'] < less) & (data['efi_GB'] < less)
+    within &= (data['efe_GB'] >= geq) & (data['efi_GB'] >= geq)
+    data = data.loc[within]
     return data
 
-def div_filter(store):
+def div_filter(store, filter_bounds=None):
+    """ Filter flux_div_flux variables based on bounds
+    We know from experience the maximum relative difference in flux between
+    the ions and electrons of different modes. As such we remove the fluxpoint
+    if it falls outside the given bounds.
+
+    For heat fluxes:     low_bound < flux_div_flux < high_bound.
+    For particle fluxes: low_bound < abs(flux_div_flux) < high_bound
+
+    Note: Technically, as heat fluxes are non-negative anyway, we could use the same
+    bounds.
+
+    Args:
+        store:         The store name or `pd.HDFStore` to apply the filter to
+
+    Kwargs:
+        filter_bounds: A dictionary with as keys the flux_div_flux variable to filter
+                       and values a tuple with (low_bound, high_bound). For defaults,
+                       see `filter_defaults['div']`
+    """
+    all_filter_bounds = copy.deepcopy(filter_defaults['div'])
+    if filter_bounds is None:
+        filter_bounds = {}
+    all_filter_bounds.update(filter_bounds)
+
+
     for group in store:
         if isinstance(store, pd.HDFStore):
             name = group.lstrip(sep_prefix)
         else:
             name = group
 
-        if name in filter_defaults['div']:
-            low, high = filter_defaults['div'][name]
+        # Read filter bound. If not in dict, skip this variable
+        if name in all_filter_bounds:
+            low, high = all_filter_bounds[name]
         else:
             continue
+
+        # Load the variable from store, save the name
         se = store[group]
         se.name = name
+        # And save the pre-filter instances for our debugging print
         pre = np.sum(~se.isnull())
 
         if is_partial_particle(name):
             se = se.abs()
 
+        # Apply the filter and save to store/dataframe
         put_to_store_or_df(store, se.name, store[group].loc[(low < se) & (se < high)])
-        print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
+        print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))s
     return store
 
 
 def stability_filter(data):
+    """ Filter out the stable points based on growth rate
+
+    QuaLiKiz gives us growth rate information, so we can use this to filter
+    out all stable points from the dataset. Of course, we only check the
+    stability of the relevant mode: TEM for TEM and ITG for ITG, 'elec' for
+    ETG (legacy, sorry). multi-scale (e.g. electron and ion-scale) for
+    electron-heat-flux like vars (efe, dfe and family) and ion-scale
+    otherwise (e.g. efi, pfe, pfi). TEM and ITG-stabilty are defined in
+    `hypercube_to_pandas`. We define electron-unstable if we have a nonzero
+    growthrate for kthetarhos <= 2, ion-unstable if we have a nonzero
+    growthrate for kthetarhos > 2, and multiscale-unstable if electron-unstable
+    or ion-unstable.
+
+    Args:
+        data: `pd.DataFrame` containing the data to be filtered, and `TEM`, `ITG`,
+              `gam_leq_GB`, `gam_great_GB`
+
+    """
     for col in data.columns:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
         if splitted[0] not in heat_vars + particle_vars + momentum_vars:
@@ -82,20 +135,33 @@ def stability_filter(data):
     return data
 
 def negative_filter(data):
-    bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
+    """ Check if none of the heat-flux variables is negative
+
+    Only checks on `heat_vars` e.g. efe_GB and efi_GB
+
+    Args:
+        data to perform the 'negative check' on
+
+    Returns:
+        Per-element `True` if none of the checked heat-flux variables is negative
+    """
+    anyisneg = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
     for col in data.columns:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
+        # If (len(splitted) == 5) we know we have a 'pure' variable, e.g. no flux_op_flux
         if (splitted[0] in heat_vars) and (len(splitted) == 5):
-            bool &= (data[col] >= 0)
-    return bool
+            anyisneg &= (data[col] >= 0)
+    return anyisneg
 
 def ck_filter(data, bound):
+    """ Check if convergence checks cki and cki are within bounds"""
     return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
 
 def septot_filter(data, septot_factor, startlen=None):
+    """ Check if ITG/TEM/ETG flux !>> total_flux"""
     if startlen is None:
         startlen = len(data)
-    bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
+    difference_okay = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
     for type, spec in product(particle_vars + heat_vars, ['i', 'e']):
         totname = type + spec + '_GB'
         if totname != 'vre_GB' and totname != 'vri_GB':
@@ -106,21 +172,23 @@ def septot_filter(data, septot_factor, startlen=None):
             for sep in seps:
                 sepname = type + spec + sep + '_GB'
                 #sepflux += data[sepname]
-                bool &= np.abs(data[sepname]) <= septot_factor * np.abs(data[totname])
+                difference_okay &= np.abs(data[sepname]) <= septot_factor * np.abs(data[totname])
 
                 print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*np.sum(bool)/startlen))
-    return bool
+    return difference_okay
 
 def ambipolar_filter(data, bound):
+    """ Check if ambipolarity is conserved """
     return (data['absambi'] < bound) & (data['absambi'] > 1/bound)
 
 def femtoflux_filter(data, bound):
+    """ Check if flux is no 'femto_flux', a very small non-zero flux"""
     fluxes = [col for col in data if len(re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)) == 5 if re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)[0] in particle_vars + heat_vars + momentum_vars]
-    bool = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
+    no_femto = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
     for flux in fluxes:
         absflux = data[flux].abs()
-        bool &= ~((absflux < bound) & (absflux != 0))
-    return bool
+        no_femto &= ~((absflux < bound) & (absflux != 0))
+    return no_femto
 
 def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, 
                   stored_negative_filter=None, stored_ck_filter=None, stored_ambipolar_filter=None,
@@ -252,7 +320,20 @@ gen3_div_names_dv = [
 ]
 gen3_div_names = gen3_div_names_base + gen3_div_names_dv
 
-def create_gen3_divsum(store, divnames=gen3_div_names):
+def create_divsum(store, divnames=gen3_div_names):
+    """ Create individual targets needed vor divsum-style networks
+
+    This function takes a list of div-style targets, for example
+    'efeITG_GB_div_efiITG_GB', and creates this variable from its separate
+    parts 'efeITG' and 'efiITG'
+
+    Args:
+        store:    The `pd.HDFStore` where to store the divsums
+
+    Kwargs:
+        divnames: A list of 'flux_div_flux' strings. By default creates the
+                  targets needed to train gen3/4 networks. [Default: gen3_div_names]
+    """
     for name in divnames:
         one, two = re.compile('_div_').split(name)
         one, two = store[sep_prefix + one],  store[sep_prefix + two]
@@ -376,7 +457,7 @@ if __name__ == '__main__':
         with pd.HDFStore(store_name) as store:
             for filter_name in filter_functions.keys():
                 create_stored_filter(store, data, filter_name, filter_defaults[filter_name])
-    create_gen3_divsum(data)
+    create_divsum(data)
     split_dims(input, data, const, gen)
 
     startlen = len(data)
