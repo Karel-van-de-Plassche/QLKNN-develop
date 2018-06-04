@@ -198,7 +198,7 @@ def train(settings, warm_start_nn=None):
 
     target_names = settings['train_dims']
     feature_names = list(data_df.columns)
-    for dim in feature_names:
+    for dim in target_names:
         feature_names.remove(dim)
 
     datasets = convert_panda(data_df, feature_names, target_names, settings['validation_fraction'], settings['test_fraction'])

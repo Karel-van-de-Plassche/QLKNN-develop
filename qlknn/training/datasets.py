@@ -119,11 +119,12 @@ def convert_panda(data_df, feature_names, target_names, frac_validation, frac_te
     train_size = total_size - validation_size - test_size
 
     datasets = []
-    for slice_ in [data_df.iloc[:train_size],
-                   data_df.iloc[train_size:train_size + validation_size],
-                   data_df.iloc[train_size + validation_size:]]:
-        datasets.append(Dataset(slice_[feature_names],
-                                slice_[target_names]))
+    from IPython import embed
+    for slice_ in [data_df.iloc[:train_size, :],
+                   data_df.iloc[train_size:train_size + validation_size, :],
+                   data_df.iloc[train_size + validation_size:, :]]:
+        datasets.append(Dataset(slice_.loc[:, feature_names],
+                                slice_.loc[:, target_names]))
 
     return Datasets(train=datasets[0],
                     validation=datasets[1],
