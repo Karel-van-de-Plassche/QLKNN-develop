@@ -126,7 +126,7 @@ def open_with_disk_chunks(path):
 
     # Re-open dataset with on-disk chunksizes
     chunks = dict(zip(dims, chunk_sizes))
-    chunks = {dim: length for dim, length in ds.dims.items()} #One big chunk
+    #chunks = {dim: length for dim, length in ds.dims.items()} #One big chunk
     ds_kwargs = {
         'chunks': chunks,
         #'cache': True
@@ -157,6 +157,7 @@ def load_megarun1_ds(rootdir='.'):
     return ds_tot, ds_kwargs
 
 def get_dims_chunks(var):
+    """ Get the current dask chunks of a given variable """
     if var.chunks is not None:
         if isinstance(var.chunks, dict):
             # xarray-style
@@ -250,6 +251,17 @@ def merge_gam_leq_great(ds, ds_kwargs=None, rootdir='.', use_disk_cache=False, s
     return ds
 
 def compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=None):
+    """ Save a variable from the given dataset in a new dataset
+    Args:
+        ds:             xarray.Dataset containing gam_GB
+        new_ds_path:    The path of the target new dataset (string)
+        varname:        Name of the variable to save. Should be in ds.
+        chunks:         A dict with the on-disk chunkage per dimention.
+
+    Kwargs:
+        starttime:      Time the script was started. All debug timetraces will be
+                        relative to this point. [Default: current time]
+    """
     if starttime is None:
         starttime = time.time()
 
@@ -283,6 +295,7 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
         starttime = time.time()
 
     new_ds = xr.Dataset()
+    new_ds.attrs = ds.attrs
     for coord in ds.coords:
         new_ds.coords[coord] = ds[coord]
     new_ds.to_netcdf(new_ds_path)
@@ -328,8 +341,8 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
         # Load the dataset
         ds, ds_kwargs = ds_loader(rootdir)
         notify_task_done('Datasets merging', starttime)
-        use_disk_cache = True
         use_disk_cache = False
+        #use_disk_cache = True
         # Calculate gam_leq and gam_great and cache to disk
         ds = merge_gam_leq_great(ds,
                                  ds_kwargs=ds_kwargs,
@@ -349,20 +362,20 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
         # Remove variables and coordinates we do not need for NN training
         ds = ds.drop(['gam_GB', 'ome_GB'])
         ds = remove_rotation(ds)
-        ds = metadatize(ds)
         # normni does not need to be saved for the 9D case.
         # TODO: Check for Aarons case!
         if 'normni' in ds.data_vars:
             ds.attrs['normni'] = ds['normni']
             ds = ds.drop('normni')
 
-        notify_task_done('Bookkeeping', starttime)
 
         # Remove all but first ion
         # TODO: Check for Aarons case!
         ds = ds.sel(nions=0)
         ds.attrs['nions'] = ds['nions']
         ds = ds.drop('nions')
+        ds = metadatize(ds)
+        notify_task_done('Bookkeeping', starttime)
 
         # Save prepared dataset to disk
         notify_task_done('Pre-disk write dataset preparation', starttime)
@@ -375,14 +388,23 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
     return ds
 
 @profile
-def save_trainframe(df, constants):
-    store['/megarun1/input'] = df.iloc[:, :len(scan_dims)]
-    print('Input stored after', time.time() - starttime)
-    store['/megarun1/flattened'] = df.iloc[:, len(scan_dims):]
-    store['/megarun1/constants'] = constants
-
-@profile
 def create_input_cache(ds, cachedir):
+    """ Create on-disk cache of the unfolded hypercube dims
+
+    This function uses the native `xarray.Dataset.to_dataframe()` function
+    to unfold the dims in (2D) table format, the classical `pandas.DataFrame`.
+    As this operation uses a lot of RAM, we cache the index one-by-one to
+    disk, and later glue it together using `input_hdf5_from_cache`. The
+    on-disk format is parquet.
+
+
+    Attrs:
+        ds:       The dataset of which the dims/indices will be unfolded
+        cachedir: Path where the cache folder should be made. WARNING!
+                  OVERRIDES EXISTING FOLDERS!
+
+
+    """
     # Convert to MultiIndexed DataFrame. Use a dummy variable to get the right index
     dummy_var = list(ds.data_vars)[0]
     input_names = list(ds[dummy_var].dims)
@@ -415,49 +437,83 @@ def create_input_cache(ds, cachedir):
 
 @profile
 def input_hdf5_from_cache(store_name, cachedir, mode='w', compress=True):
+    """ Create HDF5 file using cache from `create_input_cache`
+
+    The contents of cachedir are read into memory, then they are
+    concatenated and saved to a single HDF5 file
+
+    Attrs:
+        store_name: Name of the HDF5 store/file that will be written to
+        cachdir:    Path that will be scanned for cache files
+
+    Kwargs:
+        mode:       Mode to be passed to `to_hdf`. Overwrite by
+                    default [Default: 'w']
+        compress:   Compress the on-disk HDF5 [Default: True]
+    """
     if compress:
         panda_kwargs = dict(complib='zlib', complevel=1)
     files = [os.path.join(cachedir, name) for name in os.listdir(cachedir)]
     ddfs = [dd.read_parquet(name) for name in files]
     input_ddf = dd.concat(ddfs, axis=1)
+    input_ddf.index.rename('dimx', inplace=True)
     input_ddf.to_hdf(store_name, 'input', mode=mode, **panda_kwargs)
 
 @profile
 def data_hdf5_from_ds(ds, store_name, compress=True):
+    """ Add data_vars from ds to HDF5 file one-by-one
+
+    Attrs:
+        ds:         The dataset from which to write the data_vars
+        store_name: Name of the HDF5 store/file that will be written to
+
+    Kwargs:
+        compress:   Compress the on-disk HDF5 [Default: True]
+    """
+    if compress:
+        panda_kwargs = dict(complib='zlib', complevel=1)
     for ii, varname in enumerate(ds.data_vars):
         print('starting {:2d}/{:2d}: {!s}'.format(ii + 1, len(ds.data_vars), varname))
-        ddf = ds[[varname]].to_dask_dataframe()
-        da = ds.variables[varname].data
-        da.to_hdf5(store_name, '/output/' + varname, compression=compress)
+        #ddf = ds[[varname]].to_dask_dataframe()
+        #da = ds.variables[varname].data
+        df = var.to_dataframe()
+        df.reset_index(inplace=True, drop=True)
+        df.index.name = 'dimx'
+        df.to_hdf(store_name, sep_prefix + varname , mode=mode, **panda_kwargs)
+        #da.to_hdf5(store_name, '/output/' + varname, compression=compress)
+
+def save_attrs(attrs, store_name):
+    """ Save a dictionary to the 'constants' field in the speciefied HDF5 store"""
+    store = pd.HDFStore(store_name)
+    store['constants'] = pd.Series(attrs)
+    store.close()
 
 if __name__ == '__main__':
     #client = Client(processes=False)
     #client = Client()
     starttime = time.time()
     rootdir = '../../../qlk_data'
-    use_disk_cache = True
-    #use_disk_cache = False
+    use_disk_cache = False
+    #use_disk_cache = True
     ds = prep_megarun_ds(starttime=starttime,
                          rootdir=rootdir,
                          use_disk_cache=use_disk_cache,
                          ds_loader=load_megarun1_ds)
     notify_task_done('Preparing dataset', starttime)
-    #scan_dims = tuple(dim for dim in ds_tot.dims if dim != 'kthetarhos' and dim != 'nions' and dim != 'numsols')
 
     # Convert to pandas
     ds = ds.drop(['kthetarhos', 'numsols'])
-    #ds = ds.chunk(ds.dims)
-    store.attrs = {name: val for name, val in ds.coords.items if name not in ds.dims}
 
-    use_disk_cache = True
     use_disk_cache = False
+    #use_disk_cache = True
     cachedir = 'cache'
     if not use_disk_cache:
         create_input_cache(ds, cachedir)
 
     store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
     input_hdf5_from_cache(store_name, cachedir)
-    # TODO: Rename axis to 'dimx'
+    save_attrs(ds.attrs, store_name)
+
     data_hdf5_from_ds(ds, store_name)
 
     store = pd.HDFStore(store_name)
