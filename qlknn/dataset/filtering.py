@@ -158,14 +158,14 @@ def ck_filter(data, bound):
     return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
 
 def septot_filter(data, septot_factor, startlen=None):
-    """ Check if ITG/TEM/ETG flux !>> total_flux"""
+    """ Check if ITG/TEM/ETG heat flux !>> total_flux"""
     if startlen is None:
         startlen = len(data)
     difference_okay = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
-    for type, spec in product(particle_vars + heat_vars, ['i', 'e']):
+    for type, spec in product(heat_vars, ['i', 'e']):
         totname = type + spec + '_GB'
         if totname != 'vre_GB' and totname != 'vri_GB':
-            if type in particle_vars or spec == 'i': # no ETG
+            if spec == 'i': # no ETG
                 seps = ['ITG', 'TEM']
             else: # All modes
                 seps = ['ETG', 'ITG', 'TEM']
