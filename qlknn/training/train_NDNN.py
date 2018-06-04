@@ -336,8 +336,8 @@ def train(settings, warm_start_nn=None):
 
     epoch = 0
 
-    train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
-    validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm'])
+    train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm', 'stable_positive_loss'])
+    validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm', 'stable_positive_loss'])
 
     # Split dataset in minibatches
     minibatches = settings['minibatches']
@@ -346,10 +346,11 @@ def train(settings, warm_start_nn=None):
     timediff(start, 'Starting loss calculation')
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
-    summary, lo, meanse, meanabse, l1norm, l2norm, __  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, stable_positive_loss],
-                                                              feed_dict=feed_dict)
-    train_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
-    validation_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm)
+    summary, lo, meanse, meanabse, l1norm, l2norm, stab_pos = \
+            sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, stable_positive_loss],
+                      feed_dict=feed_dict)
+    train_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    validation_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
     # Save checkpoints of training to restore for early-stopping
     saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
@@ -375,10 +376,14 @@ def train(settings, warm_start_nn=None):
     # Set up log files
     train_log_file = open('train_log.csv', 'a', 1)
     train_log_file.truncate(0)
-    train_log.to_csv(train_log_file)
+    colwidth = max(len(name) for name in validation_log.columns[:-1])
+    colwidth = 12
+    ffmt = '% -{width}.3f'.format(width=colwidth)
+    header = ['{:<{width}}'.format(colname, width=colwidth) for colname in train_log.columns]
+    train_log.to_csv(train_log_file, float_format=ffmt, header=header)
     validation_log_file = open('validation_log.csv', 'a', 1)
     validation_log_file.truncate(0)
-    validation_log.to_csv(validation_log_file)
+    validation_log.to_csv(validation_log_file, float_format=ffmt)
 
     timediff(start, 'Training started')
     train_start = time.time()
@@ -413,7 +418,7 @@ def train(settings, warm_start_nn=None):
                     l2norm = l2_norm.eval(feed_dict=feed_dict)
                     summary = merged.eval(feed_dict=feed_dict)
                 else: # If we have a TensorFlow-style optimizer
-                    summary, lo, meanse, meanabse, l1norm, l2norm, _  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, train_step],
+                    summary, lo, meanse, meanabse, l1norm, l2norm, stab_pos, _  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, stable_positive_loss, train_step],
                                                       feed_dict=feed_dict,
                                                       options=run_options,
                                                       run_metadata=run_metadata
@@ -431,7 +436,7 @@ def train(settings, warm_start_nn=None):
                     train_writer.add_run_metadata(run_metadata, 'epoch%d step%d' % (epoch, step))
                 # Add to CSV log buffer
                 if track_training_time is True:
-                    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+                    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
             ########
             # After-epoch stuff
             ########
@@ -452,7 +457,7 @@ def train(settings, warm_start_nn=None):
                 run_metadata = None
 
             # Calculate all variables with the validation set
-            summary, lo, meanse, meanabse, l1norm, l2norm  = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm],
+            summary, lo, meanse, meanabse, l1norm, l2norm, stab_pos = sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, stable_positive_loss],
                                            feed_dict=feed_dict,
                                            options=run_options,
                                            run_metadata=run_metadata)
@@ -475,11 +480,11 @@ def train(settings, warm_start_nn=None):
 
             # Update CSV logs
             if track_training_time is True:
-                validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
+                validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
-                validation_log.loc[epoch:].to_csv(validation_log_file, header=False)
+                validation_log.loc[epoch:].to_csv(validation_log_file, header=False, float_format=ffmt)
                 validation_log = validation_log[0:0] #Flush validation log
-                train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False)
+                train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
                 train_log = train_log[0:0] #Flush train_log
 
             # Determine early-stopping criterion
@@ -553,10 +558,10 @@ def train(settings, warm_start_nn=None):
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
 
-    validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
-    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm)
-    validation_log.loc[epoch:].to_csv(validation_log_file, header=False)
-    train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False)
+    validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    validation_log.loc[epoch:].to_csv(validation_log_file, header=False, float_format=ffmt)
+    train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
     train_log_file.close()
     del train_log
     validation_log_file.close()
