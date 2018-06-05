@@ -81,7 +81,7 @@ def div_filter(store, filter_bounds=None):
 
         # Apply the filter and save to store/dataframe
         put_to_store_or_df(store, se.name, store[group].loc[(low < se) & (se < high)])
-        print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))s
+        print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
     return store
 
 
@@ -137,7 +137,7 @@ def stability_filter(data):
 def negative_filter(data):
     """ Check if none of the heat-flux variables is negative
 
-    Only checks on `heat_vars` e.g. efe_GB and efi_GB
+    Only checks on `heat_vars` e.g. efe_GB, efiTEM_GB etc.
 
     Args:
         data to perform the 'negative check' on
@@ -190,9 +190,37 @@ def femtoflux_filter(data, bound):
         no_femto &= ~((absflux < bound) & (absflux != 0))
     return no_femto
 
-def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound, 
-                  stored_negative_filter=None, stored_ck_filter=None, stored_ambipolar_filter=None,
-                  stored_septot_filter=None, stored_femtoflux_filter=None, startlen=None):
+def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
+                  stored_negative_filter=None,
+                  stored_ck_filter=None,
+                  stored_ambipolar_filter=None,
+                  stored_septot_filter=None,
+                  stored_femtoflux_filter=None,
+                  startlen=None):
+    """ Filter out insane points
+
+    There are points where we do not trust QuaLiKiz. These points are
+    filtered out by functions defined in this module. Currently:
+
+        negative_filter:  Points with negative heat flux
+        ck_filter:        Points with too high convergence errors
+        septot_factor:    Points where sep flux >> total flux
+        ambipolar_filter: Points that don't conserve ambipolarity
+        femtoflux_filter: Point with very tiny fluxes
+
+    Optionally one can provide a earlier-stored filter in the form
+    of a list of indices to remove from the dataset
+    Args:
+        ck_bound:        Maximum ck[i/e]
+        septot_factor:   Maximum factor between tot flux and sep flux
+        ambi_bound:      Maximum factor between dq_i/dt and dq_e/dt
+        femto_bound:     Maximum value of what is defined as femtoflux
+
+    Kwargs:
+        stored_[filter]: List of indices contained in filter [Default: None]
+        starlen:         Total amount of points at start of function. By
+                         default all points in dataset.
+    """
     if startlen is None:
         startlen = len(data)
     # Throw away point if negative heat flux
@@ -219,6 +247,7 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
     print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
     gc.collect()
 
+    # Throw away point if ambipolarity is not conserved
     if stored_ambipolar_filter is None:
         data = data.loc[ambipolar_filter(data, ambi_bound)]
     else:
@@ -226,6 +255,7 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
     print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
     gc.collect()
 
+    # Throw away point if it is a femtoflux
     if stored_femtoflux_filter is None:
         data = data.loc[femtoflux_filter(data, femto_bound)]
     else:
@@ -275,21 +305,34 @@ filter_defaults = {'div':
                    'femtoflux': 1e-4
                    }
 
-def create_stored_filter(store, data, filter_name, filter_var):
+def create_stored_filter(store, data, filter_name, filter_setting):
+    """ Create filter index from filter function
+
+    This function applies the filter specified by `filter_name` and
+    finds the indices of the data that would be filtered out from
+    `data` and saves it in `store[filter/filter_name]`
+
+    Args:
+        store:          `pandas.HDFStore` to save filter indices in
+        data:           Data to apply filter to
+        filter_name:    Name of filter to apply
+        filter_setting: Filter-specific settings. Given to filter function
+    """
     filter_func = filter_functions[filter_name]
     name = ''.join(['/filter/', filter_name])
-    if filter_var is not None:
-        name = ''.join([name, '_', str(filter_var)])
-        var = data.index[~filter_func(data, filter_var)].to_series()
+    if filter_setting is not None:
+        name = '_'.join([name, str(filter_setting)])
+        var = data.index[~filter_func(data, filter_setting)].to_series()
     else:
         var = data.index[~filter_func(data)].to_series()
     store.put(name, var)
 
-def load_stored_filter(store, filter_name, filter_var):
+def load_stored_filter(store, filter_name, filter_setting):
+    """ Load saved filter by `create_stored_filter` from disk"""
     name = ''.join(['/filter/', filter_name])
     try:
-        if filter_var is not None:
-            name = ''.join([name, '_', str(filter_var)])
+        if filter_setting is not None:
+            name = ''.join([name, '_', str(filter_setting)])
             filter = store.get(name)
         else:
             filter = store.get(name)
@@ -340,7 +383,7 @@ def create_divsum(store, divnames=gen3_div_names):
         res = (one / two).dropna()
         put_to_store_or_df(store, name, res)
 
-def create_divsum(store):
+def create_divsum_legacy(store):
     for group in store:
         if isinstance(store, pd.HDFStore):
             group = group[1:]
@@ -374,19 +417,16 @@ def create_divsum(store):
             put_to_store_or_df(store, set.name, set)
     return store
 
-def filter_9D_to_7D(input, Zeff=1, Nustar=1e-3):
-    if len(input.columns) != 9:
-        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te', 'Zeff', 'Nustar']")
-
+def filter_Zeff_Nustar(input, Zeff=1, Nustar=1e-3):
+    """ Filter out Zeff and Nustar """
     idx = input.index[(
         np.isclose(input['Zeff'], Zeff,     atol=1e-5, rtol=1e-3) &
         np.isclose(input['Nustar'], Nustar, atol=1e-5, rtol=1e-3)
     )]
     return idx
 
-def filter_7D_to_4D(input, Ate=6.5, An=2, x=0.45):
-    if len(input.columns) != 7:
-        print("Warning! This function assumes 9D input with ['Ati', 'Ate', 'An', 'q', 'smag', 'x', 'Ti_Te']")
+def filter_Ate_An_x(input, Ate=6.5, An=2, x=0.45):
+    """ Filter out Ate, An and x"""
 
     idx = input.index[(
         np.isclose(input['Ate'], Ate,     atol=1e-5, rtol=1e-3) &
@@ -395,12 +435,28 @@ def filter_7D_to_4D(input, Ate=6.5, An=2, x=0.45):
     )]
     return idx
 
-def split_input(input, const):
+def split_karel9D_input(input, const):
+    """ Split karel-style 9D input data in 9, 7 and 4D
+
+    The karel-style 9D dataset has as input/features:
+    [Zeff, Ati, Ate, An, q, smag, x, Ti_Te, Nustar]
+    We split this dataset in a 7D one by choosing Zeff and Nustar = const,
+    and further split this dataset to 4D by choosing Ate, An, and x = const
+
+    Args:
+        input:   The dataframe containing at least Zeff, Nustar, Ate, An, and x
+        const:   Series containing the variables constant for this dataset
+
+    Returns:
+        idx:     Dict with indexes for the 9D, 7D, and 4D dataset
+        inputs:  Dict with already-split (input) dataframes
+        consts:  Dict with constant variables for the given dataset
+    """
     idx = {}
     consts = {9: const.copy(),
               7: const.copy(),
               4: const.copy()}
-    idx[7] = filter_9D_to_7D(input)
+    idx[7] = filter_Zeff_Nustar(input)
 
     inputs = {9: input}
     idx[9] = input.index
@@ -409,7 +465,7 @@ def split_input(input, const):
         consts[7][name] = float(inputs[7].head(1)[name].values)
     inputs[7].drop(['Zeff', 'Nustar'], axis='columns', inplace=True)
 
-    idx[4] = filter_7D_to_4D(inputs[7])
+    idx[4] = filter_Ate_An_x(inputs[7])
     inputs[4] = inputs[7].loc[idx[4]]
     for name in ['Ate', 'An', 'x']:
         consts[4][name] = float(inputs[4].head(1)[name].values)
@@ -417,15 +473,32 @@ def split_input(input, const):
 
     return idx, inputs, consts
 
-def split_dims(input, data, const, gen, prefix=''):
-    idx, inputs, consts = split_input(input, const)
-    for dim in [7, 4]:
+def split_dims(input, data, const, gen, prefix='', split_func=split_karel9D_input):
+    """ Split full dataset in lower-D subsets and save to store
+
+
+    Args:
+        input:      Dataframe containing input/feature variables
+        data:       Dataframe containing output/target variables
+        const:      Series containing constants for this dataset
+        gen:        Generation indicator. Needed to generate store name
+
+    Kwargs:
+        prefix:     Prefix to store name. [Default: '']
+        split_func: Function use to split the dataset. Signature should match
+                    the default function. [Default: `split_karel9D_input`]
+    """
+    idx, inputs, consts = split_func(input, const)
+    subdims = list(dx.keys())
+    subdims.remove(max(idx.keys()))
+    for dim in sorted(subdims):
         print('splitting', dim)
         store_name = prefix + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5'
         save_to_store(inputs[dim], data.loc[idx[dim]], consts[dim], store_name)
 
 def split_subsets(input, data, const, gen, frac=0.1):
-    idx, inputs, consts = split_input(input, const)
+    """ Randomly split full dataset in 'test' and 'training' and save to store """
+    idx, inputs, consts = split_karel9D_input(input, const)
 
     rand_index = pd.Int64Index(np.random.permutation(input.index))
     sep_index = int(frac * len(rand_index))
