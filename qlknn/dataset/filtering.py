@@ -13,7 +13,9 @@ import numpy as np
 
 from qlknn.dataset.data_io import put_to_store_or_df, save_to_store, load_from_store, sep_prefix
 from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_partial_diffusion, is_partial_particle
+from qlknn.misc.tools import profile
 
+@profile
 def regime_filter(data, geq, less):
     """ Filter the dataset based on the total ion/electron heat flux
     This filter is used to constain the dataset to experimentally relevant
@@ -32,6 +34,7 @@ def regime_filter(data, geq, less):
     data = data.loc[within]
     return data
 
+@profile
 def div_filter(store, filter_bounds=None):
     """ Filter flux_div_flux variables based on bounds
     We know from experience the maximum relative difference in flux between
@@ -84,7 +87,7 @@ def div_filter(store, filter_bounds=None):
         print('{:5.2f}% of sane unstable {!s:<9} points inside div bounds'.format(np.sum(~store[group].isnull()) / pre * 100, group))
     return store
 
-
+@profile
 def stability_filter(data):
     """ Filter out the stable points based on growth rate
 
@@ -109,6 +112,7 @@ def stability_filter(data):
         if splitted[0] not in heat_vars + particle_vars + momentum_vars:
             print('skipping {!s}'.format(col))
             continue
+        # First check for which regime this variable should be filtered
         if splitted[2] == 'TEM':
             gam_filter = 'tem'
         elif splitted[2] == 'ITG':
@@ -121,6 +125,7 @@ def stability_filter(data):
             gam_filter = 'ion'
 
         pre = np.sum(~data[col].isnull())
+        # Now apply a filter based on the regime of the variable
         if gam_filter == 'ion':
             data[col] = data[col].loc[data['gam_leq_GB'] != 0]
         elif gam_filter == 'elec':
@@ -134,6 +139,7 @@ def stability_filter(data):
         print('{:5.2f}% of sane {!s:<9} points unstable at {!s:<5} scale'.format(np.sum(~data[col].isnull()) / pre * 100, col, gam_filter))
     return data
 
+@profile
 def negative_filter(data):
     """ Check if none of the heat-flux variables is negative
 
@@ -153,10 +159,12 @@ def negative_filter(data):
             anyisneg &= (data[col] >= 0)
     return anyisneg
 
+@profile
 def ck_filter(data, bound):
     """ Check if convergence checks cki and cki are within bounds"""
     return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
 
+@profile
 def septot_filter(data, septot_factor, startlen=None):
     """ Check if ITG/TEM/ETG heat flux !>> total_flux"""
     if startlen is None:
@@ -177,10 +185,12 @@ def septot_filter(data, septot_factor, startlen=None):
                 print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*np.sum(bool)/startlen))
     return difference_okay
 
+@profile
 def ambipolar_filter(data, bound):
     """ Check if ambipolarity is conserved """
     return (data['absambi'] < bound) & (data['absambi'] > 1/bound)
 
+@profile
 def femtoflux_filter(data, bound):
     """ Check if flux is no 'femto_flux', a very small non-zero flux"""
     fluxes = [col for col in data if len(re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)) == 5 if re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)[0] in particle_vars + heat_vars + momentum_vars]
@@ -363,6 +373,7 @@ gen3_div_names_dv = [
 ]
 gen3_div_names = gen3_div_names_base + gen3_div_names_dv
 
+@profile
 def create_divsum(store, divnames=gen3_div_names):
     """ Create individual targets needed vor divsum-style networks
 
@@ -417,6 +428,7 @@ def create_divsum_legacy(store):
             put_to_store_or_df(store, set.name, set)
     return store
 
+@profile
 def filter_Zeff_Nustar(input, Zeff=1, Nustar=1e-3):
     """ Filter out Zeff and Nustar """
     idx = input.index[(
@@ -425,6 +437,7 @@ def filter_Zeff_Nustar(input, Zeff=1, Nustar=1e-3):
     )]
     return idx
 
+@profile
 def filter_Ate_An_x(input, Ate=6.5, An=2, x=0.45):
     """ Filter out Ate, An and x"""
 
@@ -435,6 +448,7 @@ def filter_Ate_An_x(input, Ate=6.5, An=2, x=0.45):
     )]
     return idx
 
+@profile
 def split_karel9D_input(input, const):
     """ Split karel-style 9D input data in 9, 7 and 4D
 
@@ -473,6 +487,7 @@ def split_karel9D_input(input, const):
 
     return idx, inputs, consts
 
+@profile
 def split_dims(input, data, const, gen, prefix='', split_func=split_karel9D_input):
     """ Split full dataset in lower-D subsets and save to store
 
@@ -496,6 +511,7 @@ def split_dims(input, data, const, gen, prefix='', split_func=split_karel9D_inpu
         store_name = prefix + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5'
         save_to_store(inputs[dim], data.loc[idx[dim]], consts[dim], store_name)
 
+@profile
 def split_subsets(input, data, const, gen, frac=0.1):
     """ Randomly split full dataset in 'test' and 'training' and save to store """
     idx, inputs, consts = split_karel9D_input(input, const)
@@ -516,12 +532,12 @@ def split_subsets(input, data, const, gen, frac=0.1):
 
 if __name__ == '__main__':
     dim = 9
-    gen = 3
-    filter_num = 8
+    gen = 4
+    filter_num = 10
 
     root_dir = '.'
     basename = ''.join(['gen', str(gen), '_', str(dim), 'D_nions0_flat'])
-    store_name = basename + '.h5'
+    store_name = basename + '.h5.1'
 
     input, data, const = load_from_store(store_name)
     # Summarize the diffusion stats in a single septot filter
