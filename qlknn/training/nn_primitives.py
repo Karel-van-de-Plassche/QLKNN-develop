@@ -3,6 +3,7 @@ import numpy as np
 import subprocess
 import json
 import pandas as pd
+from collections import OrderedDict
 
 def scale_panda(panda, factor, bias):
     if isinstance(panda, pd.Series):
@@ -20,7 +21,60 @@ def descale_panda(panda, factor, bias):
     panda = (panda - bias[filter]) / factor[filter]
     return panda
 
-def model_to_json(name, trainable, feature_names, target_names,
+def descale_variable(a, b, var):
+    return (var - b) / a
+
+def model_to_json(name, trainable=None, feature_names=None, target_names=None, scale_factor=None, scale_bias=None, train_set=None, settings=None):
+    """
+    trainable: dict with all trainable values (e.g. weights and baises) get this with: `{x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}`
+    feature_names: List of feature names. Order matters!
+    target_names: List of target names. Order matters!
+    scale_factor: Series with the 'a' of y_scaled = a * y + b
+    scale_bias: Series with the 'b' of y_scaled = a * y + b
+    train_set:  The full DataFrame used for training. To caclulate min/max values
+    settings: The settings dict used for training. Used to extract the activation functions.
+    """
+    from IPython import embed
+    nn_dict = OrderedDict()
+    nn_dict['target_names'] = target_names
+    nn_dict['feature_names'] = feature_names
+    nn_dict['hidden_activation'] = settings['hidden_activation']
+    nn_dict['output_activation'] = settings['output_activation']
+    feature_a = scale_factor[feature_names].values
+    feature_b = scale_bias[feature_names].values
+    target_a = scale_factor[target_names].values
+    target_b = scale_bias[target_names].values
+    nn_dict['feature_min'] = OrderedDict(zip(feature_names,
+                                             descale_variable(feature_a,
+                                                              feature_b,
+                                                              train_set._features.min(axis=0)).tolist()
+    ))
+    nn_dict['feature_max'] = OrderedDict(zip(feature_names,
+                                             descale_variable(feature_a,
+                                                              feature_b,
+                                                              train_set._features.max(axis=0)).tolist()
+    ))
+    nn_dict['target_min'] = OrderedDict(zip(target_names,
+                                            descale_variable(target_a,
+                                                             target_b,
+                                                             train_set._target.min(axis=0)).tolist()
+    ))
+    nn_dict['target_max'] = OrderedDict(zip(target_names,
+                                            descale_variable(target_a,
+                                                             target_b,
+                                                             train_set._target.max(axis=0)).tolist()
+    ))
+    nn_dict['prescale_factor'] = OrderedDict((name, val) for name, val in scale_factor.items())
+    nn_dict['prescale_bias'] = OrderedDict((name, val) for name, val in scale_bias.items())
+    nn_dict.update(trainable)
+    #nn_dict['target_min'] = OrderedDict(descale_variable())
+    with open(name, 'w') as file_:
+        json.dump(nn_dict, file_, indent=4, separators=(',', ': '))
+
+
+
+
+def model_to_json_legacy(name, trainable, feature_names, target_names,
                   train_set,
                   feature_scale_factor, feature_scale_bias,
                   target_scale_factor, target_scale_bias,

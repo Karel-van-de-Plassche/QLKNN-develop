@@ -10,6 +10,7 @@ import subprocess
 import json
 from itertools import product
 from shutil import copyfile
+from collections import OrderedDict
 
 if not (sys.version_info > (3, 0)):
     range = xrange
@@ -232,15 +233,25 @@ def train(settings, warm_start_nn=None):
 
 
     timediff(start, 'NN defined')
+    if settings['cost_stable_positive_scale'] != 0:
+        goodness_only_on_unstable = True
+        orig_is_stable = tf.less_equal(y_ds_descale, 0)
 
     # Define loss functions
     with tf.name_scope('Loss'):
         with tf.name_scope('mse'):
-            mse = tf.losses.mean_squared_error(y_ds, y)
-            mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale)
+            if goodness_only_on_unstable:
+                mse = tf.losses.mean_squared_error(y_ds, y, weights=tf.logical_not(orig_is_stable))
+                mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale, weights=tf.logical_not(orig_is_stable))
+            else:
+                mse = tf.losses.mean_squared_error(y_ds, y)
+                mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale)
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('mabse'):
-            mabse = tf.losses.absolute_difference(y_ds, y)
+            if goodness_only_on_unstable:
+                mabse = tf.losses.absolute_difference(y_ds, y, weights=tf.logical_not(orig_is_stable))
+            else:
+                mabse = tf.losses.absolute_difference(y_ds, y)
             tf.summary.scalar('MABSE', mabse)
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(settings['cost_l2_scale'], dtype=x.dtype, trainable=False)
@@ -254,8 +265,8 @@ def train(settings, warm_start_nn=None):
             #mse = tf.losses.mean_squared_error(y_, y)
             # TODO: Check normalization
             l2_loss = l2_scale * l2_norm
-            tf.summary.scalar('l2_norm', l2_norm)
-            tf.summary.scalar('l2_scale', l2_scale)
+            #tf.summary.scalar('l2_norm', l2_norm)
+            #tf.summary.scalar('l2_scale', l2_scale)
             tf.summary.scalar('l2_loss', l2_loss)
         with tf.name_scope('l1'):
             l1_scale = tf.Variable(settings['cost_l1_scale'], dtype=x.dtype, trainable=False)
@@ -267,27 +278,34 @@ def train(settings, warm_start_nn=None):
                                     if 'weights' in var.name]))
             # TODO: Check normalization
             l1_loss = l1_scale * l1_norm
-            tf.summary.scalar('l1_norm', l1_norm)
-            tf.summary.scalar('l1_scale', l1_scale)
+            #tf.summary.scalar('l1_norm', l1_norm)
+            #tf.summary.scalar('l1_scale', l1_scale)
             tf.summary.scalar('l1_loss', l1_loss)
         with tf.name_scope('stable_positive'):
             stable_positive_scale = tf.Variable(settings['cost_stable_positive_scale'], dtype=x.dtype, trainable=False)
-            orig_is_stable = tf.less_equal(y_ds_descale, 0)
             nn_pred_unstable = tf.greater(y, 0)
             punish_unstable_pred = tf.logical_and(orig_is_stable, nn_pred_unstable)
-            stable_positive_loss = tf.reduce_sum(stable_positive_scale * tf.cast(punish_unstable_pred, x.dtype))
+            stable_positive_loss = tf.reduce_mean(stable_positive_scale * tf.cast(punish_unstable_pred, x.dtype))
+            tf.summary.scalar('stable_positive_loss', stable_positive_loss)
 
         if settings['goodness'] == 'mse':
-            loss = mse
+            goodness_loss = mse
         elif settings['goodness'] == 'mabse':
-            loss = mabse
-        if settings['cost_l1_scale'] != 0:
-            loss += l1_loss
-        if settings['cost_l2_scale'] != 0:
-            loss += l2_loss
+            goodness_loss = mabse
+        loss = goodness_loss
         if settings['cost_stable_positive_scale'] != 0:
             loss += stable_positive_loss
-        tf.summary.scalar('loss', loss)
+            stable_positive_loss_importance = stable_positive_loss / goodness_loss
+            tf.summary.scalar('stable_positive_loss_importance', stable_positive_loss_importance)
+        if settings['cost_l1_scale'] != 0:
+            loss += l1_loss
+            rel_l1_loss_importance = l1_loss / goodness_loss
+            tf.summary.scalar('rel_l1_loss_importance', rel_l1_loss_importance)
+        if settings['cost_l2_scale'] != 0:
+            loss += l2_loss
+            rel_l2_loss_importance = l2_loss / goodness_loss
+            tf.summary.scalar('rel_l2_loss_importance', rel_l2_loss_importance)
+        tf.summary.scalar('total loss', loss)
 
     optimizer = None
     train_step = None
@@ -383,7 +401,7 @@ def train(settings, warm_start_nn=None):
     train_log.to_csv(train_log_file, float_format=ffmt, header=header)
     validation_log_file = open('validation_log.csv', 'a', 1)
     validation_log_file.truncate(0)
-    validation_log.to_csv(validation_log_file, float_format=ffmt)
+    validation_log.to_csv(validation_log_file, float_format=ffmt, header=header)
 
     timediff(start, 'Training started')
     train_start = time.time()
@@ -502,17 +520,14 @@ def train(settings, warm_start_nn=None):
                     nn_best_file = os.path.join(checkpoint_dir,
                                                   'nn_checkpoint_' + str(epoch) + '.json')
                     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
-                    model_to_json(nn_best_file, 
-                                  trainable,
-                                  feature_names,
-                                  target_names,
-                                  datasets.train,
-                                  scale_factor[feature_names].astype('float64').tolist(),
-                                  scale_bias[feature_names].astype('float64').tolist(),
-                                  scale_factor[target_names].astype('float64').tolist(),
-                                  scale_bias[target_names].astype('float64').tolist(),
-                                  l2_scale,
-                                  settings)
+                    model_to_json(nn_best_file,
+                                  trainable=trainable,
+                                  feature_names=feature_names,
+                                  target_names=target_names,
+                                  train_set=datasets.train,
+                                  scale_factor=scale_factor,
+                                  scale_bias=scale_bias,
+                                  settings=settings)
                 not_improved = 0
             else: # If early measure is not better
                 not_improved += 1
@@ -523,16 +538,13 @@ def train(settings, warm_start_nn=None):
                                                   'nn_checkpoint_' + str(epoch) + '.json')
                     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
                     model_to_json(nn_checkpoint_file,
-                                  trainable,
-                                  feature_names,
-                                  target_names,
-                                  datasets.train,
-                                  scale_factor[feature_names].astype('float64').tolist(),
-                                  scale_bias[feature_names].astype('float64').tolist(),
-                                  scale_factor[target_names].astype('float64').tolist(),
-                                  scale_bias[target_names].astype('float64').tolist(),
-                                  l2_scale,
-                                  settings)
+                                  trainable=trainable,
+                                  feature_names=feature_names,
+                                  target_names=target_names,
+                                  train_set=datasets.train,
+                                  scale_factor=scale_factor,
+                                  scale_bias=scale_bias,
+                                  settings=settings)
 
                 print('Not improved for %s epochs, stopping..'
                       % (not_improved))
@@ -572,19 +584,17 @@ def train(settings, warm_start_nn=None):
     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
 
     model_to_json('nn.json',
-                  trainable,
-                  feature_names,
-                  target_names,
-                  datasets.train,
-                  scale_factor[feature_names].astype('float64').tolist(),
-                  scale_bias[feature_names].astype('float64').tolist(),
-                  scale_factor[target_names].astype('float64').tolist(),
-                  scale_bias[target_names].astype('float64').tolist(),
-                  l2_scale,
-                  settings)
+                  trainable=trainable,
+                  feature_names=feature_names,
+                  target_names=target_names,
+                  train_set=datasets.train,
+                  scale_factor=scale_factor,
+                  scale_bias=scale_bias,
+                  settings=settings)
 
     print("Best epoch was {:d} with measure '{:s}' of {:f} ".format(best_epoch, settings['early_stop_measure'], best_early_measure))
-    print("Training time was {:.0f} seconds".format(time.time() - train_start))
+    train_time = time.time() - train_start
+    print("Training time was {:.0f} seconds".format(train_time))
 
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
@@ -602,16 +612,24 @@ def train(settings, warm_start_nn=None):
                 'rms_validation':  float(rms_val),
                 'loss_validation': float(loss_val),
                 'rms_validation_descaled': float(rms_val_descale),
+                'walltime [s]': train_time,
                 }
+    try:
+        import socket
+        metadata['hostname'] = socket.gethostname()
+    except:
+        pass
 
     # Add metadata dict to nn.json
     with open('nn.json') as nn_file:
-        data = json.load(nn_file)
+        data = json.load(nn_file, object_pairs_hook=OrderedDict)
 
     data['_metadata'] = metadata
+    data.move_to_end('_metadata', last=False)
+    data['_parsed_settings'] = settings
 
     with open('nn.json', 'w') as nn_file:
-        json.dump(data, nn_file, sort_keys=True, indent=4, separators=(',', ': '))
+        json.dump(data, nn_file, indent=4, separators=(',', ': '))
     sess.close()
 
 def train_NDNN_from_folder(warm_start_nn=None):
