@@ -602,6 +602,7 @@ def train(settings, warm_start_nn=None):
     rms_val = np.round(np.sqrt(mse.eval(feed_dict, session=sess)), 4)
     rms_val_descale = np.round(np.sqrt(mse_descale.eval(feed_dict, session=sess)), 4)
     loss_val = np.round(loss.eval(feed_dict, session=sess), 4)
+    l2_loss_val = np.round(l2_loss.eval(feed_dict, session=sess), 4)
     print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
     print('{:22} {:5.2f}'.format('Descaled validation RMS error: ', rms_val_descale))
     print('{:22} {:5.2f}'.format('Validation loss: ', loss_val))
@@ -611,9 +612,16 @@ def train(settings, warm_start_nn=None):
                 'best_epoch':      best_epoch,
                 'rms_validation':  float(rms_val),
                 'loss_validation': float(loss_val),
+                'l2_loss_validation': float(l2_loss_val),
                 'rms_validation_descaled': float(rms_val_descale),
                 'walltime [s]': train_time,
                 }
+
+    try:
+        stable_positive_loss_val = np.round(stable_positive_loss.eval(feed_dict, session=sess), 4)
+        metadata['stable_positive_loss_validation'] = float(stable_positive_loss_val)
+    except:
+        pass
     try:
         import socket
         metadata['hostname'] = socket.gethostname()
