@@ -17,6 +17,7 @@
     "drop_chance": 0.0,
     "output_activation": "none",
     "standardization": "normsm_1_0",
+    "calc_standardization_on_nonzero":true,
     "goodness": "mse",
     "cost_l2_scale": 0.1,
     "cost_l1_scale": 0.0,

@@ -102,7 +102,7 @@ def prep_dataset(settings):
     return data_df
 
 @profile
-def standardize(data_df, settings, warm_start_nn):
+def calc_standardization(data_df, settings, warm_start_nn=None):
     if warm_start_nn is None:
         if settings['standardization'].startswith('minmax'):
             min = float(settings['standardization'].split('_')[-2])
@@ -119,8 +119,7 @@ def standardize(data_df, settings, warm_start_nn):
         scale_bias = pd.concat([warm_start_nn._feature_prescale_bias,
                                   warm_start_nn._target_prescale_bias])
 
-    data_df = scale_panda(data_df, scale_factor, scale_bias)
-    return data_df, scale_factor, scale_bias
+    return scale_factor, scale_bias
 
 class QLKNet:
     def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None):
@@ -192,15 +191,27 @@ def train(settings, warm_start_nn=None):
     start = time.time()
 
     data_df = prep_dataset(settings)
-    data_df, scale_factor, scale_bias = standardize(data_df, settings, warm_start_nn=warm_start_nn)
-
-    # Standardize input
-    timediff(start, 'Scaling defined')
-
     target_names = settings['train_dims']
     feature_names = list(data_df.columns)
     for dim in target_names:
         feature_names.remove(dim)
+
+    if settings['calc_standardization_on_nonzero']:
+        any_nonzero = (data_df[target_names] != 0).any(axis=1)
+        data_df_nonzero = data_df.loc[any_nonzero, :]
+        data_df_zero = data_df.loc[~any_nonzero, :]
+        scale_factor, scale_bias = \
+            calc_standardization(data_df_nonzero, settings,
+                                 warm_start_nn=warm_start_nn)
+        data_df = scale_panda(data_df, scale_factor, scale_bias)
+    else:
+        scale_factor, scale_bias = \
+            calc_standardization(data_df, settings,
+                                 warm_start_nn=warm_start_nn)
+        data_df = scale_panda(data_df, scale_factor, scale_bias)
+
+    # Standardize input
+    timediff(start, 'Scaling defined')
 
     datasets = convert_panda(data_df, feature_names, target_names, settings['validation_fraction'], settings['test_fraction'])
 
