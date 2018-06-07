@@ -257,6 +257,7 @@ def train(settings, warm_start_nn=None):
             else:
                 mse = tf.losses.mean_squared_error(y_ds, y)
                 mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale)
+            tf.summary.scalar('RMS descaled', tf.sqrt(mse_descale))
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('mabse'):
             if goodness_only_on_unstable:
@@ -416,7 +417,7 @@ def train(settings, warm_start_nn=None):
 
     timediff(start, 'Training started')
     train_start = time.time()
-    ii = 0
+    global_step = 0
     try:
         for epoch in range(max_epoch):
             for step in range(minibatches):
@@ -452,7 +453,8 @@ def train(settings, warm_start_nn=None):
                                                       options=run_options,
                                                       run_metadata=run_metadata
                                                       )
-                train_writer.add_summary(summary, ii)
+                train_writer.add_summary(summary, global_step)
+                print(global_step)
 
                 # Extra debugging every steps_per_report
                 if not step % steps_per_report and steps_per_report != np.inf:
@@ -466,6 +468,8 @@ def train(settings, warm_start_nn=None):
                 # Add to CSV log buffer
                 if track_training_time is True:
                     train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+
+                global_step += 1
             ########
             # After-epoch stuff
             ########
@@ -492,7 +496,7 @@ def train(settings, warm_start_nn=None):
                                            run_metadata=run_metadata)
 
 
-            validation_writer.add_summary(summary, ii)
+            validation_writer.add_summary(summary, global_step)
             # More debugging every epochs_per_report
             if not epoch % epochs_per_report and epochs_per_report != np.inf:
                 tl = timeline.Timeline(run_metadata.step_stats)
@@ -505,7 +509,7 @@ def train(settings, warm_start_nn=None):
 
             # Save checkpoint
             save_path = saver.save(sess, os.path.join(checkpoint_dir,
-                                                      'model.ckpt'), global_step=ii, write_meta_graph=False)
+                                                      'model.ckpt'), global_step=global_step, write_meta_graph=False)
 
             # Update CSV logs
             if track_training_time is True:
