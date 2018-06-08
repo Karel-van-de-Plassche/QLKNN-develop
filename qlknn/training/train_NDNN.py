@@ -143,7 +143,8 @@ class QLKNet:
         self.is_train = tf.placeholder(tf.bool)
         for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
             if warm_start_nn is None:
-                weight_init = bias_init = 'norm_1_0'
+                weight_init = settings['weight_init']
+                bias_init = settings['bias_init']
             else:
                 if (warm_start_nn.layers[ii - 1]._activation == activation and
                     warm_start_nn.layers[ii - 1]._weights.shape[1] == neurons):
@@ -172,7 +173,7 @@ class QLKNet:
         # Last layer (output layer) usually has no activation
         activation = settings['output_activation']
         if warm_start_nn is None:
-            weight_init = bias_init = 'norm_1_0'
+            weight_init = bias_init = settings['standardization']
         else:
             weight_init = warm_start_nn.layers[-1]._weights
             bias_init = warm_start_nn.layers[-1]._biases
@@ -257,7 +258,6 @@ def train(settings, warm_start_nn=None):
             else:
                 mse = tf.losses.mean_squared_error(y_ds, y)
                 mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale)
-            tf.summary.scalar('RMS descaled', tf.sqrt(mse_descale))
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('mabse'):
             if goodness_only_on_unstable:
@@ -308,16 +308,30 @@ def train(settings, warm_start_nn=None):
         if settings['cost_stable_positive_scale'] != 0:
             loss += stable_positive_loss
             stable_positive_loss_importance = stable_positive_loss / goodness_loss
-            tf.summary.scalar('stable_positive_loss_importance', stable_positive_loss_importance)
         if settings['cost_l1_scale'] != 0:
             loss += l1_loss
             rel_l1_loss_importance = l1_loss / goodness_loss
-            tf.summary.scalar('rel_l1_loss_importance', rel_l1_loss_importance)
         if settings['cost_l2_scale'] != 0:
             loss += l2_loss
             rel_l2_loss_importance = l2_loss / goodness_loss
-            tf.summary.scalar('rel_l2_loss_importance', rel_l2_loss_importance)
         tf.summary.scalar('total loss', loss)
+
+    with tf.name_scope('goodness'):
+        tf.summary.scalar('RMS descaled', tf.sqrt(mse_descale))
+
+    with tf.name_scope('importance'):
+        try:
+            tf.summary.scalar('rel_l2_loss_importance', rel_l2_loss_importance)
+        except:
+            pass
+        try:
+            tf.summary.scalar('rel_l1_loss_importance', rel_l1_loss_importance)
+        except:
+            pass
+        try:
+            tf.summary.scalar('stable_positive_loss_importance', stable_positive_loss_importance)
+        except:
+            pass
 
     optimizer = None
     train_step = None
@@ -418,6 +432,7 @@ def train(settings, warm_start_nn=None):
     timediff(start, 'Training started')
     train_start = time.time()
     global_step = 0
+    stop_reason = 'nothing special'
     try:
         for epoch in range(max_epoch):
             for step in range(minibatches):
@@ -563,15 +578,18 @@ def train(settings, warm_start_nn=None):
 
                 print('Not improved for %s epochs, stopping..'
                       % (not_improved))
+                stop_reason = 'early_stopping'
                 break
 
             # Stop if loss is nan or inf
             if np.isnan(lo) or np.isinf(lo):
                 print('Loss is {}! Stopping..'.format(lo))
+                stop_reason = 'NaN or inf loss'
                 break
 
     # Stop on Ctrl-C
     except KeyboardInterrupt:
+        stop_reason = 'KeyboardInterrupt'
         print('KeyboardInterrupt Stopping..')
 
     train_writer.close()
@@ -630,6 +648,7 @@ def train(settings, warm_start_nn=None):
                 'l2_loss_validation': float(l2_loss_val),
                 'rms_validation_descaled': float(rms_val_descale),
                 'walltime [s]': train_time,
+                'stop_reason': stop_reason
                 }
 
     try:

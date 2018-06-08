@@ -104,24 +104,28 @@ def model_to_json_legacy(name, trainable, feature_names, target_names,
     with open(name, 'w') as file_:
         json.dump(trainable, file_, sort_keys=True, indent=4, separators=(',', ': '))
 
-def weight_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
+def weight_variable(shape, init='normsm_1_0', dtype=tf.float64, **kwargs):
     """Create a weight variable with appropriate initialization."""
-    #initial = tf.truncated_normal(shape, stddev=0.1)
-    if isinstance(init, np.ndarray):
-        initial = tf.constant(init, dtype=dtype)
-    else:
-        if init == 'norm_1_0':
-            initial = tf.random_normal(shape, dtype=dtype, **kwargs)
+    initial = parse_init(shape, init, dtype=dtype, **kwargs)
     return tf.Variable(initial)
 
-def bias_variable(shape, init='norm_1_0', dtype=tf.float64, **kwargs):
-    """Create a bias variable with appropriate initialization."""
-    #initial = tf.constant(0.1, shape=shape)
-    if isinstance(init, np.ndarray):
+def parse_init(shape, init, dtype=np.float64, **kwargs):
+    if isinstance(init, str):
+        if init.startswith('normsm'):
+            __, s, m = init.split('_')
+            initial = tf.random_normal(shape, dtype=dtype, mean=float(m), stddev=float(s), **kwargs)
+    elif isinstance(init, np.ndarray):
         initial = tf.constant(init, dtype=dtype)
-    else:
-        if init == 'norm_1_0':
-            initial = tf.random_normal(shape, dtype=dtype, **kwargs)
+    try:
+        initial
+    except:
+        raise Exception('Could not parse init {!s}'.format(init))
+    return initial
+
+
+def bias_variable(shape, init='normsm_1_0', dtype=tf.float64, **kwargs):
+    """Create a bias variable with appropriate initialization."""
+    initial = parse_init(shape, init, dtype=dtype, **kwargs)
     return tf.Variable(initial)
 
 def variable_summaries(var):
@@ -138,7 +142,7 @@ def variable_summaries(var):
         tf.summary.histogram('histogram', var)
 
 def nn_layer(input_tensor, output_dim, layer_name, act=tf.nn.relu,
-             dtype=tf.float32, debug=False, weight_init='norm_1_0', bias_init='norm_1_0'):
+             dtype=tf.float32, debug=False, weight_init='normsm_1_0', bias_init='normsm_1_0'):
     """Reusable code for making a simple neural net layer.
     It does a matrix multiply, bias add, and then uses relu to nonlinearize.
     It also sets up name scoping so that the resultant graph is easy to read,

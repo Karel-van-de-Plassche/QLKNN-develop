@@ -25,6 +25,8 @@
     "early_stop_after": 15,
     "early_stop_measure": "loss",
     "minibatches": 10,
+    "weight_init": "normsm_1_0",
+    "bias_init": "normsm_1_0",
 
     "validation_fraction": 0.05,
     "test_fraction": 0.05,
