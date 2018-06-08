@@ -152,6 +152,11 @@ class QuaLiKizNDNN():
             self._metadata = parsed.pop('_metadata')
         except KeyError:
             pass
+        # Ignore parsed settings
+        try:
+            self._parsed_settings = parsed.pop('_parsed_settings')
+        except KeyError:
+            pass
         if any(parsed):
             warn('nn_dict not fully parsed! ' + str(parsed))
 

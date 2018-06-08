@@ -1075,6 +1075,10 @@ class NetworkMetadata(BaseModel):
     loss_test = FloatField(null=True)
     loss_train = FloatField(null=True)
     loss_validation = FloatField()
+    l2_loss_validation = FloatField(null=True)
+    walltime = FloatField()
+    stop_reason = TextField()
+    stable_positive_loss_validation = FloatField(null=True)
     metadata = HStoreField()
 
     @classmethod
@@ -1106,6 +1110,10 @@ class NetworkMetadata(BaseModel):
             loss_train=loss_train,
             loss_validation=json_dict['loss_validation'],
             loss_test=loss_test,
+            l2_loss_validation=json_dict['l2_loss_validation'],
+            walltime=json_dict['walltime [s]'],
+            stop_reason=json_dict['stop_reason'],
+            stable_positive_loss_validation=json_dict['stable_positive_loss_validation'],
             metadata=stringified
         )
         network_metadata.save()
@@ -1132,11 +1140,12 @@ class TrainMetadata(BaseModel):
             train_metadatas = []
             try:
                 with open(os.path.join(pwd, name + '_log.csv')) as file_:
-                    df = pd.DataFrame.from_csv(file_)
+                    df = pd.read_csv(file_)
             except IOError:
                 pass
             else:
                 # TODO: Only works on debian-like
+                df.columns = [col.strip() for col in df.columns]
                 train_metadata = TrainMetadata(
                     pure_network_params=pure_network_params,
                     set=name,
@@ -1173,6 +1182,10 @@ class Hyperparameters(BaseModel):
     drop_outlier_below = FloatField()
     validation_fraction = FloatField()
     dtype = TextField()
+    cost_stable_positive_scale = FloatField()
+    calc_standardization_on_nonzero = BooleanField()
+    weight_init = TextField()
+    bias_init = TextField()
 
     @classmethod
     def from_settings(cls, pure_network_params, settings):
@@ -1192,7 +1205,12 @@ class Hyperparameters(BaseModel):
                        drop_outlier_above=settings['drop_outlier_above'],
                        drop_outlier_below=settings['drop_outlier_below'],
                        validation_fraction=settings['validation_fraction'],
-                       dtype=settings['dtype'])
+                       dtype=settings['dtype'],
+                       cost_stable_positive_scale=settings['cost_stable_positive_scale'],
+                       calc_standardization_on_nonzero=settings['calc_standardization_on_nonzero'],
+                       weight_init=settings['weight_init'],
+                       bias_init=settings['bias_init']
+                       )
         return hyperpar
 
 
