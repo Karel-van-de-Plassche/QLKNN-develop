@@ -325,6 +325,7 @@ class TrainNarrow9DBatch(TrainBatch):
             'hidden_neurons': [[128] * 3],
             'filter': [8],
             'activations': ['tanh'],
+            'minibatches': [20]
             }
 
     plan['dataset_path'] = []
@@ -346,47 +347,33 @@ class TrainAll9DNetworks(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
 
     def requires(self):
-        for train_dims in gen3_single_target_list:
+        for train_dims in gen3_target_list:
             yield TrainNarrow9DBatch(self.submit_date, train_dims)
 
 class TrainAll7DNetworks(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
 
     def requires(self):
-        for train_dims in gen3_target_list:
+        for train_dims in gen3_single_target_list:
             yield TrainMidsize7DBatch(self.submit_date, train_dims)
 
-def target_names_generator():
-    for mode in ['', 'ITG', 'TEM']:
-        type = 'ef'
-        for op in ['plus', 'div']:
-            name = type + 'i' + mode + '_GB_' + op + '_' + type + 'e' + mode + '_GB'
-            yield [name]
-        name = type + 'e' + mode + '_GB_' + 'div' + '_' + type + 'i' + mode + '_GB'
-        yield [name]
-        for species in ['e', 'i']:
-            name = type + species + mode + '_GB'
-            yield [name]
-
-        name = 'pf' + 'e' + mode + '_GB_' + 'div' + '_' + 'ef' + 'i' + mode + '_GB'
-        yield [name]
-
-    name = type + 'eETG_GB'
-    yield [name]
-
-gen3_single_target_list = [
+gen3_single_target_leading_list = [
     ['efeETG_GB'],
-
-    ['efeITG_GB'],
     ['efiITG_GB'],
-    ['efeITG_GB_div_efiITG_GB'],
-    ['pfeITG_GB'],
-    ['pfeITG_GB_div_efiITG_GB'],
+    ['efeTEM_GB']
+]
 
-    ['efeTEM_GB'],
+gen3_p_single_target_pure_list = [
+    ['efeITG_GB'],
+    ['pfeITG_GB'],
     ['efiTEM_GB'],
+    ['pfeTEM_GB']
+]
+
+gen3_p_single_target_div_list = [
+    ['efeITG_GB_div_efiITG_GB'],
+    ['pfeITG_GB_div_efiITG_GB'],
     ['efiTEM_GB_div_efeTEM_GB'],
-    ['pfeTEM_GB'],
     ['pfeTEM_GB_div_efeTEM_GB']
 ]
 
@@ -405,6 +392,7 @@ gen3_dv_single_target_pure_list = [
     ['vteTEM_GB'],
     ['vtiTEM_GB']
 ]
+
 gen3_dv_single_target_div_list = [
     ['dfeITG_GB_div_efiITG_GB'],
     ['dfiITG_GB_div_efiITG_GB'],
@@ -427,7 +415,7 @@ gen3_multiD_target_list = [
     ['efeITG_GB', 'efiITG_GB', 'pfeITG_GB'],
     ['efeTEM_GB', 'efiTEM_GB', 'pfeTEM_GB']
 ]
-gen3_target_list = gen3_single_target_list + gen3_dv_single_target_div_list
+gen3_target_list = gen3_single_target_leading_list + gen3_p_single_target_div_list + gen3_dv_single_target_div_list + [['gam_leq_GB']]
 
 
 if __name__ == '__main__':
