@@ -297,7 +297,7 @@ def train(settings, warm_start_nn=None):
             stable_positive_scale = tf.Variable(settings['cost_stable_positive_scale'], dtype=x.dtype, trainable=False)
             nn_pred_unstable = tf.greater(y, 0)
             punish_unstable_pred = tf.logical_and(orig_is_stable, nn_pred_unstable)
-            stable_positive_loss = tf.reduce_mean(stable_positive_scale * tf.cast(punish_unstable_pred, x.dtype))
+            stable_positive_loss = tf.reduce_mean(stable_positive_scale * y * tf.cast(punish_unstable_pred, x.dtype))
             tf.summary.scalar('stable_positive_loss', stable_positive_loss)
 
         if settings['goodness'] == 'mse':
