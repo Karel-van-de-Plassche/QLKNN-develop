@@ -710,7 +710,7 @@ class Network(BaseModel):
         recipe = self.recipe
         for ii in range(len(network_ids)):
             recipe = re.sub('nn(\d*)', 'args[\\1]', recipe)
-        exec('def combo_func(*args): return ' + recipe, globals())
+        exec('def combo_func(*args): return ' + recipe, globals()) in globals(), locals()
         return QuaLiKizComboNN(self.target_names, networks, combo_func, **combo_kwargs)
 
     def to_QuaLiKizNN(self, cached_purenets=None, combo_kwargs=None, **nn_kwargs):

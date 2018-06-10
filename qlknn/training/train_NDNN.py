@@ -245,14 +245,13 @@ def train(settings, warm_start_nn=None):
 
 
     timediff(start, 'NN defined')
-    if settings['cost_stable_positive_scale'] != 0:
-        goodness_only_on_unstable = True
+    if settings['goodness_only_on_unstable'] is True:
         orig_is_stable = tf.less_equal(y_ds_descale, 0)
 
     # Define loss functions
     with tf.name_scope('Loss'):
         with tf.name_scope('mse'):
-            if goodness_only_on_unstable:
+            if settings['goodness_only_on_unstable']:
                 mse = tf.losses.mean_squared_error(y_ds, y, weights=tf.logical_not(orig_is_stable))
                 mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale, weights=tf.logical_not(orig_is_stable))
             else:
@@ -260,7 +259,7 @@ def train(settings, warm_start_nn=None):
                 mse_descale = tf.losses.mean_squared_error(y_ds_descale, y_descale)
             tf.summary.scalar('MSE', mse)
         with tf.name_scope('mabse'):
-            if goodness_only_on_unstable:
+            if settings['goodness_only_on_unstable']:
                 mabse = tf.losses.absolute_difference(y_ds, y, weights=tf.logical_not(orig_is_stable))
             else:
                 mabse = tf.losses.absolute_difference(y_ds, y)
@@ -469,7 +468,6 @@ def train(settings, warm_start_nn=None):
                                                       run_metadata=run_metadata
                                                       )
                 train_writer.add_summary(summary, global_step)
-                print(global_step)
 
                 # Extra debugging every steps_per_report
                 if not step % steps_per_report and steps_per_report != np.inf:
@@ -667,7 +665,10 @@ def train(settings, warm_start_nn=None):
         data = json.load(nn_file, object_pairs_hook=OrderedDict)
 
     data['_metadata'] = metadata
-    data.move_to_end('_metadata', last=False)
+    try:
+        data.move_to_end('_metadata', last=False)
+    except:
+        pass
     data['_parsed_settings'] = settings
 
     with open('nn.json', 'w') as nn_file:

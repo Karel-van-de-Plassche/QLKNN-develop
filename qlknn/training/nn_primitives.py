@@ -110,7 +110,7 @@ def weight_variable(shape, init='normsm_1_0', dtype=tf.float64, **kwargs):
     return tf.Variable(initial)
 
 def parse_init(shape, init, dtype=np.float64, **kwargs):
-    if isinstance(init, str):
+    if isinstance(init, str) or isinstance(init, unicode):
         if init.startswith('normsm'):
             __, s, m = init.split('_')
             initial = tf.random_normal(shape, dtype=dtype, mean=float(m), stddev=float(s), **kwargs)
