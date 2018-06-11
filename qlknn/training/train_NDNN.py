@@ -32,6 +32,8 @@ from qlknn.training.datasets import Dataset, Datasets, convert_panda, split_pand
 from qlknn.training.nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
 from qlknn.training.profiling import TimeLiner
 from qlknn.dataset.data_io import load_from_store
+from qlknn.misc.to_precision import to_precision
+from qlknn.misc.tools import ordered_dict_prepend
 
 FLAGS = None
 
@@ -630,28 +632,29 @@ def train(settings, warm_start_nn=None):
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
-    rms_val = np.round(np.sqrt(mse.eval(feed_dict, session=sess)), 4)
-    rms_val_descale = np.round(np.sqrt(mse_descale.eval(feed_dict, session=sess)), 4)
-    loss_val = np.round(loss.eval(feed_dict, session=sess), 4)
-    l2_loss_val = np.round(l2_loss.eval(feed_dict, session=sess), 4)
-    print('{:22} {:5.2f}'.format('Validation RMS error: ', rms_val))
-    print('{:22} {:5.2f}'.format('Descaled validation RMS error: ', rms_val_descale))
-    print('{:22} {:5.2f}'.format('Validation loss: ', loss_val))
+    format = lambda x: to_precision(x, 4, strip_zeros=True)
+    rms_val = format(np.sqrt(mse.eval(feed_dict, session=sess)))
+    rms_val_descale = format(np.sqrt(mse_descale.eval(feed_dict, session=sess)))
+    loss_val = format(loss.eval(feed_dict, session=sess))
+    l2_loss_val = format(l2_loss.eval(feed_dict, session=sess))
+    print('{:22} {!s}'.format('Validation RMS error: ', rms_val))
+    print('{:22} {!s}'.format('Descaled validation RMS error: ', rms_val_descale))
+    print('{:22} {!s}'.format('Validation loss: ', loss_val))
 
 
     metadata = {'epoch':           epoch,
                 'best_epoch':      best_epoch,
-                'rms_validation':  float(rms_val),
-                'loss_validation': float(loss_val),
-                'l2_loss_validation': float(l2_loss_val),
-                'rms_validation_descaled': float(rms_val_descale),
+                'rms_validation':  rms_val,
+                'loss_validation': loss_val,
+                'l2_loss_validation': l2_loss_val,
+                'rms_validation_descaled': rms_val_descale,
                 'walltime [s]': train_time,
                 'stop_reason': stop_reason
                 }
 
     try:
-        stable_positive_loss_val = np.round(stable_positive_loss.eval(feed_dict, session=sess), 4)
-        metadata['stable_positive_loss_validation'] = float(stable_positive_loss_val)
+        stable_positive_loss_val = format(stable_positive_loss.eval(feed_dict, session=sess))
+        metadata['stable_positive_loss_validation'] = stable_positive_loss_val
     except:
         pass
     try:
@@ -664,11 +667,7 @@ def train(settings, warm_start_nn=None):
     with open('nn.json') as nn_file:
         data = json.load(nn_file, object_pairs_hook=OrderedDict)
 
-    data['_metadata'] = metadata
-    try:
-        data.move_to_end('_metadata', last=False)
-    except:
-        pass
+    ordered_dict_prepend(data, '_metadata', metadata)
     data['_parsed_settings'] = settings
 
     with open('nn.json', 'w') as nn_file:

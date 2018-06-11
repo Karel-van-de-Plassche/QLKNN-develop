@@ -940,8 +940,8 @@ class PureNetworkParams(BaseModel):
             path_ = os.path.join(pwd, path_)
             if os.path.isdir(path_):
                 try:
-                    Network.from_folder(path_, **kwargs)
-                except IOError:
+                    cls.from_folder(path_, **kwargs)
+                except:
                     print('Could not parse', path_, 'is training done?')
 
     @classmethod
@@ -1081,9 +1081,8 @@ class NetworkMetadata(BaseModel):
     stable_positive_loss_validation = FloatField(null=True)
     metadata = HStoreField()
 
-    @classmethod
-    @db.atomic()
-    def from_dict(cls, json_dict, pure_network_params):
+    @staticmethod
+    def parse_dict(json_dict):
         stringified = {str(key): str(val) for key, val in json_dict.items()}
         try:
             rms_train = json_dict['rms_train']
@@ -1099,22 +1098,30 @@ class NetworkMetadata(BaseModel):
             rms_validation_descaled = json_dict['rms_validation_descaled']
         except KeyError:
             rms_validation_descaled = None
+
+        return dict(epoch=json_dict['epoch'],
+                    best_epoch=json_dict['best_epoch'],
+                    rms_train=rms_train,
+                    rms_validation=json_dict['rms_validation'],
+                    rms_validation_descaled=rms_validation_descaled,
+                    rms_test=rms_test,
+                    loss_train=loss_train,
+                    loss_validation=json_dict['loss_validation'],
+                    loss_test=loss_test,
+                    l2_loss_validation=json_dict['l2_loss_validation'],
+                    walltime=json_dict['walltime [s]'],
+                    stop_reason=json_dict['stop_reason'],
+                    stable_positive_loss_validation=json_dict['stable_positive_loss_validation'],
+                    metadata=stringified)
+
+    @classmethod
+    @db.atomic()
+    def from_dict(cls, json_dict, pure_network_params):
+
+        dict_ = cls.parse_dict(json_dict)
         network_metadata = NetworkMetadata(
             pure_network_params=pure_network_params,
-            epoch=json_dict['epoch'],
-            best_epoch=json_dict['best_epoch'],
-            rms_train=rms_train,
-            rms_validation=json_dict['rms_validation'],
-            rms_validation_descaled=rms_validation_descaled,
-            rms_test=rms_test,
-            loss_train=loss_train,
-            loss_validation=json_dict['loss_validation'],
-            loss_test=loss_test,
-            l2_loss_validation=json_dict['l2_loss_validation'],
-            walltime=json_dict['walltime [s]'],
-            stop_reason=json_dict['stop_reason'],
-            stable_positive_loss_validation=json_dict['stable_positive_loss_validation'],
-            metadata=stringified
+            **dict_
         )
         network_metadata.save()
         return network_metadata
@@ -1295,10 +1302,11 @@ def get_pure_from_cost_l2_scale(target_name, cost_l2_scale):
                         .join(Hyperparameters)
                         )
     return select_from_candidate_query(candidates_query)
+
 def create_schema():
     db.execute_sql('SET ROLE developer;')
-    db.execute_sql('CREATE SCHEMA develop AUTHORIZATION developer;')
-    db.execute_sql('ALTER DEFAULT PRIVILEGES IN SCHEMA develop GRANT ALL ON TABLES TO developer;')
+    db.execute_sql('CREATE SCHEMA {!s} AUTHORIZATION developer;'.format(BaseModel._meta.schema))
+    db.execute_sql('ALTER DEFAULT PRIVILEGES IN SCHEMA {!s} GRANT ALL ON TABLES TO developer;'.format(BaseModel._meta.schema))
 
 def create_tables():
     db.execute_sql('SET ROLE developer;')
