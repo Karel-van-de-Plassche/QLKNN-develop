@@ -763,6 +763,9 @@ class PureNetworkParams(BaseModel):
 
     def download_raw(self):
         root_dir = 'Network_' + str(self.network_id)
+        if os.path.isdir('Network_' + str(self.network_id)):
+            print('{!s} already exists! Skipping..', root_dir)
+            return
         os.mkdir(root_dir)
         network_json = self.network_json.get()
         with open(os.path.join(root_dir, 'settings.json'), 'w') as settings_file:
