@@ -848,41 +848,18 @@ if __name__ == '__main__':
     mode = 'pretty'
     mode = 'debug'
     submit_to_nndb = False
-    if not socket.gethostname().startswith('rs'):
-        pass
-        mode = 'quick'
-        submit_to_nndb = True
+    mode = 'quick'
+    submit_to_nndb = True
 
     #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
     #store_basename = 'gen3_9D_nions0_flat_sep.h5.1'
     store_name = os.path.join(store_root, store_basename)
-    for ii in range(10):
-        try:
-            store = pd.HDFStore(store_name, 'r')
-        except UnicodeDecodeError:
-            pass
-        else:
-            try:
-                store.groups()
-                storer = store.get_storer('/megarun1/input')
-            except (AttributeError, UnicodeDecodeError):
-                store.close()
-            else:
-                break
-        print('Waiting for file to come up.. {!s}/10'.format(ii))
-        time.sleep(1)
+    store = pd.HDFStore(store_name, 'r')
 
-    if not store.is_open:
-        raise Exception('Failed to open file {!s}'.format(store_name))
     __, dim, __ = get_store_params(store_basename)
-    if not socket.gethostname().startswith('rs'):
-        slicedim, style, nns = nns_from_NNDB(dim, max=100)
-        #slicedim, style, nns = nns_from_NNDB(dim, max=100, only_dim=9)
-        #slicedim, style, nns = nns_from_manual()
-    else:
-        slicedim, style, nns = nns_from_manual()
+    slicedim, style, nns = nns_from_NNDB(dim, max=100)
     #slicedim = 'An'
 
     #nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
