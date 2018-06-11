@@ -1140,6 +1140,7 @@ class TrainMetadata(BaseModel):
     mabse =        ArrayField(FloatField, null=True)
     l1_norm =      ArrayField(FloatField, null=True)
     l2_norm =      ArrayField(FloatField, null=True)
+    stable_positive_loss = ArrayField(FloatField, null=True)
     hostname = TextField()
 
     @classmethod
@@ -1167,6 +1168,7 @@ class TrainMetadata(BaseModel):
                     mabse=df['mabse'],
                     l1_norm=df['l1_norm'],
                     l2_norm=df['l2_norm'],
+                    stable_positive_loss=df['stable_positive_loss'],
                     hostname=socket.gethostname()
                 )
                 train_metadata.save()
@@ -1193,6 +1195,7 @@ class Hyperparameters(BaseModel):
     validation_fraction = FloatField()
     dtype = TextField()
     cost_stable_positive_scale = FloatField()
+    cost_stable_positive_offset = FloatField()
     calc_standardization_on_nonzero = BooleanField()
     weight_init = TextField()
     bias_init = TextField()
@@ -1217,6 +1220,7 @@ class Hyperparameters(BaseModel):
                        validation_fraction=settings['validation_fraction'],
                        dtype=settings['dtype'],
                        cost_stable_positive_scale=settings['cost_stable_positive_scale'],
+                       cost_stable_positive_offset=settings['cost_stable_positive_offset'],
                        calc_standardization_on_nonzero=settings['calc_standardization_on_nonzero'],
                        weight_init=settings['weight_init'],
                        bias_init=settings['bias_init']

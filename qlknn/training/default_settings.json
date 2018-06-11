@@ -23,6 +23,7 @@
     "cost_l2_scale": 0.1,
     "cost_l1_scale": 0.0,
     "cost_stable_positive_scale": 0.0,
+    "cost_stable_positive_offset": -5.0,
     "early_stop_after": 15,
     "early_stop_measure": "loss",
     "minibatches": 10,
