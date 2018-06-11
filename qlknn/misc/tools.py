@@ -32,17 +32,21 @@ def ordered_dict_prepend(dct, key, value, dict_setitem=dict.__setitem__):
     https://stackoverflow.com/a/16664932/3613853
 
     """
-    root = dct._OrderedDict__root
-    first = root[1]
+    if hasattr(dct, 'move_to_end'):
+        dct[key] = value
+        dct.move_to_end(key, last=False)
+    else: # Before Python3.2
+        root = dct._OrderedDict__root
+        first = root[1]
 
-    if key in dct:
-        link = dct._OrderedDict__map[key]
-        link_prev, link_next, _ = link
-        link_prev[1] = link_next
-        link_next[0] = link_prev
-        link[0] = root
-        link[1] = first
-        root[1] = first[0] = link
-    else:
-        root[1] = first[0] = dct._OrderedDict__map[key] = [root, first, key]
-        dict_setitem(dct, key, value)
+        if key in dct:
+            link = dct._OrderedDict__map[key]
+            link_prev, link_next, _ = link
+            link_prev[1] = link_next
+            link_next[0] = link_prev
+            link[0] = root
+            link[1] = first
+            root[1] = first[0] = link
+        else:
+            root[1] = first[0] = dct._OrderedDict__map[key] = [root, first, key]
+            dict_setitem(dct, key, value)
