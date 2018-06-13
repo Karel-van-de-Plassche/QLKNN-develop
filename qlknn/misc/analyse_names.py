@@ -36,8 +36,8 @@ def is_pure(name):
 def is_flux(name):
     flux = True
     try:
-        for part_name in split_parts(name):
-            flux &= split_name(name)[0] in heat_flux + particle_flux + momentum_flux
+        for part_name in extract_part_names(split_parts(name)):
+            flux &= split_name(part_name)[0] in heat_flux + particle_flux + momentum_flux
     except ValueError:
         flux = False
     return flux
