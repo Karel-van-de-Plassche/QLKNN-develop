@@ -1196,6 +1196,7 @@ class Hyperparameters(BaseModel):
     dtype = TextField()
     cost_stable_positive_scale = FloatField()
     cost_stable_positive_offset = FloatField()
+    cost_stable_positive_function = TextField()
     calc_standardization_on_nonzero = BooleanField()
     weight_init = TextField()
     bias_init = TextField()
@@ -1221,6 +1222,7 @@ class Hyperparameters(BaseModel):
                        dtype=settings['dtype'],
                        cost_stable_positive_scale=settings['cost_stable_positive_scale'],
                        cost_stable_positive_offset=settings['cost_stable_positive_offset'],
+                       cost_stable_positive_function=settings['cost_stable_positive_function'],
                        calc_standardization_on_nonzero=settings['calc_standardization_on_nonzero'],
                        weight_init=settings['weight_init'],
                        bias_init=settings['bias_init']

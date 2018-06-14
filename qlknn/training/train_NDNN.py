@@ -23,11 +23,8 @@ import numpy as np
 import pandas as pd
 from IPython import embed
 
-try:
-    profile
-except NameError:
-    from qlknn.misc.tools import profile
 
+from qlknn.misc.tools import profile
 from qlknn.training.datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
 from qlknn.training.nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
 from qlknn.training.profiling import TimeLiner
@@ -296,9 +293,13 @@ def train(settings, warm_start_nn=None):
             tf.summary.scalar('l1_loss', l1_loss)
         with tf.name_scope('stable_positive'):
             stable_positive_scale = tf.Variable(settings['cost_stable_positive_scale'], dtype=x.dtype, trainable=False)
+            stable_positive_offset = tf.Variable(settings['cost_stable_positive_offset'], dtype=x.dtype, trainable=False)
             nn_pred_above_offset = tf.greater(y, settings['cost_stable_positive_offset'])
             punish_unstable_pred = tf.logical_and(orig_is_stable, nn_pred_above_offset)
-            stable_positive_loss = tf.reduce_mean(stable_positive_scale * (y - settings['cost_stable_positive_offset']) * tf.cast(punish_unstable_pred, x.dtype))
+            if settings['cost_stable_positive_function'] == 'block':
+                stable_positive_loss = tf.reduce_mean(stable_positive_scale * (y - stable_positive_offset) * tf.cast(punish_unstable_pred, x.dtype))
+            elif settings['cost_stable_positive_function'] == 'barrier':
+                stable_positive_loss = tf.reduce_mean(tf.cast(orig_is_stable, x.dtype) * tf.exp(stable_positive_scale * (y - stable_positive_offset)))
             tf.summary.scalar('stable_positive_loss', stable_positive_loss)
 
         if settings['goodness'] == 'mse':
