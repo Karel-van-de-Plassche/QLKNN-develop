@@ -20,6 +20,7 @@ from qlknn.misc.to_precision import to_precision
 # First, get some statistics
 target_names = ['efeTEM_GB']
 hyperpars = ['cost_stable_positive_scale', 'cost_l2_scale']
+#hyperpars = ['cost_stable_positive_scale', 'cost_stable_positive_offset']
 goodness_pars = ['rms', 'no_pop_frac', 'pop_abs_mis_95width', 'wobble_qlkunstab', 'no_thresh_frac']
 report = get_base_stats(target_names, hyperpars, goodness_pars)
 query = (Network.select(Network.id.alias('network_id'),
@@ -57,9 +58,18 @@ stats.reset_index(inplace=True)
 #stats.sort_index(ascending=False, inplace=True)
 #stats = stats.groupby(level=list(range(len(stats.index.levels)))).mean() #Average equal hyperpars
 #stats.reset_index(inplace=True)
+aggdict = {'network_id': lambda x: tuple(x)}
+aggdict.update({name: 'mean' for name in goodness_pars})
+stats = stats.groupby(hyperpars).agg(aggdict)
+stats.reset_index(inplace=True)
 
 for name in hyperpars:
     stats[name] = stats[name].apply(str)
+
+for name in goodness_pars:
+    fmt = lambda x: to_precision(x, 4)
+    stats[name + '_formatted'] = stats[name].apply(fmt)
+
 
 x = np.unique(stats[hyperpars[1]].values)
 x = sorted(x, key=lambda x: float(x))
@@ -95,7 +105,7 @@ for statname in goodness_pars:
            )
     non_selected = Rect(fill_alpha=0.8)
     labels = LabelSet(x=hyperpars[1], y=hyperpars[0],
-                      text=statname,
+                      text=statname + '_formatted',
                       level='glyph',
                       source=source,
                       text_align='center', text_baseline='middle',
