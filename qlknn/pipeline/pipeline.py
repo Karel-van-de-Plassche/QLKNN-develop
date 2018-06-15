@@ -56,6 +56,8 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         machine_type = 'marconi'
     elif socket.gethostname().startswith('login'):
         machine_type = 'lisa'
+    elif socket.gethostname().startswith('cori'):
+        machine_type = 'cori'
     else:
         machine_type = 'general'
 
@@ -93,11 +95,14 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         return cmd_list
 
     def launch_train_NDNN(self):
-        if (self.machine_type == 'marconi') or (self.machine_type == 'lisa'):
+        if self.machine_type in ['marconi', 'lisa', 'cori']:
             print('Starting batch system job')
             pipeline_path = os.path.dirname(os.path.abspath( __file__ ))
             if self.machine_type == 'marconi':
                 batch_path = os.path.join(pipeline_path, 'train_NDNN_marconi.sh')
+                cmd = ['srun'] + self.parse_batch_file('#SBATCH', batch_path) + [batch_path]
+            if self.machine_type == 'cori':
+                batch_path = os.path.join(pipeline_path, 'train_NDNN_cori_haswell.sh')
                 cmd = ['srun'] + self.parse_batch_file('#SBATCH', batch_path) + [batch_path]
             elif self.machine_type == 'lisa':
                 cmd = ['qsub', '-Ix', '-o', 'stdout', '-e', 'stderr', os.path.join(pipeline_path, 'train_NDNN_lisa.sh')]
@@ -169,6 +174,8 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
             tmproot = os.environ['CINECA_SCRATCH']
         elif self.machine_type == 'lisa':
             tmproot = os.path.join(os.environ['HOME'], 'tmp_nn')
+        elif self.machine_type == 'cori':
+            tmproot = os.environ['SCRATCH']
         else:
             tmproot = None
         self.tmpdirname = tmpdirname = tempfile.mkdtemp(prefix='trainNN_', dir=tmproot)
