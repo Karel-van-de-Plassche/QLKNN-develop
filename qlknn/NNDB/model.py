@@ -15,7 +15,6 @@ import itertools
 import copy
 
 import numpy as np
-import scipy.io as io
 import pandas as pd
 from peewee import (Model, prefetch,
                     FloatField, FloatField, IntegerField, BooleanField, TextField, ForeignKeyField, DateTimeField,
@@ -1039,6 +1038,7 @@ class PureNetworkParams(BaseModel):
         return matdict
 
     def to_matlab(self):
+        import scipy.io as io
         io.savemat(str(self.id) + '.mat', self.to_matlab_dict())
 
     def summarize(self):
