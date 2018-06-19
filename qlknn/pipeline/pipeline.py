@@ -301,6 +301,105 @@ class TrainDenseBatch(TrainBatch):
         settings.update(par)
         settings_list.append(settings.copy())
 
+class TrainMidsizeStable7DBatch(TrainBatch):
+    dim = 7
+    gen = 3
+    plan = {'cost_l2_scale': [2e-5, 5e-5, 8e-5],
+            'cost_stable_positive_scale': [5e-4, 1e-3, 5e-3],
+            'cost_stable_positive_offset': [-5],
+            'cost_stable_positive_function': ['block'],
+            'hidden_neurons': [[128] * 3],
+            'filter': [8],
+            'activations': ['tanh'],
+            }
+
+    plan['dataset_path'] = []
+    for filter in plan.pop('filter'):
+        plan['dataset_path'].append('../../training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(gen, dim, filter))
+
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
+        settings = json.load(file_)
+        settings.pop('train_dims')
+
+    settings_list = []
+    for val in product(*plan.values()):
+        par = dict(zip(plan.keys(), val))
+        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
+        settings.update(par)
+        settings_list.append(settings.copy())
+
+class TrainMidsizeStable9DBatch(TrainBatch):
+    dim = 9
+    gen = 3
+    plan = {'cost_l2_scale': [5e-5],
+            'cost_stable_positive_scale': [5e-4, 1e-3, 5e-3],
+            'cost_stable_positive_offset': [-5],
+            'cost_stable_positive_function': ['block'],
+            'hidden_neurons': [[128] * 3],
+            'filter': [8],
+            'activations': ['tanh'],
+            }
+
+    plan['dataset_path'] = []
+    for filter in plan.pop('filter'):
+        plan['dataset_path'].append('../../sane_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(gen, dim, filter))
+
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
+        settings = json.load(file_)
+        settings.pop('train_dims')
+
+    settings_list = []
+    for val in product(*plan.values()):
+        par = dict(zip(plan.keys(), val))
+        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
+        settings.update(par)
+        settings_list.append(settings.copy())
+
+class TrainMidsizeStableSingle9DBatch(TrainBatch):
+    dim = 9
+    gen = 3
+    plan = {'cost_l2_scale': [5e-5],
+            'cost_stable_positive_scale': [1e-3],
+            'cost_stable_positive_offset': [-5],
+            'cost_stable_positive_function': ['block'],
+            'hidden_neurons': [[128] * 3],
+            'filter': [8],
+            'activations': ['tanh'],
+            }
+
+    plan['dataset_path'] = []
+    for filter in plan.pop('filter'):
+        plan['dataset_path'].append('../../sane_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5.1'.format(gen, dim, filter))
+
+    with open(os.path.join(training_path, 'default_settings.json')) as file_:
+        settings = json.load(file_)
+        settings.pop('train_dims')
+
+    settings_list = []
+    for val in product(*plan.values()):
+        par = dict(zip(plan.keys(), val))
+        par['hidden_activation'] = [par.pop('activations')] * len(par['hidden_neurons'])
+        settings.update(par)
+        settings_list.append(settings.copy())
+
+class TrainLeadingStable9DNetworks(luigi.WrapperTask):
+    submit_date = luigi.DateHourParameter()
+
+    def requires(self):
+        for train_dims in [['efeTEM_GB'],
+                           ['efeETG_GB'],
+                           ['efiITG_GB']]:
+            yield TrainMidsizeStable9DBatch(self.submit_date, train_dims)
+
+class TrainLeadingStableSingle9DNetworks(luigi.WrapperTask):
+    submit_date = luigi.DateHourParameter()
+
+    def requires(self):
+        for train_dims in [['efeTEM_GB'],
+                           ['efeETG_GB'],
+                           ['efiITG_GB']]:
+            yield TrainMidsizeStableSingle9DBatch(self.submit_date, train_dims)
+
 class TrainMidsize7DBatch(TrainBatch):
     dim = 7
     gen = 3
@@ -361,8 +460,15 @@ class TrainAll7DNetworks(luigi.WrapperTask):
     submit_date = luigi.DateHourParameter()
 
     def requires(self):
-        for train_dims in gen3_single_target_list:
+        for train_dims in gen3_target_list:
             yield TrainMidsize7DBatch(self.submit_date, train_dims)
+
+class TrainLeadingStable7DNetworks(luigi.WrapperTask):
+    submit_date = luigi.DateHourParameter()
+
+    def requires(self):
+        for train_dims in gen3_single_target_leading_list:
+            yield TrainMidsizeStable7DBatch(self.submit_date, train_dims)
 
 gen3_single_target_leading_list = [
     ['efeETG_GB'],
