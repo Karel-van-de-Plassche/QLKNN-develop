@@ -119,6 +119,16 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
                             self.job_id = match.groups()[0] + '.marconi'
                             self.set_status_message_wrapper('Job {!s} started'.format(self.job_id))
 
+                    elif self.machine_type == 'cori':
+                        match = re.match('srun: job (\d*) queued and waiting for resources', line)
+                        if match is not None:
+                            self.job_id = match.groups()[0] + '.cori'
+                            self.set_status_message_wrapper('Submitted job {!s}, waiting for resources'.format(self.job_id))
+                        match = re.match('srun: job (\d*) has been allocated resources', line)
+                        if match is not None:
+                            self.job_id = match.groups()[0] + '.cori'
+                            self.set_status_message_wrapper('Job {!s} started'.format(self.job_id))
+
                     elif self.machine_type == 'lisa':
                         match = re.match('qsub: waiting for job (\d*.[\w|.]*)', line)
                         if match is not None:
