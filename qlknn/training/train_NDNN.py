@@ -434,7 +434,7 @@ def train(settings, warm_start_nn=None):
     timediff(start, 'Training started')
     train_start = time.time()
     global_step = 0
-    stop_reason = 'nothing special'
+    stop_reason = 'max epochs'
     try:
         for epoch in range(max_epoch):
             for step in range(minibatches):
