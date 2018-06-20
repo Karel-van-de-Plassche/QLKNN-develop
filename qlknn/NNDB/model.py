@@ -935,6 +935,27 @@ class PureNetworkParams(BaseModel):
                  )
         return query
 
+    @staticmethod
+    def is_ready_to_be_submitted(pwd):
+        script_path = os.path.join(pwd, 'train_NDNN.py')
+        settings_path = os.path.join(pwd, 'settings.json')
+        for path in [script_path, settings_path]:
+            if not os.path.isfile(path):
+                print('{!s} does not exist. Is this even a NN folder?'.format(path))
+                return False
+
+        json_path = os.path.join(pwd, 'nn.json')
+        if not os.path.isfile(json_path):
+            print('{!s} does not exist. No checkpoints or final networks found'.format(json_path))
+            return False
+        else:
+            with open(json_path) as file_:
+                json_dict = json.load(file_)
+            if not '_metadata' in json_dict:
+                print('{!s} exists but does not contain metadata. Training not done'.format(json_path))
+                return False
+
+        return True
 
     @classmethod
     def from_folders(cls, pwd, **kwargs):
@@ -949,10 +970,13 @@ class PureNetworkParams(BaseModel):
     @classmethod
     @db.atomic()
     def from_folder(cls, pwd):
-        script_file = os.path.join(pwd, 'train_NDNN.py')
+        if not cls.is_ready_to_be_submitted(pwd):
+            raise Exception('{!s} is not ready to be submitted!'.format(pwd))
+
+        script_path = os.path.join(pwd, 'train_NDNN.py')
         #with open(script_file, 'r') as script:
         #    script = script.read()
-        train_script = TrainScript.from_file(script_file)
+        train_script = TrainScript.from_file(script_path)
 
         json_path = os.path.join(pwd, 'nn.json')
         nn = QuaLiKizNDNN.from_json(json_path)
@@ -973,7 +997,8 @@ class PureNetworkParams(BaseModel):
         net_dict = {'feature_names': dict_.pop('feature_names'),
                     'target_names': dict_.pop('target_names')}
 
-        with open(os.path.join(pwd, 'settings.json')) as file_:
+        settings_path = os.path.join(pwd, 'settings.json')
+        with open(settings_path) as file_:
             settings = json.load(file_)
 
         dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
