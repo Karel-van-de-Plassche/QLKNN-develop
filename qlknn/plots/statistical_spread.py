@@ -81,6 +81,6 @@ def get_base_stats(target_names, hyperpars, goodness_pars, hyperpars_const=None)
 if __name__ == '__main__':
     target_names = ['efeTEM_GB']
     hyperpars = ['cost_stable_positive_scale', 'cost_l2_scale']
-    goodness_pars = ['no_pop_frac', 'no_thresh_frac', 'rms', 'pop_abs_mis_median', 'thresh_rel_mis_median', 'wobble_qlkunstab']
+    goodness_pars = ['rms', 'no_pop_frac', 'no_thresh_frac', 'pop_abs_mis_median', 'thresh_rel_mis_median', 'wobble_qlkunstab']
     report = get_base_stats(target_names, hyperpars, goodness_pars, hyperpars_const=None )
     print(report)

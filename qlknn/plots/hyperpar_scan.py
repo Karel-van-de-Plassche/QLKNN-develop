@@ -1,7 +1,6 @@
 import re
 
 import numpy as np
-import scipy.stats as stats
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
@@ -21,7 +20,7 @@ from qlknn.misc.to_precision import to_precision
 target_names = ['efeTEM_GB']
 hyperpars = ['cost_stable_positive_scale', 'cost_l2_scale']
 #hyperpars = ['cost_stable_positive_scale', 'cost_stable_positive_offset']
-goodness_pars = ['rms', 'no_pop_frac', 'pop_abs_mis_95width', 'wobble_qlkunstab', 'no_thresh_frac']
+goodness_pars = ['rms', 'no_pop_frac', 'no_thresh_frac', 'pop_abs_mis_median', 'thresh_rel_mis_median', 'wobble_qlkunstab']
 report = get_base_stats(target_names, hyperpars, goodness_pars)
 query = (Network.select(Network.id.alias('network_id'),
                         PostprocessSlice,
@@ -36,7 +35,8 @@ query = (Network.select(Network.id.alias('network_id'),
          .switch(Network)
          .join(PureNetworkParams)
          .join(Hyperparameters)
-         .where(Hyperparameters.cost_stable_positive_offset == -5)
+         .where(Hyperparameters.cost_stable_positive_offset.cast('numeric') == -5)
+         .where(Hyperparameters.cost_stable_positive_function == 'block')
          )
 
 if query.count() > 0:
@@ -60,15 +60,22 @@ stats.reset_index(inplace=True)
 #stats.reset_index(inplace=True)
 aggdict = {'network_id': lambda x: tuple(x)}
 aggdict.update({name: 'mean' for name in goodness_pars})
-stats = stats.groupby(hyperpars).agg(aggdict)
+stats_mean = stats.groupby(hyperpars).agg(aggdict)
+aggdict.update({name: 'std' for name in goodness_pars})
+stats_std = stats.groupby(hyperpars).agg(aggdict)
+stats = stats_mean.merge(stats_std, left_index=True, right_index=True, suffixes=('', '_std'))
 stats.reset_index(inplace=True)
 
 for name in hyperpars:
     stats[name] = stats[name].apply(str)
 
 for name in goodness_pars:
-    fmt = lambda x: to_precision(x, 4)
-    stats[name + '_formatted'] = stats[name].apply(fmt)
+    fmt = lambda x: '' if np.isnan(x) else to_precision(x, 4)
+    fmt_mean = stats[name].apply(fmt)
+    stats[name + '_formatted'] = fmt_mean
+    fmt_std = stats[name + '_std'].apply(fmt)
+    prepend = lambda x: '+- ' + x if x != '' else x
+    stats[name + '_std_formatted'] = fmt_std.apply(prepend)
 
 
 x = np.unique(stats[hyperpars[1]].values)
@@ -104,13 +111,25 @@ for statname in goodness_pars:
            nonselection_fill_color=color,
            )
     non_selected = Rect(fill_alpha=0.8)
-    labels = LabelSet(x=hyperpars[1], y=hyperpars[0],
-                      text=statname + '_formatted',
-                      level='glyph',
-                      source=source,
-                      text_align='center', text_baseline='middle',
-                      text_color='red')
+    label_kwargs = dict(
+        x=hyperpars[1], y=hyperpars[0],
+        level='glyph',
+        source=source,
+        text_align='center',
+        text_color='red'
+    )
+    labels = LabelSet(
+        text=statname + '_formatted',
+        text_baseline='bottom',
+        **label_kwargs
+    )
+    labels_std = LabelSet(
+        text=statname + '_std_formatted',
+        text_baseline='top',
+        **label_kwargs
+    )
     p.add_layout(labels)
+    p.add_layout(labels_std)
     p.xaxis.axis_label = hyperpars[1]
     p.yaxis.axis_label = hyperpars[0]
     plots.append(p)
