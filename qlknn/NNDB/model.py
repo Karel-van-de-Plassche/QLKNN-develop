@@ -1293,20 +1293,24 @@ def select_from_candidate_query(candidates_query):
     else:
         return Network.pick_candidate(candidates_query).get()
 
-def get_from_cost_l2_scale_array(target_name, cost_l2_scale_array):
+def get_from_cost_l2_scale_array(target_name, cost_l2_scale_array, dim):
     subq = Network.get_recursive_subquery('cost_l2_scale')
     subq2 = (subq
              .having(fn.ARRAY_AGG(SQL("DISTINCT childq.cost_l2_scale"), coerce=False) == SQL("'" + cost_l2_scale_array + "'"))
              .having(SQL("net.target_names = '{" + target_name + "}'"))
              )
     candidate_ids = [el['root'] for el in subq2.dicts()]
-    candidates_query = Network.select().where(Network.id.in_(candidate_ids))
+    candidates_query = (Network.select()
+                        .where(Network.id.in_(candidate_ids))
+                        .where(fn.array_length(Network.feature_names, 1) == dim)
+                        )
     return select_from_candidate_query(candidates_query)
 
-def get_pure_from_cost_l2_scale(target_name, cost_l2_scale):
+def get_pure_from_cost_l2_scale(target_name, cost_l2_scale, dim):
     candidates_query = (Network.select()
                         .where(Hyperparameters.cost_l2_scale.cast('numeric') == cost_l2_scale)
                         .where(Network.target_names == [target_name])
+                        .where(fn.array_length(Network.feature_names, 1) == dim)
                         .join(PureNetworkParams)
                         .join(Hyperparameters)
                         )
