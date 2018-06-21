@@ -1341,6 +1341,20 @@ def get_pure_from_cost_l2_scale(target_name, cost_l2_scale, dim):
                         )
     return select_from_candidate_query(candidates_query)
 
+def get_pure_from_hyperpar(target_name, dim, **hyperdict):
+    candidates_query = (Network.select()
+                        .join(PureNetworkParams)
+                        .join(Hyperparameters)
+                        )
+    for name, val in hyperdict.items():
+        fuzzy = lambda x: x.cast('numeric') if isinstance(x, FloatField) else x
+        candidates_query = candidates_query.where(fuzzy(getattr(Hyperparameters, name)) == val)
+    candidates_query = (candidates_query
+                        .where(Network.target_names == [target_name])
+                        .where(fn.array_length(Network.feature_names, 1) == dim)
+                        )
+    return candidates_query.get()
+
 def create_schema():
     db.execute_sql('SET ROLE developer;')
     db.execute_sql('CREATE SCHEMA {!s} AUTHORIZATION developer;'.format(BaseModel._meta.schema))
