@@ -2,6 +2,8 @@ import re
 
 import numpy as np
 import pandas as pd
+import matplotlib as mpl
+mpl.use('pdf')
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from peewee import AsIs, JOIN, prefetch, SQL
@@ -10,7 +12,7 @@ from IPython import embed
 from bokeh.layouts import row, column
 from bokeh.plotting import figure, show, output_file
 from bokeh.transform import linear_cmap
-from bokeh.models import ColumnDataSource, Range1d, LabelSet, Label, Rect, HoverTool
+from bokeh.models import ColumnDataSource, Range1d, LabelSet, Label, Rect, HoverTool, Div
 
 from qlknn.NNDB.model import Network, PureNetworkParams, PostprocessSlice, NetworkMetadata, TrainMetadata, Postprocess, db, Hyperparameters
 from qlknn.plots.statistical_spread import get_base_stats
@@ -21,7 +23,10 @@ target_names = ['efeTEM_GB']
 hyperpars = ['cost_stable_positive_scale', 'cost_l2_scale']
 #hyperpars = ['cost_stable_positive_scale', 'cost_stable_positive_offset']
 goodness_pars = ['rms', 'no_pop_frac', 'no_thresh_frac', 'pop_abs_mis_median', 'thresh_rel_mis_median', 'wobble_qlkunstab']
-report = get_base_stats(target_names, hyperpars, goodness_pars)
+try:
+    report = get_base_stats(target_names, hyperpars, goodness_pars)
+except Network.DoesNotExist:
+    report = pd.DataFrame(columns=goodness_pars, index=['mean', 'stddev', 'stderr'])
 query = (Network.select(Network.id.alias('network_id'),
                         PostprocessSlice,
                         Postprocess.rms,
@@ -73,6 +78,7 @@ for name in goodness_pars:
     fmt = lambda x: '' if np.isnan(x) else to_precision(x, 4)
     fmt_mean = stats[name].apply(fmt)
     stats[name + '_formatted'] = fmt_mean
+    fmt = lambda x: '' if np.isnan(x) else to_precision(x, 2)
     fmt_std = stats[name + '_std'].apply(fmt)
     prepend = lambda x: '+- ' + x if x != '' else x
     stats[name + '_std_formatted'] = fmt_std.apply(prepend)
@@ -93,7 +99,7 @@ hover = HoverTool(tooltips=[
 ])
 plots = []
 for statname in goodness_pars:
-    fmt = lambda x: to_precision(x, 2)
+    fmt = lambda x: '' if np.isnan(x) else to_precision(x, 2)
     title = '{:s} (ref={:s}±{:s})'.format(statname,
                                           fmt(report[statname]['mean']),
                                           fmt(report[statname]['stddev'] + report[statname]['stderr']))
@@ -133,4 +139,12 @@ for statname in goodness_pars:
     p.xaxis.axis_label = hyperpars[1]
     p.yaxis.axis_label = hyperpars[0]
     plots.append(p)
-show(column(plots))
+
+from bokeh.layouts import layout, widgetbox
+
+title = Div(text=','.join(target_names))
+l = layout([
+    [title],
+    [plots]
+])
+show(l)

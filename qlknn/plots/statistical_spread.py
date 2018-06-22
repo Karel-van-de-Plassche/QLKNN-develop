@@ -31,6 +31,8 @@ def get_stats_from_query(query):
         df.drop(['id', 'network'], inplace=True, axis='columns')
         df.set_index('network_id', inplace=True)
         stats = df
+    else:
+        raise Network.DoesNotExist
     stats = stats.applymap(np.array)
     stats = stats.applymap(lambda x: x[0] if isinstance(x, np.ndarray) and len(x) == 1 else x)
     stats.dropna(axis='columns', how='all', inplace=True)
