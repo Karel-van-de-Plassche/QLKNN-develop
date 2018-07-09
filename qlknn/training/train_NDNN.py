@@ -121,7 +121,7 @@ def calc_standardization(data_df, settings, warm_start_nn=None):
     return scale_factor, scale_bias
 
 class QLKNet:
-    def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None):
+    def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None, restore_old_checkpoint=False):
         self.x = x
         self.NUM_TARGET_DIMS = num_target_dims
         self.SETTINGS = settings
@@ -401,7 +401,11 @@ def train(settings, warm_start_nn=None):
     # Save checkpoints of training to restore for early-stopping
     saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
     checkpoint_dir = 'checkpoints'
-    tf.gfile.MkDir(checkpoint_dir)
+    if restore_old_checkpoint:
+        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        saver.restore(sess, ckpt.model_checkpoint_path)
+    else:
+        tf.gfile.MkDir(checkpoint_dir)
 
     # Define variables for early stopping
     not_improved = 0
