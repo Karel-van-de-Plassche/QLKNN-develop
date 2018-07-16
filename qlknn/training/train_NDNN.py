@@ -121,7 +121,7 @@ def calc_standardization(data_df, settings, warm_start_nn=None):
     return scale_factor, scale_bias
 
 class QLKNet:
-    def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None, restore_old_checkpoint=False):
+    def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None):
         self.x = x
         self.NUM_TARGET_DIMS = num_target_dims
         self.SETTINGS = settings
@@ -186,7 +186,7 @@ class QLKNet:
             act = None
         self.y = nn_layer(layers[-1], num_target_dims, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
 
-def train(settings, warm_start_nn=None):
+def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     tf.reset_default_graph()
     start = time.time()
 
@@ -679,10 +679,10 @@ def train(settings, warm_start_nn=None):
         json.dump(data, nn_file, indent=4, separators=(',', ': '))
     sess.close()
 
-def train_NDNN_from_folder(warm_start_nn=None):
+def train_NDNN_from_folder(warm_start_nn=None, restore_old_checkpoint=False):
     with open('./settings.json') as file_:
         settings = json.load(file_)
-    train(settings, warm_start_nn=warm_start_nn)
+    train(settings, warm_start_nn=warm_start_nn, restore_old_checkpoint=restore_old_checkpoint)
 
 def main(_):
     nn=None
