@@ -11,6 +11,7 @@ import json
 from itertools import product
 from shutil import copyfile
 from collections import OrderedDict
+import signal
 
 if not (sys.version_info > (3, 0)):
     range = xrange
@@ -42,6 +43,13 @@ def print_last_row(df, header=False):
                                   float_format=lambda x: u'{:.2f}'.format(x),
                                   col_space=12,
                                   justify='left'))
+
+def timeout(signum, frame):
+    #nonlocal stopping_timeout
+    print('Received signal: {!s} frame: {!s}'.format(signum, frame))
+    # mutating a mutable object doesn't require changing what the variable name points to
+    # Python2/3 compat (ugly) workaround
+    stopping_timeout[0] = True
 
 @profile
 def convert_nustar(input_df):
@@ -367,6 +375,8 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                                                              'maxls': settings['lbfgs_maxls']})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
+    cur_train_time = tf.Variable(0., name='cur_train_time', dtype='float64', trainable=False)
+    global_step = tf.Variable(0, name='global_step', dtype='int64', trainable=False)
     # Merge all the summaries
     merged = tf.summary.merge_all()
 
@@ -435,17 +445,20 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     validation_log_file.truncate(0)
     validation_log.to_csv(validation_log_file, float_format=ffmt, header=header)
 
+    # Set flag to stop training because of timeout
+    stopping_timeout = [False]
+
     timediff(start, 'Training started')
     train_start = time.time()
-    global_step = 0
+    prev_train_time = cur_train_time.eval(session=sess)
     stop_reason = 'max epochs'
+    signal.signal(signal.SIGUSR1, timeout)
+    final_nn_file = 'nn.json'
     try:
         for epoch in range(max_epoch):
             for step in range(minibatches):
                 # Extra debugging every steps_per_report
                 if not step % steps_per_report and steps_per_report != np.inf:
-                    print('debug!', epoch, step)
-                    print('is', step % steps_per_report)
                     run_options = tf.RunOptions(
                         trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
@@ -474,7 +487,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                                                       options=run_options,
                                                       run_metadata=run_metadata
                                                       )
-                train_writer.add_summary(summary, global_step)
+                train_writer.add_summary(summary, global_step.eval(session=sess))
 
                 # Extra debugging every steps_per_report
                 if not step % steps_per_report and steps_per_report != np.inf:
@@ -487,9 +500,21 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                     train_writer.add_run_metadata(run_metadata, 'epoch%d step%d' % (epoch, step))
                 # Add to CSV log buffer
                 if track_training_time is True:
-                    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+                    cur_train_time.load(time.time() - train_start + prev_train_time, sess)
+                    train_log.loc[epoch * minibatches + step] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
-                global_step += 1
+                global_step.load(global_step.eval(session=sess) + 1, sess)
+                # Stop on timeout (USR1)
+                if stopping_timeout[0]:
+                    break
+
+            # Stop on timeout (USR1)
+            if stopping_timeout[0]:
+                print('stopping timeout..')
+                stop_reason = 'timeout'
+                final_nn_file = 'nn_timeout.json'
+                break
+
             ########
             # After-epoch stuff
             ########
@@ -516,7 +541,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                                            run_metadata=run_metadata)
 
 
-            validation_writer.add_summary(summary, global_step)
+            validation_writer.add_summary(summary, global_step.eval(session=sess))
             # More debugging every epochs_per_report
             if not epoch % epochs_per_report and epochs_per_report != np.inf:
                 tl = timeline.Timeline(run_metadata.step_stats)
@@ -528,12 +553,15 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                 validation_writer.add_run_metadata(run_metadata, 'epoch%d' % epoch)
 
             # Save checkpoint
-            save_path = saver.save(sess, os.path.join(checkpoint_dir,
-                                                      'model.ckpt'), global_step=global_step, write_meta_graph=False)
+            save_path = saver.save(sess,
+                                   os.path.join(checkpoint_dir, 'model.ckpt'),
+                                   global_step=global_step,
+                                   write_meta_graph=False)
 
             # Update CSV logs
             if track_training_time is True:
-                validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+                cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
+                validation_log.loc[epoch] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
                 validation_log.loc[epoch:].to_csv(validation_log_file, header=False, float_format=ffmt)
                 validation_log = validation_log[0:0] #Flush validation log
@@ -608,8 +636,9 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
 
-    validation_log.loc[epoch] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
-    train_log.loc[epoch * minibatches + step] = (epoch, time.time() - train_start, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
+    validation_log.loc[epoch] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    train_log.loc[epoch * minibatches + step] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
     validation_log.loc[epoch:].to_csv(validation_log_file, header=False, float_format=ffmt)
     train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
     train_log_file.close()
@@ -621,7 +650,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
 
-    model_to_json('nn.json',
+    model_to_json(final_nn_file,
                   trainable=trainable,
                   feature_names=feature_names,
                   target_names=target_names,
@@ -631,8 +660,8 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                   settings=settings)
 
     print("Best epoch was {:d} with measure '{:s}' of {:f} ".format(best_epoch, settings['early_stop_measure'], best_early_measure))
-    train_time = time.time() - train_start
-    print("Training time was {:.0f} seconds".format(train_time))
+
+    print("Training time was {:.0f} seconds".format(cur_train_time.eval(session=sess)))
 
     # Finally, check against validation set
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
@@ -653,7 +682,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                 'loss_validation': loss_val,
                 'l2_loss_validation': l2_loss_val,
                 'rms_validation_descaled': rms_val_descale,
-                'walltime [s]': train_time,
+                'walltime [s]': cur_train_time.eval(session=sess),
                 'stop_reason': stop_reason
                 }
 
@@ -669,14 +698,15 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
         pass
 
     # Add metadata dict to nn.json
-    with open('nn.json') as nn_file:
+    with open(final_nn_file) as nn_file:
         data = json.load(nn_file, object_pairs_hook=OrderedDict)
 
     ordered_dict_prepend(data, '_metadata', metadata)
     data['_parsed_settings'] = settings
 
-    with open('nn.json', 'w') as nn_file:
+    with open(final_nn_file, 'w') as nn_file:
         json.dump(data, nn_file, indent=4, separators=(',', ': '))
+
     sess.close()
 
 def train_NDNN_from_folder(warm_start_nn=None, restore_old_checkpoint=False):
