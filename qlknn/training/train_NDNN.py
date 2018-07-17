@@ -377,6 +377,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
     cur_train_time = tf.Variable(0., name='cur_train_time', dtype='float64', trainable=False)
     global_step = tf.Variable(0, name='global_step', dtype='int64', trainable=False)
+    epoch = tf.Variable(0, name='epoch', dtype='int64', trainable=False)
     # Merge all the summaries
     merged = tf.summary.merge_all()
 
@@ -390,8 +391,16 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     tf.global_variables_initializer().run(session=sess)
     timediff(start, 'Variables initialized')
 
-    epoch = 0
+    # Save checkpoints of training to restore for early-stopping
+    saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
+    checkpoint_dir = 'checkpoints'
+    if restore_old_checkpoint:
+        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+        saver.restore(sess, ckpt.model_checkpoint_path)
+    else:
+        tf.gfile.MkDir(checkpoint_dir)
 
+    # Define log files
     train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm', 'stable_positive_loss'])
     validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm', 'stable_positive_loss'])
 
@@ -405,17 +414,9 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     summary, lo, meanse, meanabse, l1norm, l2norm, stab_pos = \
             sess.run([merged, loss, mse, mabse, l1_norm, l2_norm, stable_positive_loss],
                       feed_dict=feed_dict)
-    train_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
-    validation_log.loc[0] = (epoch, 0, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    train_log.loc[0] = (epoch.eval(session=sess), 0, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    validation_log.loc[0] = (epoch.eval(session=sess), 0, lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
-    # Save checkpoints of training to restore for early-stopping
-    saver = tf.train.Saver(max_to_keep=settings['early_stop_after'] + 1)
-    checkpoint_dir = 'checkpoints'
-    if restore_old_checkpoint:
-        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
-        saver.restore(sess, ckpt.model_checkpoint_path)
-    else:
-        tf.gfile.MkDir(checkpoint_dir)
 
     # Define variables for early stopping
     not_improved = 0
@@ -451,11 +452,14 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     timediff(start, 'Training started')
     train_start = time.time()
     prev_train_time = cur_train_time.eval(session=sess)
-    stop_reason = 'max epochs'
+    prev_epochs = epoch.eval(session=sess)
+    stop_reason = 'undefined'
     signal.signal(signal.SIGUSR1, timeout)
     final_nn_file = 'nn.json'
     try:
-        for epoch in range(max_epoch):
+        for epoch_sess in range(max_epoch):
+            epoch.load(prev_epochs + epoch_sess, sess)
+            epoch_idx = epoch.eval(session=sess)
             for step in range(minibatches):
                 # Extra debugging every steps_per_report
                 if not step % steps_per_report and steps_per_report != np.inf:
@@ -497,11 +501,12 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                     #    f.write(ctf)
                     full_timeline.update_timeline(ctf)
 
-                    train_writer.add_run_metadata(run_metadata, 'epoch%d step%d' % (epoch, step))
+                    train_writer.add_run_metadata(run_metadata, 'epoch%d step%d' % (epoch_idx, step))
                 # Add to CSV log buffer
-                if track_training_time is True:
+                if track_training_time:
                     cur_train_time.load(time.time() - train_start + prev_train_time, sess)
-                    train_log.loc[epoch * minibatches + step] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+                    idx = epoch_idx * minibatches + step
+                    train_log.loc[idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
                 global_step.load(global_step.eval(session=sess) + 1, sess)
                 # Stop on timeout (USR1)
@@ -521,12 +526,12 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
             if track_training_time is True:
                 step_start = time.time()
-            epoch = datasets.train.epochs_completed
+            assert epoch_sess == datasets.train.epochs_completed
             xs, ys = datasets.validation.next_batch(-1, shuffle=False)
             feed_dict = {x: xs, y_ds: ys, is_train: False}
             # Run with full trace every epochs_per_report Gives full runtime information
-            if not epoch % epochs_per_report and epochs_per_report != np.inf:
-                print('epoch_debug!', epoch)
+            if not epoch_idx % epochs_per_report and epochs_per_report != np.inf:
+                print('epoch_debug!', epoch_idx)
                 run_options = tf.RunOptions(
                     trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
@@ -543,14 +548,14 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
             validation_writer.add_summary(summary, global_step.eval(session=sess))
             # More debugging every epochs_per_report
-            if not epoch % epochs_per_report and epochs_per_report != np.inf:
+            if not epoch_idx % epochs_per_report and epochs_per_report != np.inf:
                 tl = timeline.Timeline(run_metadata.step_stats)
                 ctf = tl.generate_chrome_trace_format()
                 full_timeline.update_timeline(ctf)
                 #with open('timeline.json', 'w') as f:
                 #    f.write(ctf)
 
-                validation_writer.add_run_metadata(run_metadata, 'epoch%d' % epoch)
+                validation_writer.add_run_metadata(run_metadata, 'epoch%d' % epoch_idx)
 
             # Save checkpoint
             save_path = saver.save(sess,
@@ -559,13 +564,13 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                                    write_meta_graph=False)
 
             # Update CSV logs
-            if track_training_time is True:
+            if track_training_time:
                 cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
-                validation_log.loc[epoch] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+                validation_log.loc[epoch_idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
-                validation_log.loc[epoch:].to_csv(validation_log_file, header=False, float_format=ffmt)
+                validation_log.loc[epoch_idx:].to_csv(validation_log_file, header=False, float_format=ffmt)
                 validation_log = validation_log[0:0] #Flush validation log
-                train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
+                train_log.loc[epoch_idx * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
                 train_log = train_log[0:0] #Flush train_log
 
             # Determine early-stopping criterion
@@ -581,7 +586,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                 best_early_measure = early_measure
                 if save_best_networks:
                     nn_best_file = os.path.join(checkpoint_dir,
-                                                  'nn_checkpoint_' + str(epoch) + '.json')
+                                                  'nn_checkpoint_' + str(epoch_idx) + '.json')
                     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
                     model_to_json(nn_best_file,
                                   trainable=trainable,
@@ -598,7 +603,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
             if settings['early_stop_measure'] != 'none' and not_improved >= settings['early_stop_after']:
                 if save_checkpoint_networks:
                     nn_checkpoint_file = os.path.join(checkpoint_dir,
-                                                  'nn_checkpoint_' + str(epoch) + '.json')
+                                                  'nn_checkpoint_' + str(epoch_idx) + '.json')
                     trainable = {x.name: tf.to_double(x).eval(session=sess).tolist() for x in tf.trainable_variables()}
                     model_to_json(nn_checkpoint_file,
                                   trainable=trainable,
@@ -620,6 +625,10 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                 stop_reason = 'NaN or inf loss'
                 break
 
+        # Clean break from train loop without a reason. Probably epochs ran out
+        if stop_reason == 'undefined':
+            stop_reason = 'max epochs'
+
     # Stop on Ctrl-C
     except KeyboardInterrupt:
         stop_reason = 'KeyboardInterrupt'
@@ -630,17 +639,17 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
     # Restore checkpoint with best epoch
     try:
-        best_epoch = epoch - not_improved
-        saver.restore(sess, saver.last_checkpoints[best_epoch - epoch])
+        best_epoch = epoch_idx - not_improved
+        saver.restore(sess, saver.last_checkpoints[best_epoch - epoch_idx])
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
         best_epoch = epoch
 
     cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
-    validation_log.loc[epoch] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
-    train_log.loc[epoch * minibatches + step] = (epoch, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
-    validation_log.loc[epoch:].to_csv(validation_log_file, header=False, float_format=ffmt)
-    train_log.loc[epoch * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
+    validation_log.loc[epoch_idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    train_log.loc[epoch_idx * minibatches + step] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+    validation_log.loc[epoch_idx:].to_csv(validation_log_file, header=False, float_format=ffmt)
+    train_log.loc[epoch_idx * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
     train_log_file.close()
     del train_log
     validation_log_file.close()
@@ -676,8 +685,8 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     print('{:22} {!s}'.format('Validation loss: ', loss_val))
 
 
-    metadata = {'epoch':           epoch,
-                'best_epoch':      best_epoch,
+    metadata = {'epoch':           int(epoch_idx),
+                'best_epoch':      int(best_epoch),
                 'rms_validation':  rms_val,
                 'loss_validation': loss_val,
                 'l2_loss_validation': l2_loss_val,
