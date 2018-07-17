@@ -52,16 +52,6 @@ def timeout(signum, frame):
     stopping_timeout[0] = True
 
 @profile
-def convert_nustar(input_df):
-    # Nustar relates to the targets with a log
-    try:
-        input_df['logNustar'] = np.log10(input_df['Nustar'])
-        del input_df['Nustar']
-    except KeyError:
-        print('No Nustar in dataset')
-    return input_df
-
-@profile
 def drop_outliers(target_df, settings):
     if settings['drop_outlier_above'] < 1:
         target_df = target_df[target_df < target_df.quantile(settings['drop_outlier_above'])]

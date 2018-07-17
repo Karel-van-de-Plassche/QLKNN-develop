@@ -17,6 +17,17 @@ from qlknn.misc.tools import first
 
 store_format = 'fixed'
 sep_prefix = '/output/'
+
+@profile
+def convert_nustar(input_df):
+    # Nustar relates to the targets with a log
+    try:
+        input_df['logNustar'] = np.log10(input_df['Nustar'])
+        del input_df['Nustar']
+    except KeyError:
+        print('No Nustar in dataset')
+    return input_df
+
 def put_to_store_or_df(store_or_df, name, var, store_prefix=sep_prefix):
     if isinstance(store_or_df, pd.HDFStore):
         store_or_df.put(''.join([store_prefix, name]),
@@ -61,7 +72,7 @@ def save_to_store(input, data, const, store_name, style='both', zip=False, prefi
     store.close()
 
 @profile
-def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='', load_input=True):
+def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='', load_input=True, nustar_to_lognustar=True):
     if isinstance(columns, str):
         columns = [columns]
     elif isinstance(columns, pd.Series):
@@ -97,6 +108,8 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
     # Load input and constants
     if load_input:
         input = store[prefix + 'input']
+        if nustar_to_lognustar:
+            input = convert_nustar(input)
     else:
         input = pd.DataFrame()
     try:
