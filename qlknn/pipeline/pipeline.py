@@ -185,7 +185,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         elif self.machine_type == 'lisa':
             tmproot = os.path.join(os.environ['HOME'], 'tmp_nn')
         elif self.machine_type == 'cori':
-            tmproot = os.environ['SCRATCH']
+            tmproot = os.path.join(os.environ['SCRATCH'], 'tmp_nn')
         else:
             tmproot = None
         self.tmpdirname = tmpdirname = tempfile.mkdtemp(prefix='trainNN_', dir=tmproot)
