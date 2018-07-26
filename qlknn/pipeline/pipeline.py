@@ -181,7 +181,7 @@ class TrainNN(luigi.contrib.postgres.CopyToTable):
         settings['train_dims'] = self.train_dims
         old_dir = os.getcwd()
         if self.machine_type == 'marconi':
-            tmproot = os.environ['CINECA_SCRATCH']
+            tmproot = os.path.join(os.environ['CINECA_SCRATCH'], 'tmp_nn')
         elif self.machine_type == 'lisa':
             tmproot = os.path.join(os.environ['HOME'], 'tmp_nn')
         elif self.machine_type == 'cori':
