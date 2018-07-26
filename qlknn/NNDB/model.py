@@ -964,14 +964,14 @@ class PureNetworkParams(BaseModel):
             if os.path.isdir(path_):
                 try:
                     cls.from_folder(path_, **kwargs)
-                except:
+                except OSError:
                     print('Could not parse', path_, 'is training done?')
 
     @classmethod
     @db.atomic()
     def from_folder(cls, pwd):
         if not cls.is_ready_to_be_submitted(pwd):
-            raise Exception('{!s} is not ready to be submitted!'.format(pwd))
+            raise OSError('{!s} is not ready to be submitted!'.format(pwd))
 
         script_path = os.path.join(pwd, 'train_NDNN.py')
         #with open(script_file, 'r') as script:
