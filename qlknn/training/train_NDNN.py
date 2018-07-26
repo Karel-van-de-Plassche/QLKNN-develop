@@ -45,7 +45,7 @@ def print_last_row(df, header=False):
                                   justify='left'))
 
 def timeout(signum, frame):
-    #nonlocal stopping_timeout
+    global stopping_timeout
     print('Received signal: {!s} frame: {!s}'.format(signum, frame))
     # mutating a mutable object doesn't require changing what the variable name points to
     # Python2/3 compat (ugly) workaround
@@ -437,6 +437,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     validation_log.to_csv(validation_log_file, float_format=ffmt, header=header)
 
     # Set flag to stop training because of timeout
+    global stopping_timeout
     stopping_timeout = [False]
 
     timediff(start, 'Training started')
@@ -493,8 +494,8 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
                     train_writer.add_run_metadata(run_metadata, 'epoch%d step%d' % (epoch_idx, step))
                 # Add to CSV log buffer
+                cur_train_time.load(time.time() - train_start + prev_train_time, sess)
                 if track_training_time:
-                    cur_train_time.load(time.time() - train_start + prev_train_time, sess)
                     idx = epoch_idx * minibatches + step
                     train_log.loc[idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
@@ -554,8 +555,8 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                                    write_meta_graph=False)
 
             # Update CSV logs
+            cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
             if track_training_time:
-                cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
                 validation_log.loc[epoch_idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
                 validation_log.loc[epoch_idx:].to_csv(validation_log_file, header=False, float_format=ffmt)
@@ -633,7 +634,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
         saver.restore(sess, saver.last_checkpoints[best_epoch - epoch_idx])
     except IndexError:
         print("Can't restore old checkpoint, just saving current values")
-        best_epoch = epoch
+        best_epoch = epoch.eval(session=sess)
 
     cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
     validation_log.loc[epoch_idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
