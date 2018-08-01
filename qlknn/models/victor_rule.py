@@ -159,7 +159,7 @@ if __name__ == '__main__':
     #plt.xlim([0, 35])
     #plt.ylim([-1.5, 2.5])
 
-    def plot_victorplot(epsilon, q, s_hat, gamma0, plotvar, gammaE_GB=None, qlk_data=None):
+    def plot_victorplot(epsilon, q, s_hat, gamma0, plotvar, gammaE_GB=None, qlk_data=None, gammaE_var='gammaE_QLK'):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         #Prep QuaLiKiz data
@@ -167,7 +167,9 @@ if __name__ == '__main__':
         if qlk_data is not None:
             qlk_data = qlk_data.copy()
             qlk_data['epsilon'] = eps(qlk_data['x'])
-            qlk_data['gammaE'] = gammaE_QLK_to_gammaE_GB(qlk_data['gammaE'], Te, Ai0)
+            qlk_data['gammaE_QLK'] = qlk_data['gammaE']
+            qlk_data['gammaE_GB'] = gammaE_QLK_to_gammaE_GB(qlk_data['gammaE'], Te, Ai0)
+            assert all(np.isclose(gammaE_GB_to_gamma_QLK_in(qlk_data['gammaE_GB'], Te, Ai0), qlk_data['gammaE_QLK']))
             qlk_data['gam_leq_GB'] = qlk_data['gam_leq_GB'] * 8
             qlk_data.rename(columns={'smag': 's_hat'}, inplace=True)
             for name in dim_names:
@@ -181,19 +183,20 @@ if __name__ == '__main__':
                         idx |= np.isclose(qlk_data[name], const_var, rtol=1e-3, atol=1e-5)
                     qlk_data = qlk_data.loc[idx]
 
-            qlk_data = qlk_data.pivot(index='gammaE', columns=plotvar, values='gam_leq_GB')
+            qlk_data = qlk_data.pivot(index=gammaE_var, columns=plotvar, values='gam_leq_GB')
 
         if gammaE_GB is None:
             n = 100
             gammaE_GB = np.linspace(0,1,n)
-        idx = pd.MultiIndex.from_product([gammaE_GB, epsilon, q, s_hat], names=['gammaE'] + dim_names)
+        idx = pd.MultiIndex.from_product([gammaE_GB, epsilon, q, s_hat], names=['gammaE_GB'] + dim_names)
         data = pd.DataFrame(index=idx)
         data.reset_index(inplace=True)
         data['f_vic'] = apply_victorthesis_eps(*data.loc[:, ('epsilon', 'q', 's_hat')].values.T)
         data['gamma0'] = np.tile(gamma0, [1, n]).T
-        data['line'] = data['gamma0'] + data['f_vic'] * data['gammaE']
+        data['line'] = data['gamma0'] + data['f_vic'] * data['gammaE_GB']
+        data['gammaE_QLK'] = gammaE_GB_to_gamma_QLK_in(data['gammaE_GB'], Te, Ai0)
         data['line'] = data['line'].clip(0)
-        gammaE_plot = data.pivot(index='gammaE', columns=plotvar, values='line')
+        gammaE_plot = data.pivot(index=gammaE_var, columns=plotvar, values='line')
         if plotvar == 'epsilon':
             gammaE_plot = gammaE_plot[gammaE_plot.columns[::-1]]
             cmap = ListedColormap(['C1', 'C0', 'C2', 'C4', 'C3', 'C8'])
