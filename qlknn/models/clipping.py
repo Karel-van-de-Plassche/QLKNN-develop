@@ -53,7 +53,7 @@ class LeadingFluxNN(QuaLiKizNDNN):
             determine_settings(nn, input, safe, clip_low, clip_high, low_bound, high_bound)
         del input
 
-        output = nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=False)
+        output = nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=safe)
         for id in self._leading_idx.keys():
             leading_idx = self._leading_idx[id]
             clip_idx = self._clip_idx[id]
