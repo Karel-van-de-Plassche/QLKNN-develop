@@ -87,13 +87,13 @@ class VictorNN():
         self._internal_network = QuaLiKizComboNN(target_names, [network, gam_network], lambda *x: np.hstack(x))
 
         self._target_names = network._target_names
-        self._feature_names = self._internal_network._feature_names.append(pd.Series('gammaE'), ignore_index=True)
+        self._feature_names = self._internal_network._feature_names.append(pd.Series('gammaE_GB'), ignore_index=True)
 
         # Copy parts of internal network
         self._feature_min = self._internal_network._feature_min
-        self._feature_min['gammaE'] = -np.inf
+        self._feature_min['gammaE_GB'] = -np.inf
         self._feature_max = self._internal_network._feature_max
-        self._feature_max['gammaE'] = np.inf
+        self._feature_max['gammaE_GB'] = np.inf
         self._target_min = self._internal_network._target_min
         self._target_max = self._internal_network._target_max
         self._target_min = self._target_min.drop('gam_leq_GB')
