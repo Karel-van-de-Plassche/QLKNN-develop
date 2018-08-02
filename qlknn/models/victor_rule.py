@@ -18,7 +18,7 @@ gamGB = lambda Te: csou(Te, mi) / Rmin
 c_ref = np.sqrt(qe*1e3/mp)
 eps = lambda x: x * a / Ro
 
-def gammaE_GB_to_gamma_QLK_in(gammaE_GB, Te, Ai0):
+def gammaE_GB_to_gammaE_QLK(gammaE_GB, Te, Ai0):
     """
     Args:
         gammaE_GB:   GyroBohm normalized gammaE
@@ -169,7 +169,7 @@ if __name__ == '__main__':
             qlk_data['epsilon'] = eps(qlk_data['x'])
             qlk_data['gammaE_QLK'] = qlk_data['gammaE']
             qlk_data['gammaE_GB'] = gammaE_QLK_to_gammaE_GB(qlk_data['gammaE'], Te, Ai0)
-            assert all(np.isclose(gammaE_GB_to_gamma_QLK_in(qlk_data['gammaE_GB'], Te, Ai0), qlk_data['gammaE_QLK']))
+            assert all(np.isclose(gammaE_GB_to_gammaE_QLK(qlk_data['gammaE_GB'], Te, Ai0), qlk_data['gammaE_QLK']))
             qlk_data['gam_leq_GB'] = qlk_data['gam_leq_GB'] * 8
             qlk_data.rename(columns={'smag': 's_hat'}, inplace=True)
             for name in dim_names:
@@ -194,7 +194,7 @@ if __name__ == '__main__':
         data['f_vic'] = apply_victorthesis_eps(*data.loc[:, ('epsilon', 'q', 's_hat')].values.T)
         data['gamma0'] = np.tile(gamma0, [1, n]).T
         data['line'] = data['gamma0'] + data['f_vic'] * data['gammaE_GB']
-        data['gammaE_QLK'] = gammaE_GB_to_gamma_QLK_in(data['gammaE_GB'], Te, Ai0)
+        data['gammaE_QLK'] = gammaE_GB_to_gammaE_QLK(data['gammaE_GB'], Te, Ai0)
         data['line'] = data['line'].clip(0)
         gammaE_plot = data.pivot(index=gammaE_var, columns=plotvar, values='line')
         if plotvar == 'epsilon':
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     Te = 8.0
     n = 100
     gammaE_GB = np.linspace(0,1,n)
-    gammaE_QLK = gammaE_GB_to_gamma_QLK_in(gammaE_GB, Te, Ai0)
+    gammaE_QLK = gammaE_GB_to_gammaE_QLK(gammaE_GB, Te, Ai0)
     qlk_data = None
     #store = pd.HDFStore('victorrun.h5')
     #qlk_data = store['flattened']
