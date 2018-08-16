@@ -174,6 +174,11 @@ def load_megarun1_ds(rootdir='.'):
     ds_tot = ds.merge(ds_sep.data_vars)
     return ds_tot, ds_kwargs
 
+@profile
+def load_rot_three_ds(rootdir='.'):
+    ds, ds_kwargs = open_with_disk_chunks(os.path.join(rootdir, 'rot_three.nc.1'), dask=False)
+    return ds, ds_kwargs
+
 def gcd(x, y):
    """Euclidian algorithm to find Greatest Common Devisor of two numbers"""
    while(y):
@@ -538,9 +543,12 @@ if __name__ == '__main__':
     #client = Client()
     starttime = time.time()
     rootdir = '../../../qlk_data'
-    store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
-    prep_ds_name = 'Zeffcombo_prepared.nc.1'
-    ds_loader = load_megarun1_ds
+    #store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
+    #prep_ds_name = 'Zeffcombo_prepared.nc.1'
+    #ds_loader = load_megarun1_ds
+    store_name = 'gen4_8D_rot_three_filter10.h5.1'
+    prep_ds_name = 'rot_three_prepared.nc.1'
+    ds_loader = load_rot_three_ds
     use_disk_cache = False
     #use_disk_cache = True
     ds = prep_megarun_ds(prep_ds_name,
