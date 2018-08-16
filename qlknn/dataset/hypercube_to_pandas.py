@@ -112,29 +112,46 @@ def remove_rotation(ds):
             print('{!s} already removed'.format(value))
     return ds
 
-def open_with_disk_chunks(path):
-    # Determine the on-disk chunk sizes
-    ds = xr.open_dataset(path)
-    if 'gam_GB' in ds.data_vars:
-        chunk_sizes = ds['gam_GB']._variable._encoding['chunksizes']
-        dims = ds['gam_GB']._variable.dims
-    elif 'efe_GB' in ds.data_vars:
-        chunk_sizes = ds['efe_GB']._variable._encoding['chunksizes']
-        dims = ds['efe_GB']._variable.dims
-    else:
-        raise Exception('Could not figure out chunk sizes, no gam_GB nor efe_GB')
-    ds.close()
+def open_with_disk_chunks(path, dask=True):
+    """ Determine the on-disk chunk sizes and open dataset
 
-    # Re-open dataset with on-disk chunksizes
-    chunks = dict(zip(dims, chunk_sizes))
-    #chunks = {dim: length for dim, length in ds.dims.items()} #One big chunk
-    ds_kwargs = {
-        'chunks': chunks,
-        #'cache': True
-        #'lock': lock
-    }
-    ds = xr.open_dataset(path,
-                         **ds_kwargs)
+    Best performance in Dask is achieved if the on-disk chunks
+    (as saved by xarray) are aligned with the Dask chunks.
+    This function assumes all variables are chunked have the
+    same on-disk chunks (the xarray default)
+    """
+    ds = xr.open_dataset(path)
+    if dask:
+        if 'efe_GB' in ds.data_vars:
+            chunk_sizes = ds['efe_GB']._variable._encoding['chunksizes']
+            dims = ds['efe_GB']._variable.dims
+        else:
+            raise Exception('Could not figure out base chunk sizes, no efe_GB')
+        for dim in ds.dims:
+            if dim not in dims:
+                for var in ds.data_vars.values():
+                    if dim in var.dims:
+                        idx = var._variable.dims.index(dim)
+                        dims += (dim,)
+                        chunk_sizes += (var._variable._encoding['chunksizes'][idx],)
+                        break
+        not_in_dims = set(ds.dims) - set(dims)
+        if len(not_in_dims) != 0:
+            print('{!s} not in dims, but are dims of dataset'.format(not_in_dims))
+        ds.close()
+
+        # Re-open dataset with on-disk chunksizes
+        #chunks = dict(zip(dims, chunk_sizes))
+        chunks = {dim: length for dim, length in ds.dims.items()} #One big chunk
+        ds_kwargs = {
+            'chunks': chunks,
+            #'cache': True
+            #'lock': lock
+        }
+        ds = xr.open_dataset(path,
+                             **ds_kwargs)
+    else:
+        ds_kwargs = {}
     return ds, ds_kwargs
 
 @profile
@@ -151,7 +168,7 @@ def load_megarun1_ds(rootdir='.'):
     Returns:
         ds:        Merged chunked xarray.Dataset ready for preparation.
     """
-    ds, ds_kwargs = open_with_disk_chunks(os.path.join(rootdir, 'Zeffcombo.nc.1'))
+    ds, ds_kwargs = open_with_disk_chunks(os.path.join(rootdir, 'Zeffcombo.nc.1'), dask=True)
     ds_sep = xr.open_dataset(os.path.join(rootdir, 'Zeffcombo.sep.nc.1'),
                              **ds_kwargs)
     ds_tot = ds.merge(ds_sep.data_vars)
@@ -184,7 +201,8 @@ def get_dims_chunks(var):
         if None in chunksizes:
             raise Exception('Unequal size for one of the chunks in {!s}'.format(var.chunks))
     else:
-        raise NotImplementedError('Getting chunks of {!s}'.format(var))
+        print('No chunks for {!s}'.format(var.name))
+        chunksizes = None
     return chunksizes
 
 @profile
@@ -245,7 +263,8 @@ def merge_gam_leq_great(ds, ds_kwargs=None, rootdir='.', use_disk_cache=False, s
         encoding = {}
         for key in ['zlib', 'shuffle', 'complevel', 'dtype', ]:
             encoding[key] = ds['gam_GB'].encoding[key]
-        encoding['chunksizes'] = chunksizes
+        if chunksizes is not None:
+            encoding['chunksizes'] = chunksizes
 
         # We assume this fits in RAM, so load before writing to get some extra speed
         gam_leq.load()
@@ -257,9 +276,13 @@ def merge_gam_leq_great(ds, ds_kwargs=None, rootdir='.', use_disk_cache=False, s
     # Now open the cache with the same args as the original dataset, as we
     # aggregated over kthetarhos and numsols, remove them from the chunk list
     kwargs = copy.deepcopy(ds_kwargs)
-    chunks = kwargs.pop('chunks')
-    for key in ['kthetarhos', 'numsols']:
-        chunks.pop(key)
+    if chunksizes is not None:
+        chunks = kwargs.pop('chunks')
+        for key in list(chunks.keys()):
+            if key not in gam_leq.dims:
+                chunks.pop(key)
+    else:
+        chunks = None
 
     # Finally, open and merge the cache
     ds_gam = xr.open_dataset(os.path.join(rootdir, GAM_LEQ_GB_TMP_PATH),
@@ -268,7 +291,7 @@ def merge_gam_leq_great(ds, ds_kwargs=None, rootdir='.', use_disk_cache=False, s
     ds = ds.merge(ds_gam.data_vars)
     return ds
 
-def compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=None):
+def compute_and_save_var(ds, new_ds_path, varname, chunks=None, starttime=None):
     """ Save a variable from the given dataset in a new dataset
     Args:
         ds:             xarray.Dataset containing gam_GB
@@ -284,7 +307,9 @@ def compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=None):
         starttime = time.time()
 
     #var = ds[varname]
-    encoding = {varname: {'chunksizes':  [chunks[dim] for dim in ds[varname].dims], 'zlib': True}}
+    encoding = {varname: {'zlib': True}}
+    if chunks is not None:
+        encoding[varname]['chunksizes'] = [chunks[dim] for dim in ds[varname].dims]
     #var.load()
     ds[varname].to_netcdf(new_ds_path, 'a',
                   encoding=encoding)
@@ -397,10 +422,13 @@ def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cach
 
         # Save prepared dataset to disk
         notify_task_done('Pre-disk write dataset preparation', starttime)
-        with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
-            compute_and_save(ds, prepared_ds_path, chunks=ds_kwargs['chunks'], starttime=starttime)
-        notify_task_done('prep_megarun', starttime)
-        visualize([prof, rprof, cprof], file_path='profile_prep.html', show=False)
+        if 'chunks' in ds_kwargs:
+            with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
+                compute_and_save(ds, prepared_ds_path, chunks=ds_kwargs['chunks'], starttime=starttime)
+            notify_task_done('prep_megarun', starttime)
+            visualize([prof, rprof, cprof], file_path='profile_prep.html', show=False)
+        else:
+            compute_and_save(ds, prepared_ds_path, starttime=starttime)
     else:
         ds, __ = open_with_disk_chunks(prepared_ds_path)
     return ds
