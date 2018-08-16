@@ -359,7 +359,7 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
         compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=starttime)
 
 @profile
-def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cache=False, ds_loader=load_megarun1_ds):
+def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cache=False, use_gam_cache=False, ds_loader=load_megarun1_ds):
     """ Prepares a QuaLiKiz netCDF4 dataset for convertion to pandas
     This function was designed to use dask, but should work for
     pure xarray too. In this function it is assumed the chunks on disk,
@@ -370,6 +370,7 @@ def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cach
                         relative to this point. [Default: current time]
         rootdir:        Path where all un-prepared datasets reside [Default: '.']
         use_disk_cache: Just load an already prepared dataset [Default: False]
+        use_gam_cache:  Load the already prepared gam_leq/gam_great cache [Default: False]
         ds_loader:      Function that loads all non-prepared datasets and merges
                         them to one. See default for example [Default: load_megarun1_ds]
 
@@ -384,13 +385,11 @@ def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cach
         # Load the dataset
         ds, ds_kwargs = ds_loader(rootdir)
         notify_task_done('Datasets merging', starttime)
-        use_disk_cache = False
-        #use_disk_cache = True
         # Calculate gam_leq and gam_great and cache to disk
         ds = merge_gam_leq_great(ds,
                                  ds_kwargs=ds_kwargs,
                                  rootdir=rootdir,
-                                 use_disk_cache=use_disk_cache,
+                                 use_disk_cache=use_gam_cache,
                                  starttime=starttime)
         notify_task_done('gam_[leq,great]_GB cache creation', starttime)
 
