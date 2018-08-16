@@ -201,9 +201,12 @@ def calculate_grow_vars(ds):
     gam_leq = gam_leq.max('kthetarhos')
     gam_leq.name = 'gam_leq_GB'
 
-    gam_great = gam.isel(kthetarhos=slice(bound_idx + 1, None))
-    gam_great = gam_great.max('kthetarhos')
-    gam_great.name = 'gam_great_GB'
+    if kthetarhos.size < bound_idx:
+        gam_great = gam.isel(kthetarhos=slice(bound_idx + 1, None))
+        gam_great = gam_great.max('kthetarhos')
+        gam_great.name = 'gam_great_GB'
+    else:
+        gam_great = None
 
     return gam_leq, gam_great
 
@@ -247,8 +250,9 @@ def merge_gam_leq_great(ds, ds_kwargs=None, rootdir='.', use_disk_cache=False, s
         # We assume this fits in RAM, so load before writing to get some extra speed
         gam_leq.load()
         gam_leq.to_netcdf(gam_cache_dir, encoding={gam_leq.name: encoding})
-        gam_great.load()
-        gam_great.to_netcdf(gam_cache_dir, encoding={gam_great.name: encoding}, mode='a')
+        if gam_great is not None:
+            gam_great.load()
+            gam_great.to_netcdf(gam_cache_dir, encoding={gam_great.name: encoding}, mode='a')
 
     # Now open the cache with the same args as the original dataset, as we
     # aggregated over kthetarhos and numsols, remove them from the chunk list
