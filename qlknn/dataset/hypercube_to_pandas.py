@@ -5,6 +5,7 @@ import os
 import copy
 import shutil
 
+import numpy as np
 import xarray as xr
 import pandas as pd
 #from dask.distributed import Client, get_client
@@ -156,6 +157,12 @@ def load_megarun1_ds(rootdir='.'):
     ds_tot = ds.merge(ds_sep.data_vars)
     return ds_tot, ds_kwargs
 
+def gcd(x, y):
+   """Euclidian algorithm to find Greatest Common Devisor of two numbers"""
+   while(y):
+       x, y = y, x % y
+   return x
+
 def get_dims_chunks(var):
     """ Get the current dask chunks of a given variable """
     if var.chunks is not None:
@@ -166,9 +173,16 @@ def get_dims_chunks(var):
                           for dim in var.dims]
         if isinstance(var.chunks, tuple):
             # dask-style
-            chunksizes = [sizes[0] if sizes[1:] == sizes[:-1] else None for sizes in var.chunks]
+            chunksizes = []
+            for sizes in var.chunks:
+                if sizes[1:] == sizes[:-1]: #If all are equal
+                    chunksizes.append(sizes[0])
+                elif np.unique(sizes).size == 2:
+                    chunksizes.append(gcd(np.unique(sizes)[0], np.unique(sizes)[1]))
+                else:
+                    chunksizes.append(reduce(lambda x,y:gcd([x,y]),np.unique(sizes)))
         if None in chunksizes:
-            raise Exception('Unequal size for one of the chunks in {!s}'.format(var.chunks.items()))
+            raise Exception('Unequal size for one of the chunks in {!s}'.format(var.chunks))
     else:
         raise NotImplementedError('Getting chunks of {!s}'.format(var))
     return chunksizes
