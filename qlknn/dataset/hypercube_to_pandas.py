@@ -334,7 +334,7 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
         compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=starttime)
 
 @profile
-def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader=load_megarun1_ds):
+def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cache=False, ds_loader=load_megarun1_ds):
     """ Prepares a QuaLiKiz netCDF4 dataset for convertion to pandas
     This function was designed to use dask, but should work for
     pure xarray too. In this function it is assumed the chunks on disk,
@@ -354,7 +354,7 @@ def prep_megarun_ds(starttime=None, rootdir='.', use_disk_cache=False, ds_loader
     if starttime is None:
         starttime = time.time()
 
-    prepared_ds_path = os.path.join(rootdir, 'Zeffcombo_prepared.nc.1')
+    prepared_ds_path = os.path.join(rootdir, prepared_ds_name)
     if not use_disk_cache:
         # Load the dataset
         ds, ds_kwargs = ds_loader(rootdir)
@@ -511,12 +511,16 @@ if __name__ == '__main__':
     #client = Client()
     starttime = time.time()
     rootdir = '../../../qlk_data'
+    store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
+    prep_ds_name = 'Zeffcombo_prepared.nc.1'
+    ds_loader = load_megarun1_ds
     use_disk_cache = False
     #use_disk_cache = True
-    ds = prep_megarun_ds(starttime=starttime,
+    ds = prep_megarun_ds(prep_ds_name,
+                         starttime=starttime,
                          rootdir=rootdir,
                          use_disk_cache=use_disk_cache,
-                         ds_loader=load_megarun1_ds)
+                         ds_loader=ds_loader)
     notify_task_done('Preparing dataset', starttime)
 
     # Convert to pandas
@@ -528,7 +532,6 @@ if __name__ == '__main__':
     if not use_disk_cache:
         create_input_cache(ds, cachedir)
 
-    store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
     dummy_var = list(ds.data_vars)[0]
     input_hdf5_from_cache(store_name, cachedir, columns=list(ds[dummy_var].dims), mode='a')
     save_attrs(ds.attrs, store_name)
