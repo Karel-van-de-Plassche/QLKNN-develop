@@ -556,7 +556,7 @@ def prepare_rot_three(rootdir):
     prep_ds_name = 'rot_three_prepared.nc.1'
     ds_loader = load_rot_three_ds
     use_disk_cache = False
-    use_disk_cache = True
+    #use_disk_cache = True
     ds = prep_megarun_ds(prep_ds_name,
                          starttime=starttime,
                          rootdir=rootdir,
