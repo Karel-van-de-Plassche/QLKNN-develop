@@ -597,7 +597,7 @@ if __name__ == '__main__':
     #store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
     #prep_ds_name = 'Zeffcombo_prepared.nc.1'
     #ds_loader = load_megarun1_ds
-    ds, store_name = prepare_rot(rootdir)
+    ds, store_name = prepare_rot_three(rootdir)
 
     # Convert to pandas
     # Remove all variables with more dims than our cube
