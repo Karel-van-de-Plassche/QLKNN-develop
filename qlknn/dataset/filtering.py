@@ -10,9 +10,10 @@ import copy
 from IPython import embed
 import pandas as pd
 import numpy as np
+import dask.dataframe as dd
 
 from qlknn.dataset.data_io import put_to_store_or_df, save_to_store, load_from_store, sep_prefix
-from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_partial_diffusion, is_partial_particle
+from qlknn.misc.analyse_names import heat_vars, particle_vars, particle_diffusion_vars, momentum_vars, is_partial_diffusion, is_partial_particle, is_pure_heat, split_name, is_transport
 from qlknn.misc.tools import profile
 
 @profile
@@ -109,29 +110,39 @@ def stability_filter(data):
     """
     for col in data.columns:
         splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-        if splitted[0] not in heat_vars + particle_vars + momentum_vars:
+        try:
+            transp, species, mode, norm = split_name(col)
+        except ValueError:
+            print('skipping {!s}'.format(col))
+
+        if not is_transport(col):
             print('skipping {!s}'.format(col))
             continue
         # First check for which regime this variable should be filtered
-        if splitted[2] == 'TEM':
+        if mode == 'TEM':
             gam_filter = 'tem'
-        elif splitted[2] == 'ITG':
+        elif mode == 'ITG':
             gam_filter = 'itg'
-        elif splitted[2] == 'ETG':
+        elif mode == 'ETG':
             gam_filter = 'elec'
-        elif splitted[0] in heat_vars and splitted[1] == 'e':
+        elif transp in heat_vars and species == 'e':
             gam_filter = 'multi'
         else:
             gam_filter = 'ion'
 
         pre = np.sum(~data[col].isnull())
+        print(col, gam_filter)
         # Now apply a filter based on the regime of the variable
         if gam_filter == 'ion':
             data[col] = data[col].loc[data['gam_leq_GB'] != 0]
         elif gam_filter == 'elec':
             data[col] = data[col].loc[data['gam_great_GB'] != 0]
         elif gam_filter == 'multi':
-            data[col] = data[col].loc[(data['gam_leq_GB'] != 0) | (data['gam_great_GB'] != 0)]
+            if 'gam_great_GB' in data.columns:
+                data[col] = data[col].loc[(data['gam_leq_GB'] != 0) | (data['gam_great_GB'] != 0)]
+            else:
+                # If gam_great_GB is not there, the QuaLiKiz run was not with electron scale
+                data[col] = data[col].loc[(data['gam_leq_GB'] != 0)]
         elif gam_filter == 'tem':
             data[col] = data[col].loc[data['TEM']]
         elif gam_filter == 'itg':
@@ -151,38 +162,39 @@ def negative_filter(data):
     Returns:
         Per-element `True` if none of the checked heat-flux variables is negative
     """
-    anyisneg = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
-    for col in data.columns:
-        splitted = re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)
-        # If (len(splitted) == 5) we know we have a 'pure' variable, e.g. no flux_op_flux
-        if (splitted[0] in heat_vars) and (len(splitted) == 5):
-            anyisneg &= (data[col] >= 0)
-    return anyisneg
+    filter_functions = {'negative': negative_filter,
+                    'ck': ck_filter,
+                    'septot': septot_filter,
+                    'ambipolar': ambipolar_filter,
+                    'femtoflux': femtoflux_filter}
+    #anyisneg = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
+    heat_cols = [col for col in data.columns if is_pure_heat(col)]
+    nonnegative = (data[heat_cols] >= 0).all(axis=1)
+    return nonnegative
 
 @profile
 def ck_filter(data, bound):
     """ Check if convergence checks cki and cki are within bounds"""
-    return (np.abs(data['cki']) < bound) & (np.abs(data['cke']) < bound)
+    ck = (data[['cki', 'cke']].abs() < bound).all(axis=1)
+    return ck
 
 @profile
 def septot_filter(data, septot_factor, startlen=None):
     """ Check if ITG/TEM/ETG heat flux !>> total_flux"""
-    if startlen is None:
+    if startlen is None and not isinstance(data, dd.DataFrame):
         startlen = len(data)
     difference_okay = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
+    sepnames = []
     for type, spec in product(heat_vars, ['i', 'e']):
         totname = type + spec + '_GB'
-        if totname != 'vre_GB' and totname != 'vri_GB':
-            if spec == 'i': # no ETG
-                seps = ['ITG', 'TEM']
-            else: # All modes
-                seps = ['ETG', 'ITG', 'TEM']
-            for sep in seps:
-                sepname = type + spec + sep + '_GB'
-                #sepflux += data[sepname]
-                difference_okay &= np.abs(data[sepname]) <= septot_factor * np.abs(data[totname])
-
-                print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*np.sum(bool)/startlen))
+        if spec == 'i': # no ETG
+            seps = ['ITG', 'TEM']
+        else: # All modes
+            seps = ['ETG', 'ITG', 'TEM']
+        sepnames = [type + spec + sep + '_GB' for sep in seps if type + spec + sep + '_GB' in data.columns]
+        difference_okay &= data[sepnames].abs().le(septot_factor * data[totname].abs(), axis=0).all(axis=1)
+        if startlen is not None:
+            print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*difference_okay.sum()/startlen))
     return difference_okay
 
 @profile
@@ -195,9 +207,8 @@ def femtoflux_filter(data, bound):
     """ Check if flux is no 'femto_flux', a very small non-zero flux"""
     fluxes = [col for col in data if len(re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)) == 5 if re.compile('(?=.*)(.)(|ITG|ETG|TEM)_(GB|SI|cm)').split(col)[0] in particle_vars + heat_vars + momentum_vars]
     no_femto = pd.Series(np.full(len(data), True, dtype='bool'), index=data.index)
-    for flux in fluxes:
-        absflux = data[flux].abs()
-        no_femto &= ~((absflux < bound) & (absflux != 0))
+    absflux = data[fluxes].abs()
+    no_femto &= ~((absflux < bound) & (absflux != 0)).any(axis=1)
     return no_femto
 
 def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
@@ -231,14 +242,15 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         starlen:         Total amount of points at start of function. By
                          default all points in dataset.
     """
-    if startlen is None:
+    if startlen is None and not isinstance(data, dd.DataFrame):
         startlen = len(data)
     # Throw away point if negative heat flux
     if stored_negative_filter is None:
         data = data.loc[negative_filter(data)]
     else:
         data = data.reindex(index=data.index.difference(stored_negative_filter), copy=False)
-    print('After filter {!s:<13} {:.2f}% left'.format('negative', 100*len(data)/startlen))
+    if startlen is not None:
+        print('After filter {!s:<13} {:.2f}% left'.format('negative', 100*len(data)/startlen))
     gc.collect()
 
     # Throw away point if cke or cki too high
@@ -246,7 +258,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.loc[ck_filter(data, ck_bound)]
     else:
         data = data.reindex(index=data.index.difference(stored_ck_filter), copy=False)
-    print('After filter {!s:<13} {:.2f}% left'.format('ck', 100*len(data)/startlen))
+    if startlen is not None:
+        print('After filter {!s:<13} {:.2f}% left'.format('ck', 100*len(data)/startlen))
     gc.collect()
 
     # Throw away point if sep flux is way higher than tot flux
@@ -254,7 +267,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.loc[septot_filter(data, septot_factor, startlen=startlen)]
     else:
         data = data.reindex(index=data.index.difference(stored_septot_filter), copy=False)
-    print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
+    if startlen is not None:
+        print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
     gc.collect()
 
     # Throw away point if ambipolarity is not conserved
@@ -262,7 +276,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.loc[ambipolar_filter(data, ambi_bound)]
     else:
         data = data.reindex(index=data.index.difference(stored_ambipolar_filter), copy=False)
-    print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
+    if startlen is not None:
+        print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
     gc.collect()
 
     # Throw away point if it is a femtoflux
@@ -270,7 +285,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.loc[femtoflux_filter(data, femto_bound)]
     else:
         data = data.reindex(index=data.index.difference(stored_femtoflux_filter), copy=False)
-    print('After filter {!s:<13} {:.2f}% left'.format('femtoflux', 100*len(data)/startlen))
+    if startlen is not None:
+        print('After filter {!s:<13} {:.2f}% left'.format('femtoflux', 100*len(data)/startlen))
     gc.collect()
 
     # Alternatively:
@@ -512,25 +528,31 @@ def split_dims(input, data, const, gen, prefix='', split_func=split_karel9D_inpu
         save_to_store(inputs[dim], data.loc[idx[dim]], consts[dim], store_name)
 
 @profile
-def split_subsets(input, data, const, gen, frac=0.1):
+def generate_test_train_index(input, data, const, frac=0.1):
     """ Randomly split full dataset in 'test' and 'training' and save to store """
-    idx, inputs, consts = split_karel9D_input(input, const)
-
-    rand_index = pd.Int64Index(np.random.permutation(input.index))
+    rand_index = pd.Int64Index(np.random.permutation(input.index.copy(deep=True)))
     sep_index = int(frac * len(rand_index))
-    idx['test'] = rand_index[:sep_index]
-    idx['training'] = rand_index[sep_index:]
+    #idx = {}
+    #idx['test'] = rand_index[:sep_index]
+    #idx['training'] = rand_index[sep_index:]
+    data['is_test'] = False
+    data.loc[rand_index[:sep_index], 'is_test'] = True
 
+@profile
+def split_test_train(input, data, const, filter_name, root_dir='.'):
     print('Splitting subsets')
-    for dim, set in product([4, 7, 9], ['test', 'training']):
-        print(dim, set)
-        store_name = set + '_' + 'gen' + str(gen) + '_' + str(dim) + 'D_nions0_flat' + '_filter' + str(filter_num) + '.h5'
-        save_to_store(inputs[dim].reindex(index=(idx[dim] & idx[set]), copy=False),
-                      data.reindex(index=(idx[dim] & idx[set]), copy=False),
-                      consts[dim],
-                      store_name)
+    save_to_store(
+        input.loc[data['is_test'], :],
+        data.loc[data['is_test'], :],
+        const,
+        os.path.join(root_dir, 'test_' + filter_name + '.h5'))
+    save_to_store(
+        input.loc[~data['is_test'], :],
+        data.loc[~data['is_test'], :],
+        const,
+        os.path.join(root_dir, 'training_' + filter_name + '.h5'))
 
-if __name__ == '__main__':
+def filter_megarun1():
     dim = 9
     gen = 4
     filter_num = 10
@@ -588,3 +610,53 @@ if __name__ == '__main__':
         data = div_filter(data)
         save_to_store(input, data, const, 'unstable_' + basename)
     #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
+
+def filter_rot():
+    dim = 8
+    gen = 4
+    filter_num = 10
+
+    root_dir = '../../../qlk_data'
+    iden = 'rot_three'
+    basename = ''.join(['gen', str(gen), '_', str(dim), 'D_', iden])
+    suffix = '.h5.1'
+    store_name = basename + suffix
+    input, data, const = load_from_store(os.path.join(root_dir, store_name))
+    if not isinstance(data, dd.DataFrame):
+        startlen = len(data)
+    else:
+        startlen = None
+
+    data = sanity_filter(data,
+                         filter_defaults['ck'],
+                         filter_defaults['septot'],
+                         filter_defaults['ambipolar'],
+                         filter_defaults['femtoflux'],
+                         startlen=startlen)
+    data = regime_filter(data, 0, 100)
+    gc.collect()
+    input = input.loc[data.index]
+    if startlen is not None:
+        print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
+    filter_name = basename + '_filter' + str(filter_num)
+    sane_store_name = os.path.join(root_dir, 'sane_' + filter_name + '.h5')
+    save_to_store(input, data, const, sane_store_name)
+    generate_test_train_index(input, data, const)
+    split_test_train(input, data, const, filter_name, root_dir=root_dir)
+    del data, input, const
+    gc.collect()
+
+
+    for dim, set in product([8], ['test', 'training']):
+        print(dim, set)
+        basename = ''.join([set, '_gen', str(gen), '_', str(dim), 'D_', iden, '_filter', str(filter_num), '.h5'])
+        input, data, const = load_from_store(os.path.join(root_dir, basename))
+
+        data = stability_filter(data)
+        #data = create_divsum(data)
+        data = div_filter(data)
+        save_to_store(input, data, const, os.path.join(root_dir, 'unstable_' + basename))
+    #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
+
+if __name__ == '__main__':
+    filter_rot()
