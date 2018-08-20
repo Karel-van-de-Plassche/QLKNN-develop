@@ -550,17 +550,36 @@ def save_attrs(attrs, store_name):
     store['constants'] = pd.Series(attrs)
     store.close()
 
-if __name__ == '__main__':
-    #client = Client(processes=False)
-    #client = Client()
+def prepare_rot_three(rootdir):
     starttime = time.time()
-    rootdir = '../../../qlk_data'
-    #store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
-    #prep_ds_name = 'Zeffcombo_prepared.nc.1'
-    #ds_loader = load_megarun1_ds
     store_name = os.path.join(rootdir, 'gen4_8D_rot_three.h5.1')
     prep_ds_name = 'rot_three_prepared.nc.1'
     ds_loader = load_rot_three_ds
+    use_disk_cache = False
+    use_disk_cache = True
+    ds = prep_megarun_ds(prep_ds_name,
+                         starttime=starttime,
+                         rootdir=rootdir,
+                         use_disk_cache=use_disk_cache,
+                         ds_loader=ds_loader)
+    notify_task_done('Preparing dataset', starttime)
+
+    # Drop SI variables
+    for name, var in ds.items():
+        if name.endswith('_SI'):
+            ds = ds.drop(name)
+
+    # Remove ETG vars, rotation run is with kthetarhos <=2
+    for name, var in ds.items():
+        if 'ETG' in name:
+            ds = ds.drop(name)
+    return ds, store_name
+
+def prepare_megarun1(rootdir):
+    starttime = time.time()
+    store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
+    prep_ds_name = 'Zeffcombo_prepared.nc.1'
+    ds_loader = load_megarun1_ds
     use_disk_cache = False
     #use_disk_cache = True
     ds = prep_megarun_ds(prep_ds_name,
@@ -569,6 +588,16 @@ if __name__ == '__main__':
                          use_disk_cache=use_disk_cache,
                          ds_loader=ds_loader)
     notify_task_done('Preparing dataset', starttime)
+    return ds, store_name
+
+if __name__ == '__main__':
+    #client = Client(processes=False)
+    #client = Client()
+    rootdir = '../../../qlk_data'
+    #store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
+    #prep_ds_name = 'Zeffcombo_prepared.nc.1'
+    #ds_loader = load_megarun1_ds
+    ds, store_name = prepare_rot(rootdir)
 
     # Convert to pandas
     # Remove all variables with more dims than our cube
