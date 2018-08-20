@@ -26,6 +26,7 @@ from qualikiz_tools.qualikiz_io.outputfiles import xarray_to_pandas
 from qlknn.misc.tools import notify_task_done
 
 GAM_LEQ_GB_TMP_PATH = 'gam_cache.nc'
+dummy_var = 'efe_GB'
 
 @profile
 def metadatize(ds):
@@ -38,7 +39,7 @@ def metadatize(ds):
                 name not in ['kthetarhos', 'nions', 'numsols']):
             metadata[name] = ds[name].values
             ds = ds.drop(name)
-    ds.attrs = metadata
+    ds.attrs.update(metadata)
     return ds
 
 @profile
@@ -77,6 +78,13 @@ def sum_pf(df=None, vt=None, vr=0, vc=None, An=None):
     """ Calculate particle flux from diffusivity and pinch"""
     pf = df * An + vt + vr + vc
     return pf
+
+@profile
+def sum_pinch(ds):
+    for mode in ['', 'ITG', 'TEM']:
+        ds['vae' + mode + '_GB'] = ds['vte' + mode + '_GB'] + ds['vce' + mode + '_GB']
+        ds['vai' + mode + '_GB'] = ds['vti' + mode + '_GB'] + ds['vci' + mode + '_GB'] + ds['vri' + mode + '_GB']
+    return ds
 
 @profile
 def calculate_particle_sepfluxes(ds):
@@ -406,20 +414,23 @@ def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cach
 
         ds = calculate_particle_sepfluxes(ds)
         notify_task_done('pf[i|e][ITG|TEM] calculation', starttime)
+
+        ds = sum_pinch(ds)
+        notify_task_done('Total pinch calculation', starttime)
         # Remove variables and coordinates we do not need for NN training
         ds = ds.drop(['gam_GB', 'ome_GB'])
         ds = remove_rotation(ds)
         # normni does not need to be saved for the 9D case.
         # TODO: Check for Aarons case!
-        if 'normni' in ds.data_vars:
-            ds.attrs['normni'] = ds['normni']
-            ds = ds.drop('normni')
+        #if 'normni' in ds.data_vars:
+        #    ds.attrs['normni'] = ds['normni']
+        #    ds = ds.drop('normni')
 
 
         # Remove all but first ion
         # TODO: Check for Aarons case!
         ds = ds.sel(nions=0)
-        ds.attrs['nions'] = ds['nions']
+        ds.attrs['nions'] = ds['nions'].values
         ds = ds.drop('nions')
         ds = metadatize(ds)
         notify_task_done('Bookkeeping', starttime)
@@ -455,8 +466,7 @@ def create_input_cache(ds, cachedir):
 
 
     """
-    # Convert to MultiIndexed DataFrame. Use a dummy variable to get the right index
-    dummy_var = list(ds.data_vars)[0]
+    # Convert to MultiIndexed DataFrame. Use efe_GB as dummy variable to get the right index
     input_names = list(ds[dummy_var].dims)
     dtype = ds[dummy_var].dtype
     input_df = ds[dummy_var].to_dataframe()
@@ -505,7 +515,9 @@ def input_hdf5_from_cache(store_name, cachedir, columns=None, mode='w', compress
     files = [os.path.join(cachedir, name) for name in os.listdir(cachedir)]
     ddfs = [dd.read_parquet(name) for name in files]
     input_ddf = dd.concat(ddfs, axis=1)
-    input_ddf.index.rename('dimx', inplace=True)
+    input_ddf['dimx'] = 1
+    input_ddf['dimx'] = input_ddf['dimx'].cumsum() - 1
+    input_ddf = input_ddf.set_index('dimx', drop=True)
     input_ddf = input_ddf.loc[:, columns]
     input_ddf.to_hdf(store_name, 'input', mode=mode, **panda_kwargs)
 
@@ -529,7 +541,7 @@ def data_hdf5_from_ds(ds, store_name, compress=True):
         df = ds[[varname]].to_dataframe()
         df.reset_index(inplace=True, drop=True)
         df.index.name = 'dimx'
-        df.to_hdf(store_name, sep_prefix + varname , **panda_kwargs)
+        df.to_hdf(store_name, sep_prefix + varname , format='table', **panda_kwargs)
         #da.to_hdf5(store_name, '/output/' + varname, compression=compress)
 
 def save_attrs(attrs, store_name):
@@ -546,7 +558,7 @@ if __name__ == '__main__':
     #store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
     #prep_ds_name = 'Zeffcombo_prepared.nc.1'
     #ds_loader = load_megarun1_ds
-    store_name = 'gen4_8D_rot_three_filter10.h5.1'
+    store_name = os.path.join(rootdir, 'gen4_8D_rot_three.h5.1')
     prep_ds_name = 'rot_three_prepared.nc.1'
     ds_loader = load_rot_three_ds
     use_disk_cache = False
@@ -559,16 +571,19 @@ if __name__ == '__main__':
     notify_task_done('Preparing dataset', starttime)
 
     # Convert to pandas
-    ds = ds.drop(['kthetarhos', 'numsols'])
+    # Remove all variables with more dims than our cube
+    non_drop_dims = list(ds[dummy_var].dims)
+    for name, var in ds.items():
+        if len(set(var.dims) - set(non_drop_dims)) != 0:
+            ds = ds.drop(name)
 
     use_disk_cache = False
     #use_disk_cache = True
-    cachedir = 'cache'
+    cachedir = os.path.join(rootdir, 'cache')
     if not use_disk_cache:
         create_input_cache(ds, cachedir)
 
-    dummy_var = list(ds.data_vars)[0]
-    input_hdf5_from_cache(store_name, cachedir, columns=list(ds[dummy_var].dims), mode='a')
+    input_hdf5_from_cache(store_name, cachedir, columns=non_drop_dims, mode='a')
     save_attrs(ds.attrs, store_name)
 
     data_hdf5_from_ds(ds, store_name)
