@@ -120,7 +120,7 @@ def remove_rotation(ds):
             print('{!s} already removed'.format(value))
     return ds
 
-def open_with_disk_chunks(path, dask=True):
+def open_with_disk_chunks(path, dask=True, one_chunk=False):
     """ Determine the on-disk chunk sizes and open dataset
 
     Best performance in Dask is achieved if the on-disk chunks
@@ -149,8 +149,10 @@ def open_with_disk_chunks(path, dask=True):
         ds.close()
 
         # Re-open dataset with on-disk chunksizes
-        #chunks = dict(zip(dims, chunk_sizes))
-        chunks = {dim: length for dim, length in ds.dims.items()} #One big chunk
+        if one_chunk:
+            chunks = {dim: length for dim, length in ds.dims.items()}
+        else:
+            chunks = dict(zip(dims, chunk_sizes))
         ds_kwargs = {
             'chunks': chunks,
             #'cache': True
@@ -594,10 +596,8 @@ if __name__ == '__main__':
     #client = Client(processes=False)
     #client = Client()
     rootdir = '../../../qlk_data'
-    #store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
-    #prep_ds_name = 'Zeffcombo_prepared.nc.1'
-    #ds_loader = load_megarun1_ds
     ds, store_name = prepare_rot_three(rootdir)
+    #ds, store_name = prepare_megarun1(rootdir)
 
     # Convert to pandas
     # Remove all variables with more dims than our cube
