@@ -16,6 +16,7 @@ from IPython import embed
 
 
 from qlknn.dataset.data_io import store_format, sep_prefix
+from qlknn.misc.analyse_names import is_transport
 
 try:
     profile
@@ -58,6 +59,26 @@ def absambi(ds):
     return ds
 
 @profile
+def calculate_normni(ds):
+    """ Calculate ninorm from Zeff and Nex. Assumes two ions"""
+    Z0, Z1 = ds['Zi']
+    Zeff = ds['Zeff']
+    ninorm1 = (Zeff - Z0) / (Z1 **2 - Z1 * Z0)
+    ninorm0 = (1 - Z1 * ninorm1) / Z0
+    ds['normni'] = xr.concat([ninorm0, ninorm1], dim='nions')
+    return ds
+
+@profile
+def calculate_rotdivs(ds, rotdim='Machtor'):
+    for var_name in [col for col in ds.data_vars if is_transport(col)]:
+        rotdiv_name = var_name + '_rot0_div_' + var_name
+        var = ds[var_name]
+        rotdiv = var.sel({rotdim: 0}) / var
+        rotdiv = xr.where(var == 0, 0, rotdiv)
+        ds[rotdiv_name] = rotdiv
+    return ds
+
+@profile
 def determine_stability(ds):
     """ Determine if a point is TEM or ITG unstable. True if unstable """
     kthetarhos = ds['kthetarhos']
@@ -83,7 +104,11 @@ def sum_pf(df=None, vt=None, vr=0, vc=None, An=None):
 def sum_pinch(ds):
     for mode in ['', 'ITG', 'TEM']:
         ds['vae' + mode + '_GB'] = ds['vte' + mode + '_GB'] + ds['vce' + mode + '_GB']
-        ds['vai' + mode + '_GB'] = ds['vti' + mode + '_GB'] + ds['vci' + mode + '_GB'] + ds['vri' + mode + '_GB']
+        ds['vai' + mode + '_GB'] = ds['vti' + mode + '_GB'] + ds['vci' + mode + '_GB']
+        if 'vri' + mode + '_GB' in ds:
+            ds['vai' + mode + '_GB'] += ds['vri' + mode + '_GB']
+        else:
+            print('Warning! vai' + mode + '_GB not found!')
     return ds
 
 @profile
@@ -374,7 +399,7 @@ def compute_and_save(ds, new_ds_path, chunks=None, starttime=None):
         compute_and_save_var(ds, new_ds_path, varname, chunks, starttime=starttime)
 
 @profile
-def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cache=False, use_gam_cache=False, ds_loader=load_megarun1_ds):
+def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_gam_cache=False, ds_loader=load_megarun1_ds):
     """ Prepares a QuaLiKiz netCDF4 dataset for convertion to pandas
     This function was designed to use dask, but should work for
     pure xarray too. In this function it is assumed the chunks on disk,
@@ -396,59 +421,65 @@ def prep_megarun_ds(prepared_ds_name, starttime=None, rootdir='.', use_disk_cach
         starttime = time.time()
 
     prepared_ds_path = os.path.join(rootdir, prepared_ds_name)
-    if not use_disk_cache:
-        # Load the dataset
-        ds, ds_kwargs = ds_loader(rootdir)
-        notify_task_done('Datasets merging', starttime)
-        # Calculate gam_leq and gam_great and cache to disk
-        ds = merge_gam_leq_great(ds,
-                                 ds_kwargs=ds_kwargs,
-                                 rootdir=rootdir,
-                                 use_disk_cache=use_gam_cache,
-                                 starttime=starttime)
-        notify_task_done('gam_[leq,great]_GB cache creation', starttime)
+    # Load the dataset
+    ds, ds_kwargs = ds_loader(rootdir)
+    notify_task_done('Datasets merging', starttime)
+    # Calculate gam_leq and gam_great and cache to disk
+    ds = merge_gam_leq_great(ds,
+                             ds_kwargs=ds_kwargs,
+                             rootdir=rootdir,
+                             use_disk_cache=use_gam_cache,
+                             starttime=starttime)
+    notify_task_done('gam_[leq,great]_GB cache creation', starttime)
 
-        ds = determine_stability(ds)
-        notify_task_done('[ITG|TEM] calculation', starttime)
+    ds = determine_stability(ds)
+    notify_task_done('[ITG|TEM] calculation', starttime)
 
-        ds = absambi(ds)
-        notify_task_done('absambi calculation', starttime)
+    if 'normni' not in ds:
+        ds = calculate_normni(ds)
+    ds = absambi(ds)
+    notify_task_done('absambi calculation', starttime)
 
-        ds = calculate_particle_sepfluxes(ds)
-        notify_task_done('pf[i|e][ITG|TEM] calculation', starttime)
+    ds = calculate_particle_sepfluxes(ds)
+    notify_task_done('pf[i|e][ITG|TEM] calculation', starttime)
 
-        ds = sum_pinch(ds)
-        notify_task_done('Total pinch calculation', starttime)
-        # Remove variables and coordinates we do not need for NN training
-        ds = ds.drop(['gam_GB', 'ome_GB'])
-        ds = remove_rotation(ds)
-        # normni does not need to be saved for the 9D case.
-        # TODO: Check for Aarons case!
-        #if 'normni' in ds.data_vars:
-        #    ds.attrs['normni'] = ds['normni']
-        #    ds = ds.drop('normni')
+    ds = sum_pinch(ds)
+    notify_task_done('Total pinch calculation', starttime)
+    # Remove variables and coordinates we do not need for NN training
+    ds = ds.drop(['gam_GB', 'ome_GB'])
+    # normni does not need to be saved for the 9D case.
+    # TODO: Check for Aarons case!
+    #if 'normni' in ds.data_vars:
+    #    ds.attrs['normni'] = ds['normni']
+    #    ds = ds.drop('normni')
 
 
-        # Remove all but first ion
-        # TODO: Check for Aarons case!
-        ds = ds.sel(nions=0)
-        ds.attrs['nions'] = ds['nions'].values
-        ds = ds.drop('nions')
-        ds = metadatize(ds)
-        notify_task_done('Bookkeeping', starttime)
+    # Remove all but first ion
+    # TODO: Check for Aarons case!
+    ds = ds.sel(nions=0)
+    ds.attrs['nions'] = ds['nions'].values
+    ds = ds.drop('nions')
+    ds = metadatize(ds)
+    notify_task_done('Bookkeeping', starttime)
 
-        # Save prepared dataset to disk
-        notify_task_done('Pre-disk write dataset preparation', starttime)
-        if 'chunks' in ds_kwargs:
-            with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
-                compute_and_save(ds, prepared_ds_path, chunks=ds_kwargs['chunks'], starttime=starttime)
-            notify_task_done('prep_megarun', starttime)
-            visualize([prof, rprof, cprof], file_path='profile_prep.html', show=False)
-        else:
-            compute_and_save(ds, prepared_ds_path, starttime=starttime)
+    notify_task_done('Pre-disk write dataset preparation', starttime)
+    return ds, ds_kwargs
+
+@profile
+def save_prepared_ds(ds, prepared_ds_path, starttime=None, ds_kwargs=None):
+    if starttime is None:
+        starttime = time.time()
+
+    if ds_kwargs is None:
+        ds_kwargs = {}
+
+    if 'chunks' in ds_kwargs:
+        with Profiler() as prof, ResourceProfiler(dt=0.25) as rprof, CacheProfiler() as cprof:
+            compute_and_save(ds, prepared_ds_path, chunks=ds_kwargs['chunks'], starttime=starttime)
+        notify_task_done('prep_megarun', starttime)
+        visualize([prof, rprof, cprof], file_path='profile_prep.html', show=False)
     else:
-        ds, __ = open_with_disk_chunks(prepared_ds_path)
-    return ds
+        compute_and_save(ds, prepared_ds_path, starttime=starttime)
 
 @profile
 def create_input_cache(ds, cachedir):
@@ -556,39 +587,40 @@ def prepare_rot_three(rootdir):
     starttime = time.time()
     store_name = os.path.join(rootdir, 'gen4_8D_rot_three.h5.1')
     prep_ds_name = 'rot_three_prepared.nc.1'
+    prepared_ds_path = os.path.join(rootdir, prep_ds_name)
     ds_loader = load_rot_three_ds
-    use_disk_cache = False
-    #use_disk_cache = True
-    ds = prep_megarun_ds(prep_ds_name,
+    ds, ds_kwargs = prep_megarun_ds(prep_ds_name,
                          starttime=starttime,
                          rootdir=rootdir,
-                         use_disk_cache=use_disk_cache,
                          ds_loader=ds_loader)
-    notify_task_done('Preparing dataset', starttime)
 
     # Drop SI variables
-    for name, var in ds.items():
+    for name, var in ds.variables.items():
         if name.endswith('_SI'):
             ds = ds.drop(name)
 
     # Remove ETG vars, rotation run is with kthetarhos <=2
-    for name, var in ds.items():
+    for name, var in ds.variables.items():
         if 'ETG' in name:
             ds = ds.drop(name)
+
+    ds = calculate_rotdivs(ds)
+    save_prepared_ds(ds, prepared_ds_path, starttime=None, ds_kwargs=None)
+    notify_task_done('Preparing dataset', starttime)
     return ds, store_name
 
 def prepare_megarun1(rootdir):
     starttime = time.time()
-    store_name = 'gen4_9D_nions0_flat_filter10.h5.1'
+    store_name = os.path.join(rootdir, 'gen4_9D_nions0_flat_filter10.h5.1')
     prep_ds_name = 'Zeffcombo_prepared.nc.1'
+    prep_ds_path = os.path.join(rootdir, prep_ds_name)
     ds_loader = load_megarun1_ds
-    use_disk_cache = False
-    #use_disk_cache = True
-    ds = prep_megarun_ds(prep_ds_name,
+    ds, ds_kwargs = prep_megarun_ds(prep_ds_name,
                          starttime=starttime,
                          rootdir=rootdir,
-                         use_disk_cache=use_disk_cache,
                          ds_loader=ds_loader)
+    ds = remove_rotation(ds)
+    save_prepared_ds(ds, prep_ds_path, starttime=starttime, ds_kwargs=None)
     notify_task_done('Preparing dataset', starttime)
     return ds, store_name
 
