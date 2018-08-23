@@ -114,6 +114,9 @@ def parse_init(shape, init, dtype=np.float64, **kwargs):
         if init.startswith('normsm'):
             __, s, m = init.split('_')
             initial = tf.random_normal(shape, dtype=dtype, mean=float(m), stddev=float(s), **kwargs)
+        elif init == 'glorot_normal':
+            initial = tf.glorot_normal_initializer()(shape)
+
     elif isinstance(init, np.ndarray):
         initial = tf.constant(init, dtype=dtype)
     try:
