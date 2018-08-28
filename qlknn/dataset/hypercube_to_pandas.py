@@ -595,24 +595,27 @@ def prepare_rot_three(rootdir, use_disk_cache=True):
     prep_ds_name = 'rot_three_prepared.nc.1'
     prepared_ds_path = os.path.join(rootdir, prep_ds_name)
     ds_loader = load_rot_three_ds
-    ds, ds_kwargs = prep_megarun_ds(prep_ds_name,
-                         starttime=starttime,
-                         rootdir=rootdir,
-                         ds_loader=ds_loader)
+    if use_disk_cache:
+        ds, ds_kwargs = open_with_disk_chunks(prepared_ds_path, dask=False)
+    else:
+        ds, ds_kwargs = prep_megarun_ds(prep_ds_name,
+                             starttime=starttime,
+                             rootdir=rootdir,
+                             ds_loader=ds_loader)
 
-    # Drop SI variables
-    for name, var in ds.variables.items():
-        if name.endswith('_SI'):
-            ds = ds.drop(name)
+        # Drop SI variables
+        for name, var in ds.variables.items():
+            if name.endswith('_SI'):
+                ds = ds.drop(name)
 
-    # Remove ETG vars, rotation run is with kthetarhos <=2
-    for name, var in ds.variables.items():
-        if 'ETG' in name:
-            print('Dropping {!s}'.format(name))
-            ds = ds.drop(name)
+        # Remove ETG vars, rotation run is with kthetarhos <=2
+        for name, var in ds.variables.items():
+            if 'ETG' in name:
+                print('Dropping {!s}'.format(name))
+                ds = ds.drop(name)
 
-    ds = calculate_rotdivs(ds)
-    save_prepared_ds(ds, prepared_ds_path, starttime=None, ds_kwargs=ds_kwargs)
+        #ds = calculate_rotdivs(ds)
+        save_prepared_ds(ds, prepared_ds_path, starttime=starttime, ds_kwargs=ds_kwargs)
     notify_task_done('Preparing dataset', starttime)
     return ds, store_name
 
@@ -653,7 +656,7 @@ if __name__ == '__main__':
     if not use_disk_cache:
         create_input_cache(ds, cachedir)
 
-    input_hdf5_from_cache(store_name, cachedir, columns=non_drop_dims, mode='a')
+    input_hdf5_from_cache(store_name, cachedir, columns=non_drop_dims, mode='w')
     save_attrs(ds.attrs, store_name)
 
     data_hdf5_from_ds(ds, store_name)
