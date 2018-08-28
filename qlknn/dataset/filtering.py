@@ -144,9 +144,9 @@ def stability_filter(data):
                 # If gam_great_GB is not there, the QuaLiKiz run was not with electron scale
                 data[col] = data[col].loc[(data['gam_leq_GB'] != 0)]
         elif gam_filter == 'tem':
-            data[col] = data[col].loc[data['TEM']]
+            data[col] = data[col].loc[data['TEM'] == True]
         elif gam_filter == 'itg':
-            data[col] = data[col].loc[data['ITG']]
+            data[col] = data[col].loc[data['ITG'] == True]
         print('{:5.2f}% of sane {!s:<9} points unstable at {!s:<5} scale'.format(np.sum(~data[col].isnull()) / pre * 100, col, gam_filter))
     return data
 
@@ -192,6 +192,7 @@ def septot_filter(data, septot_factor, startlen=None):
         else: # All modes
             seps = ['ETG', 'ITG', 'TEM']
         sepnames = [type + spec + sep + '_GB' for sep in seps if type + spec + sep + '_GB' in data.columns]
+        print('Checking {!s}'.format(sepnames))
         difference_okay &= data[sepnames].abs().le(septot_factor * data[totname].abs(), axis=0).all(axis=1)
         if startlen is not None:
             print('After filter {!s:<6} {!s:<6} {:.2f}% left'.format('septot', totname, 100*difference_okay.sum()/startlen))
@@ -251,6 +252,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.reindex(index=data.index.difference(stored_negative_filter), copy=False)
     if startlen is not None:
         print('After filter {!s:<13} {:.2f}% left'.format('negative', 100*len(data)/startlen))
+    else:
+        print('filter {!s:<13} done'.format('negative'))
     gc.collect()
 
     # Throw away point if cke or cki too high
@@ -260,6 +263,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.reindex(index=data.index.difference(stored_ck_filter), copy=False)
     if startlen is not None:
         print('After filter {!s:<13} {:.2f}% left'.format('ck', 100*len(data)/startlen))
+    else:
+        print('filter {!s:<13} done'.format('ck'))
     gc.collect()
 
     # Throw away point if sep flux is way higher than tot flux
@@ -269,6 +274,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.reindex(index=data.index.difference(stored_septot_filter), copy=False)
     if startlen is not None:
         print('After filter {!s:<13} {:.2f}% left'.format('septot', 100*len(data)/startlen))
+    else:
+        print('filter {!s:<13} done'.format('septot'))
     gc.collect()
 
     # Throw away point if ambipolarity is not conserved
@@ -278,6 +285,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.reindex(index=data.index.difference(stored_ambipolar_filter), copy=False)
     if startlen is not None:
         print('After filter {!s:<13} {:.2f}% left'.format('ambipolar', 100*len(data)/startlen))
+    else:
+        print('filter {!s:<13} done'.format('ambipolar'))
     gc.collect()
 
     # Throw away point if it is a femtoflux
@@ -287,6 +296,8 @@ def sanity_filter(data, ck_bound, septot_factor, ambi_bound, femto_bound,
         data = data.reindex(index=data.index.difference(stored_femtoflux_filter), copy=False)
     if startlen is not None:
         print('After filter {!s:<13} {:.2f}% left'.format('femtoflux', 100*len(data)/startlen))
+    else:
+        print('filter {!s:<13} done'.format('femtoflux'))
     gc.collect()
 
     # Alternatively:
@@ -593,6 +604,7 @@ def filter_megarun1():
     print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
     sane_store_name = os.path.join(root_dir, 'sane_' + basename + '_filter' + str(filter_num) + '.h5')
     save_to_store(input, data, const, sane_store_name)
+
     split_dims(input, data, const, gen, prefix='sane_')
     #input, data, const = load_from_store(sane_store_name)
     split_subsets(input, data, const, gen, frac=0.1)
@@ -621,19 +633,23 @@ def filter_rot():
     basename = ''.join(['gen', str(gen), '_', str(dim), 'D_', iden])
     suffix = '.h5.1'
     store_name = basename + suffix
-    input, data, const = load_from_store(os.path.join(root_dir, store_name))
+    input, data, const = load_from_store(os.path.join(root_dir, store_name), dask=False)
     if not isinstance(data, dd.DataFrame):
         startlen = len(data)
     else:
         startlen = None
 
-    data = sanity_filter(data,
-                         filter_defaults['ck'],
-                         filter_defaults['septot'],
-                         filter_defaults['ambipolar'],
-                         filter_defaults['femtoflux'],
-                         startlen=startlen)
-    data = regime_filter(data, 0, 100)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+
+        data = sanity_filter(data,
+                             filter_defaults['ck'],
+                             filter_defaults['septot'],
+                             filter_defaults['ambipolar'],
+                             filter_defaults['femtoflux'],
+                             startlen=startlen)
+        data = regime_filter(data, 0, 100)
+    print('filter done')
     gc.collect()
     input = input.loc[data.index]
     if startlen is not None:

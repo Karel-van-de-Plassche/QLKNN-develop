@@ -6,6 +6,7 @@ import re
 import pandas as pd
 import numpy as np
 from IPython import embed
+import dask.dataframe as dd
 
 try:
     profile
@@ -72,7 +73,7 @@ def save_to_store(input, data, const, store_name, style='both', zip=False, prefi
     store.close()
 
 @profile
-def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='', load_input=True, nustar_to_lognustar=True):
+def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='left', columns=None, prefix='', load_input=True, nustar_to_lognustar=True, dask=False):
     if isinstance(columns, str):
         columns = [columns]
     elif isinstance(columns, pd.Series):
@@ -82,6 +83,8 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
 
     if store is None:
         store = pd.HDFStore(store_name, 'r')
+    elif dask:
+        raise ValueError('store cannot be passed if dask=True')
 
     is_legacy = lambda store: all(['megarun' in name for name in store.keys()])
     if is_legacy(store):
@@ -107,32 +110,47 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
 
     # Load input and constants
     if load_input:
-        input = store[prefix + 'input']
+        if dask:
+            store.close()
+            input = dd.read_hdf(store_name, prefix + 'input')
+        else:
+            input = store[prefix + 'input']
         if nustar_to_lognustar:
             input = convert_nustar(input)
     else:
         input = pd.DataFrame()
     try:
+        store.open()
         const = store[prefix + 'constants']
+        store.close()
     except ValueError as ee:
         # If pickled with a too new version, old python version cannot read it
         warnings.warn('Could not load const.. Skipping for now')
         const = pd.Series()
 
+    store.open()
     if has_flattened(store) and (return_all(columns) or not have_sep(columns)):
         #print('Taking "old" code path')
         if return_all(columns):
-            data = store.select(prefix + 'flattened')
+            if dask:
+                data = dd.read_hdf(store_name, prefix + 'flattened', chunksize=8192*10)
+            else:
+                data = store.select(prefix + 'flattened')
         elif return_no(columns):
             data = pd.DataFrame(index=input.index)
         else:
-            data = store.select(prefix + 'flattened', columns=columns)
+            if dask:
+                data = dd.read_hdf(store_name, prefix + 'flattened', columns=columns)
+            else:
+                data = store.select(prefix + 'flattened', columns=columns)
     else: #If no flattened
         #print('Taking "new" code path')
         if not have_sep(columns):
             raise Exception('Could not find {!s} in store {!s}'.format(columns, store))
         if not return_no(columns):
-            if fast:
+            if dask:
+                data = dd.read_hdf(store_name, '/output/*', columns=columns, chunksize=8192*10)
+            elif fast:
                 output = []
                 for varname, name in names.items():
                     var = store[varname]
