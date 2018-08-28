@@ -456,6 +456,38 @@ def create_divsum_legacy(store):
     return store
 
 @profile
+def create_rotdiv(input, data, rotvar='Machtor', rot_over_norot=True):
+    rotvar='Machtor'
+    transp = [col for col in data.columns if is_transport(col)]
+    total = pd.concat([data, input], axis=1)
+    total = total.set_index(list(input.columns))
+    #rotdiv_cols = tuple(name + '_rot0_div_' + name for name in transp)
+    #total = pd.concat([total, pd.DataFrame(np.full((len(total), len(transp)), np.NaN), index=total.index, columns=rotdiv_cols)], axis=1)
+    new_order = list(range(len(total.index.names)))
+    rot_idx = total.index.names.index(rotvar)
+    new_order.remove(rot_idx)
+    new_order.insert(0, rot_idx)
+    total = total.reorder_levels(new_order)
+    dfs = {}
+    for val in total.index.get_level_values(rotvar).unique():
+        if rot_over_norot:
+            df = total.loc[val, transp] / total.loc[0, transp]
+            df = df.where(total.loc[0, transp] != 0, 0)
+            df.columns = [col + '_div_' + col + '_rot0' for col in df.columns]
+        else:
+            df = total.loc[0, transp] / total.loc[val, transp]
+            df = df.where(total.loc[val, transp] != 0, 0)
+            df.columns = [col + '_rot0_div_' + col for col in df.columns]
+        dfs[val] = df
+    rotdivs = pd.concat(dfs, names=[rotvar] + df.index.names)
+    data = pd.concat([total, rotdivs], axis=1)
+    data.reset_index(inplace=True)
+    input = data.loc[:, list(input.columns)]
+    for col in input.columns:
+        del data[col]
+    return input, data
+
+@profile
 def filter_Zeff_Nustar(input, Zeff=1, Nustar=1e-3):
     """ Filter out Zeff and Nustar """
     idx = input.index[(
@@ -656,6 +688,7 @@ def filter_rot():
         print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
     filter_name = basename + '_filter' + str(filter_num)
     sane_store_name = os.path.join(root_dir, 'sane_' + filter_name + '.h5')
+    input, data = create_rotdiv(input, data)
     save_to_store(input, data, const, sane_store_name)
     generate_test_train_index(input, data, const)
     split_test_train(input, data, const, filter_name, root_dir=root_dir)
