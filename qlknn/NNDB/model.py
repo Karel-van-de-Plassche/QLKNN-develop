@@ -1364,7 +1364,7 @@ def query_pure_from_hyperpar(target_name=None, dim=None, **hyperdict):
 
 def get_pure_from_hyperpar(target_name=None, dim=None, **hyperdict):
     query = query_pure_from_hyperpar(target_name=target_name, dim=dim, **hyperdict)
-    return query.get()
+    return select_from_candidate_query(query)
 
 def create_schema():
     db.execute_sql('SET ROLE developer;')
