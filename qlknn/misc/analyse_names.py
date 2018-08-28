@@ -82,10 +82,10 @@ def is_full_transport(name):
 
 def is_transport_family(name, identifiers, combiner):
     if is_transport(name):
-        subnames = split_name(name)
-        transport_family = any(sub in subnames[0] for sub in identifiers)
-        for subname in subnames[1:]:
-            transport_family = combiner(transport_family, any(sub in subname for sub in identifiers))
+        parts = split_parts(name)
+        transport_family = any(sub in parts[0] for sub in identifiers)
+        for part in parts[1:]:
+            transport_family = combiner(transport_family, any(sub in part for sub in identifiers))
     else:
         transport_family = False
     return transport_family
@@ -157,6 +157,7 @@ if __name__ == '__main__':
     print(is_pure_flux('efeITG_GB_div_efiITG_GB_plus_pfeITG_GB'))
     print(is_pure_flux('efeITG_GB_div_efiITG_GB'))
     print(is_pure_flux('efeITG_GB'))
+    print(is_pure_heat('efiITG_GB'))
 
     print(is_flux('efeITG_GB_div_efiITG_GB_plus_pfeITG_GB'))
     print(is_flux('efeITG_GB_div_efiITG_GB'))
