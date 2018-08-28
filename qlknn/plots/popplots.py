@@ -55,7 +55,7 @@ def plot_dataset_zoomin(store, varname, bound=0.1):
         sns.despine(ax=ax)
     return fig
 
-def plot_dataset_dist(store, varname, cutoff=0.01):
+def plot_dataset_dist(store, varname, cutoff=0.01, plot_zoomin=False):
     with sns.axes_style("white"):
         df = store[sep_prefix + varname]
         df.name = varname
@@ -67,28 +67,29 @@ def plot_dataset_dist(store, varname, cutoff=0.01):
         ax.set_ylabel('density')
 
         sns.despine(ax=ax)
-        loc = determine_subax_loc(ax)
-        subax = inset_axes(ax,
-                           width="30%",
-                           height="30%",
-                           loc=loc)
-        if is_partial_particle(df.name):
-            quant_bound = .15
-            low_bound = max(-1, df.quantile(quant_bound))
-            high_bound = min(1, df.quantile(1 - quant_bound))
-        else:
-            low_bound = -1
-            high_bound = 1
-        sns.distplot(df.loc[(low_bound < df) & (df < high_bound)],
-                     kde=True, kde_kws={'gridsize': 200},
-                     ax=subax)
-        if loc == 2:
-            subax.yaxis.set_label_position("right")
-            subax.yaxis.tick_right()
-            sns.despine(ax=subax, left=True, right=False)
-        else:
-            sns.despine(ax=subax)
-        subax.set_xlabel('')
+        if plot_zoomin:
+            loc = determine_subax_loc(ax)
+            subax = inset_axes(ax,
+                               width="30%",
+                               height="30%",
+                               loc=loc)
+            if is_partial_particle(df.name):
+                quant_bound = .15
+                low_bound = max(-1, df.quantile(quant_bound))
+                high_bound = min(1, df.quantile(1 - quant_bound))
+            else:
+                low_bound = -1
+                high_bound = 1
+            sns.distplot(df.loc[(low_bound < df) & (df < high_bound)],
+                         kde=True, kde_kws={'gridsize': 200},
+                         ax=subax)
+            if loc == 2:
+                subax.yaxis.set_label_position("right")
+                subax.yaxis.tick_right()
+                sns.despine(ax=subax, left=True, right=False)
+            else:
+                sns.despine(ax=subax)
+            subax.set_xlabel('')
     return fig
 
 def generate_store_name(set='training', unstable=True, gen=3, filter_id=8, dim=7):
@@ -103,7 +104,6 @@ def plot_pure_network_dataset_dist(self):
     #store_name = 'unstable_training_gen{!s}_{!s}D_nions0_flat_filter{!s}.h5'.format(2, filter_id, dim)
     store_name = generate_store_name(True, 3, filter_id, dim)
     store = pd.HDFStore(os.path.join(qlknn_root, store_name))
-    embed()
     for train_dim in net.target_names:
         plot_dataset_dist(store, train_dim)
         deconstruct = re.split('_div_|_plus_', train_dim)
@@ -112,7 +112,7 @@ def plot_pure_network_dataset_dist(self):
                 plot_dataset_dist(store, sub_dim)
 Network.plot_dataset_dist = plot_pure_network_dataset_dist
 
-def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle=True, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False, plot_momentum=False, verbose_debug=False):
+def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle=True, plot_rot=False, plot_full=False, plot_diffusion=False, plot_nonleading=False, plot_momentum=False, verbose_debug=False, plot_large_zoomin=False):
     with PdfPages('multipage_pdf.pdf') as pdf:
         for varname in store:
             varname = varname.replace(sep_prefix, '', 1)
@@ -145,12 +145,13 @@ def generate_dataset_report(store, plot_pure=True, plot_heat=True, plot_particle
                 fig = plot_dataset_dist(store, varname)
                 pdf.savefig(fig)
                 plt.close(fig)
-                try:
-                    fig = plot_dataset_zoomin(store, varname)
-                except ZeroDivisionError:
-                    fig = plt.figure()
-                pdf.savefig(fig)
-                plt.close(fig)
+                if plot_large_zoomin:
+                    try:
+                        fig = plot_dataset_zoomin(store, varname)
+                    except ZeroDivisionError:
+                        fig = plt.figure()
+                    pdf.savefig(fig)
+                    plt.close(fig)
 
 #net = Network.get_by_id(1409)
 
