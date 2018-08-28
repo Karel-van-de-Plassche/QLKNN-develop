@@ -502,8 +502,8 @@ def create_input_cache(ds, cachedir):
     # Convert to MultiIndexed DataFrame. Use efe_GB as dummy variable to get the right index
     input_names = list(ds[dummy_var].dims)
     dtype = ds[dummy_var].dtype
-    input_df = ds[dummy_var].to_dataframe()
-    input_df.drop(input_df.columns[0], axis=1, inplace=True)
+    input_df = ds['dimx'].to_dataframe()
+    #input_df.drop(input_df.columns[0], axis=1, inplace=True)
 
     # Create empty cache dir
     if os.path.exists(cachedir):
@@ -516,13 +516,13 @@ def create_input_cache(ds, cachedir):
         input_df.reset_index(level=0, inplace=True)
         varname = input_df.columns[0]
         print('starting {:2d}/{:2d}: {!s}'.format(ii + 1, num_levels, varname))
-        df = input_df[varname].to_frame()
+        df = input_df[['dimx', varname]].copy(True)
         del input_df[varname]
         df.reset_index(inplace=True, drop=True)
         df = df.astype(dtype, copy=False)
         cachefile = os.path.join(cachedir, varname)
 
-        ddf = dd.from_array(df.values, chunksize=len(df) // 10, columns=[varname])
+        ddf = dd.from_array(df.values, chunksize=len(df) // 10, columns=df.columns)
         ddf.to_parquet(cachefile + '.parquet', write_index=False)
         del df, ddf
         gc.collect()
@@ -546,11 +546,16 @@ def input_hdf5_from_cache(store_name, cachedir, columns=None, mode='w', compress
     if compress:
         panda_kwargs = dict(complib='zlib', complevel=1)
     files = [os.path.join(cachedir, name) for name in os.listdir(cachedir)]
-    ddfs = [dd.read_parquet(name) for name in files]
+    ddfs = []
+    for name in files:
+        ddf = dd.read_parquet(name)
+        ddf['dimx'] = ddf['dimx'].astype('int64')
+        ddf = ddf.set_index('dimx')
+        ddfs.append(ddf)
     input_ddf = dd.concat(ddfs, axis=1)
-    input_ddf['dimx'] = 1
-    input_ddf['dimx'] = input_ddf['dimx'].cumsum() - 1
-    input_ddf = input_ddf.set_index('dimx', drop=True)
+    #input_ddf['dimx'] = 1
+    #input_ddf['dimx'] = input_ddf['dimx'].cumsum() - 1
+    #input_ddf = input_ddf.set_index('dimx', drop=True)
     input_ddf = input_ddf.loc[:, columns]
     input_ddf.to_hdf(store_name, 'input', mode=mode, **panda_kwargs)
 
@@ -571,9 +576,10 @@ def data_hdf5_from_ds(ds, store_name, compress=True):
         print('starting {:2d}/{:2d}: {!s}'.format(ii + 1, len(ds.data_vars), varname))
         #ddf = ds[[varname]].to_dask_dataframe()
         #da = ds.variables[varname].data
-        df = ds[[varname]].to_dataframe()
+        df = ds[['dimx', varname]].to_dataframe()
         df.reset_index(inplace=True, drop=True)
-        df.index.name = 'dimx'
+        df = df.set_index('dimx')
+        df.sort_index(inplace=True)
         df.to_hdf(store_name, sep_prefix + varname , format='table', **panda_kwargs)
         #da.to_hdf5(store_name, '/output/' + varname, compression=compress)
 
@@ -583,7 +589,7 @@ def save_attrs(attrs, store_name):
     store['constants'] = pd.Series(attrs)
     store.close()
 
-def prepare_rot_three(rootdir):
+def prepare_rot_three(rootdir, use_disk_cache=True):
     starttime = time.time()
     store_name = os.path.join(rootdir, 'gen4_8D_rot_three.h5.1')
     prep_ds_name = 'rot_three_prepared.nc.1'
@@ -602,10 +608,11 @@ def prepare_rot_three(rootdir):
     # Remove ETG vars, rotation run is with kthetarhos <=2
     for name, var in ds.variables.items():
         if 'ETG' in name:
+            print('Dropping {!s}'.format(name))
             ds = ds.drop(name)
 
     ds = calculate_rotdivs(ds)
-    save_prepared_ds(ds, prepared_ds_path, starttime=None, ds_kwargs=None)
+    save_prepared_ds(ds, prepared_ds_path, starttime=None, ds_kwargs=ds_kwargs)
     notify_task_done('Preparing dataset', starttime)
     return ds, store_name
 
@@ -638,6 +645,8 @@ if __name__ == '__main__':
         if len(set(var.dims) - set(non_drop_dims)) != 0:
             ds = ds.drop(name)
 
+    #dummy_var = next(ds.data_vars.keys().__iter__())
+    ds['dimx'] = (ds[dummy_var].dims, np.arange(0, ds[dummy_var].size).reshape(ds[dummy_var].shape))
     use_disk_cache = False
     #use_disk_cache = True
     cachedir = os.path.join(rootdir, 'cache')
