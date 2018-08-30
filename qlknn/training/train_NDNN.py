@@ -90,6 +90,7 @@ def prep_dataset(settings):
 
 
 
+    target_df = drop_outliers(target_df, settings)
     target_df = drop_nans(target_df)
 
     data_df = filter_input(input_df, target_df)
