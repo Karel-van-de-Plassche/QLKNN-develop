@@ -6,7 +6,12 @@ import re
 import pandas as pd
 import numpy as np
 from IPython import embed
-import dask.dataframe as dd
+try:
+    import dask.dataframe as dd
+    has_dask = True
+except ImportError:
+    warnings.warn('Dask not found')
+    has_dask = False
 
 try:
     profile
@@ -80,6 +85,9 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
         columns = columns.values
     if store_name is not None and store is not None:
         raise Exception('Specified both store and store name!')
+
+    if dask and not has_dask:
+        raise Exception('Requested dask, but dask import failed')
 
     if store is None:
         store = pd.HDFStore(store_name, 'r')
