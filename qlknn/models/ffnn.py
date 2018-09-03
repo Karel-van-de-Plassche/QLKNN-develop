@@ -76,7 +76,7 @@ class QuaLiKizComboNN():
         return feature_min
 
 class QuaLiKizNDNN():
-    def __init__(self, nn_dict, target_names_mask=None, layer_mode=None, allow_negative=True):
+    def __init__(self, nn_dict, target_names_mask=None, layer_mode=None):
         """ General ND fully-connected multilayer perceptron neural network
 
         Initialize this class using a nn_dict. This dict is usually read
@@ -95,8 +95,6 @@ class QuaLiKizNDNN():
             import qlknn_intel
         elif layer_mode == 'cython':
             import cython_mkl_ndnn
-
-        self.allow_negative = allow_negative
 
         # Read and parse the json. E.g. put arrays in arrays and the rest in a dict
         for name, value in nn_dict.items():
@@ -238,8 +236,6 @@ class QuaLiKizNDNN():
         #for name in self._target_names:
         #    nn_output = (np.squeeze(self.apply_layers(nn_input)) - self._target_prescale_biases[name]) / self._target_prescale_factors[name]
         #    output[name] = nn_output
-        if not self.allow_negative:
-            output[output < 0] = 0
         output = clip_to_bounds(output, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
 
         # 118 µs ± 3.83 µs per loop (mean ± std. dev. of 7 runs, 10000 loops each)
