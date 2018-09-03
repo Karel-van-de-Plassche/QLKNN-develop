@@ -10,7 +10,7 @@ from qlknn.misc.analyse_names import is_pure_flux, is_flux, split_parts
 pot_rot_vars = ['Machtor', 'Autor', 'Machpar', 'Aupar', 'gammaE']
 
 class RotDivNN():
-    def __init__(self, network, rot0_div_network):
+    def __init__(self, network, rot0_div_network, allow_negative=True):
         """ Initialize a
         """
         if len(rot0_div_network._target_names) > 1 or len(network._target_names) > 1:
@@ -53,16 +53,24 @@ class RotDivNN():
         self._target_min = self._internal_network._target_min
         self._target_max = self._internal_network._target_max
 
-    def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True):
+        self.allow_negative = allow_negative
+
+    def get_output(self, input, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True, apply_rotation=True):
         nn = self._internal_network
         if not safe:
             raise NotImplementedError('Unsafe RotDivNN')
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(nn, input, safe, clip_low, clip_high, low_bound, high_bound)
+        if self.allow_negative:
+            clip_kwargs = {}
+        else:
+            clip_kwargs = {'clip_low': True,
+                           'low_bound': pd.Series({k: 0 for k in self._internal_network._target_names + self._rotdiv_network._target_names})}
         # Get indices for vars that victor rule needs: x, q, smag
-        nn_out = self._internal_network.get_output(input[self._internal_network._feature_names].values, safe=False, output_pandas=False)
-        rot_out = self._rotdiv_network.get_output(input[self._rotdiv_network._feature_names].values, safe=False, output_pandas=False)
-        output = nn_out * rot_out
+        nn_out = self._internal_network.get_output(input[self._internal_network._feature_names].values, safe=False, output_pandas=False, **clip_kwargs)
+        if apply_rotation:
+            rot_out = self._rotdiv_network.get_output(input[self._rotdiv_network._feature_names].values, safe=False, output_pandas=False, **clip_kwargs)
+            output = nn_out * rot_out
 
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
@@ -72,9 +80,9 @@ if __name__ == '__main__':
     scann = 100
 
     root = os.path.dirname(os.path.realpath(__file__))
-    nn_ITG = QuaLiKizNDNN.from_json('../../tests/gen3_test_files/Network_874_efiITG_GB/nn.json', layer_mode='classic', allow_negative=False)
-    nn_ITG_rot0 = QuaLiKizNDNN.from_json('../../tests/gen4_test_files/Network_xxx_efiITG_GB_div_efiITG_GB_rot0/nn.json', layer_mode='classic', allow_negative=False)
-    nn = RotDivNN(nn_ITG, nn_ITG_rot0)
+    nn_ITG = QuaLiKizNDNN.from_json('../../tests/gen3_test_files/Network_874_efiITG_GB/nn.json', layer_mode='classic')
+    nn_ITG_rot0 = QuaLiKizNDNN.from_json('../../tests/gen4_test_files/Network_xxx_efiITG_GB_div_efiITG_GB_rot0/nn.json', layer_mode='classic')
+    nn = RotDivNN(nn_ITG, nn_ITG_rot0, allow_negative=False)
 
     scann = 100
     input = pd.DataFrame()
@@ -90,7 +98,5 @@ if __name__ == '__main__':
     input['x']  = np.full_like(input['Ati'], 0.449951)
     #input = input.loc[:, nn_ITG._feature_names]
     input['Machtor'] = np.full_like(input['Ati'], 0.3)
-
     fluxes = nn.get_output(input, safe=True)
     print(fluxes)
-    embed()
