@@ -26,6 +26,7 @@ from IPython import embed
 
 from qlknn.models.ffnn import QuaLiKizNDNN, QuaLiKizComboNN, nn_dict_to_matlab
 from qlknn.misc.analyse_names import split_name
+from qlknn.misc.tools import parse_dataset_name
 
 #class RetryPostgresqlExtDatabase(RetryOperationalError, PostgresqlExtDatabase):
 #    pass
@@ -90,17 +91,6 @@ class Filter(BaseModel):
 
         filter = Filter(script=filter_script, hypercube_script=hypercube_script)
         filter.save()
-
-    @classmethod
-    def find_by_path_name(cls, name):
-        split = re.split('(?:(unstable)_|)(sane|test|training)_(?:gen(\d+)_|)(\d+)D_(.*)_filter(\d+).h5', name)
-        try:
-            if len(split) != 8:
-                raise Exception
-            filter_id = int(split[6])
-        except:
-            raise Exception('Could not find filter ID from name "{!s}"'.format(name))
-        return filter_id
 
 
 class Network(BaseModel):
@@ -749,6 +739,7 @@ class Network(BaseModel):
 class PureNetworkParams(BaseModel):
     network = ForeignKeyField(Network, related_name='pure_network_params', unique=True)
     filter = ForeignKeyField(Filter, related_name='pure_network_params')
+    dataset = TextField()
     train_script = ForeignKeyField(TrainScript, related_name='pure_network_params')
     feature_prescale_bias = HStoreField()
     feature_prescale_factor = HStoreField()
@@ -1001,7 +992,9 @@ class PureNetworkParams(BaseModel):
         with open(settings_path) as file_:
             settings = json.load(file_)
 
-        dict_['filter_id'] = Filter.find_by_path_name(settings['dataset_path'])
+        unstable, set, gen, dim, dataset, filter_id = parse_dataset_name(settings['dataset_path'])
+        dict_['filter_id'] = filter_id
+        dict_['dataset'] = dataset
         network = Network.create(**net_dict)
         dict_['network'] = network
         pure_network_params = PureNetworkParams.create(**dict_)
