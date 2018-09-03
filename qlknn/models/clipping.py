@@ -57,7 +57,7 @@ class LeadingFluxNN(QuaLiKizNDNN):
         for id in self._leading_idx.keys():
             leading_idx = self._leading_idx[id]
             clip_idx = self._clip_idx[id]
-            output[np.ix_(output[:, leading_idx] < 0, clip_idx)] = 0
+            output[np.ix_(output[:, leading_idx] <= 0, clip_idx)] = 0
 
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
