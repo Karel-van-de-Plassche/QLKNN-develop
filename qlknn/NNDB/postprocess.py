@@ -11,6 +11,7 @@ from qlknn.plots.slicer import get_similar_not_in_table
 from qlknn.dataset.filtering import regime_filter, stability_filter
 from qlknn.dataset.data_io import sep_prefix, load_from_store
 from qlknn.plots.load_data import load_data, load_nn, prettify_df
+from qlknn.misc.tools import parse_dataset_name
 
 def nns_from_nndb(max=20):
     db.connect()
@@ -21,23 +22,27 @@ def nns_from_nndb(max=20):
                                              no_mixed=False,
                                              no_gam=False)
 
+    dataset = non_processed[0].pure_network_params.get().dataset
+    filter_id = non_processed[0].pure_network_params.get().filter_id
     nns = OrderedDict()
     for dbnn in non_processed:
         nn = dbnn.to_QuaLiKizNN()
         nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
         nns[nn.label] = nn
     db.close()
-    return nns
+    return nns, dataset, filter_id
 
-def process_nns(nns, root_path, set, filter, leq_bound, less_bound):
+def process_nns(nns, root_path, set, dataset, filter, leq_bound, less_bound):
     #store = pd.HDFStore('../filtered_gen2_7D_nions0_flat_filter6.h5')
     nn0 = list(nns.values())[0]
     target_names = nn0._target_names
     feature_names = nn0._feature_names
 
     dim = len(feature_names)
-    filter_name = set + '_' + str(dim) + 'D_nions0_flat_filter' + str(filter) + '.h5.1'
+    filter_name = set + '_' + str(dim) + 'D_' + dataset + '_filter' + str(filter) + '.h5'
     filter_path_name = os.path.join(root_path, filter_name)
+    if not os.path.isfile(filter_path_name):
+        filter_path_name += '.1'
 
     __, regime, __ = load_from_store(store_name=filter_path_name, columns=['efe_GB', 'efi_GB'], load_input=False)
     regime = regime_filter(regime, leq_bound, less_bound).index
@@ -87,12 +92,12 @@ def process_nns(nns, root_path, set, filter, leq_bound, less_bound):
 
 if __name__ == '__main__':
     #filter_path_name = '../filtered_7D_nions0_flat_filter5.h5'
-    root_path = '../..'
-    set = 'unstable_test_gen3'
-    filter = 8
+    root_path = '../../../qlk_data/'
+    set = 'unstable_test_gen4'
+    #filter = 8
     leq_bound = 0
     less_bound = 10
-    nns = nns_from_nndb(100)
-    rms = process_nns(nns, root_path, set, filter, leq_bound, less_bound)
+    nns, dataset, filter_id = nns_from_nndb(100)
+    rms = process_nns(nns, root_path, set, dataset, filter_id, leq_bound, less_bound)
 
 #results = pd.DataFrame([], index=pd.MultiIndex.from_product([['target'] + list(nns.keys()), target_names]))
