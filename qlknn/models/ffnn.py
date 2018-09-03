@@ -28,10 +28,9 @@ def nn_dict_to_matlab(json_file):
 class QuaLiKizComboNN():
     def __init__(self, target_names, nns, combo_func):
         self._nns = nns
-        feature_names = nns[0]
         for nn in self._nns:
-            if np.all(nn._feature_names.ne(feature_names)):
-                Exception('Supplied NNs have different feature names')
+            if np.any(nn._feature_names.ne(self._feature_names)):
+                raise Exception('Supplied NNs have different feature names')
         if np.any(self._feature_min > self._feature_max):
             raise Exception('Feature min > feature max')
 
@@ -49,7 +48,7 @@ class QuaLiKizComboNN():
     def get_output(self, input, output_pandas=True, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, **kwargs):
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(self, input, safe, clip_low, clip_high, low_bound, high_bound)
-        output = self._combo_func(*[nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=False, **kwargs) for nn in self._nns])
+        output = self._combo_func(*[nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=safe, **kwargs) for nn in self._nns])
         output = clip_to_bounds(output, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
