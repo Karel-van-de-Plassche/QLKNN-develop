@@ -53,10 +53,12 @@ def timeout(signum, frame):
 
 @profile
 def drop_outliers(target_df, settings):
+    target_df.sort_values(list(target_df.columns), inplace=True)
+    startlen = target_df.shape[0]
     if settings['drop_outlier_above'] < 1:
-        target_df = target_df[target_df < target_df.quantile(settings['drop_outlier_above'])]
+        target_df = target_df.iloc[:int(np.floor(startlen * settings['drop_outlier_above'])), :]
     if settings['drop_outlier_below'] > 0:
-        target_df = target_df[target_df > target_df.quantile(settings['drop_outlier_below'])]
+        target_df = target_df.iloc[int(np.floor(startlen * settings['drop_outlier_below'])):, :]
     return target_df
 
 @profile
