@@ -50,3 +50,16 @@ def ordered_dict_prepend(dct, key, value, dict_setitem=dict.__setitem__):
         else:
             root[1] = first[0] = dct._OrderedDict__map[key] = [root, first, key]
             dict_setitem(dct, key, value)
+
+def parse_dataset_name(store_name):
+    unstab, set, gen, dim, dataset, filter = re.split('(?:(unstable)_|)(sane|test|training)_(?:gen(\d+)_|)(\d+)D_(.*)_filter(\d+).h5', store_name)[1:-1]
+    if filter_id is not None:
+        filter_id = int(filter_id)
+    gen = int(gen)
+    dim = int(dim)
+    if unstab == 'unstable':
+        unstable = True
+    elif unstab == '':
+        unstable = True
+
+    return unstable, set, gen, dim, dataset, filter_id
