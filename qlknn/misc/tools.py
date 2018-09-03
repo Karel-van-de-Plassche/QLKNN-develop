@@ -1,4 +1,6 @@
 import time
+import re
+
 def str_to_int_or_float(string):
     if not isinstance(string):
         raise ValueError('Please input a string')
