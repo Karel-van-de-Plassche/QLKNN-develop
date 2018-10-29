@@ -395,7 +395,9 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
     # Define log files
     train_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm', 'stable_positive_loss'])
+    train_log.index.name = 'step'
     validation_log = pd.DataFrame(columns=['epoch', 'walltime', 'loss', 'mse', 'mabse', 'l1_norm', 'l2_norm', 'stable_positive_loss'])
+    validation_log.index.name = 'step'
 
     # Split dataset in minibatches
     minibatches = settings['minibatches']
@@ -432,7 +434,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     train_log_file.truncate(0)
     colwidth = max(len(name) for name in validation_log.columns[:-1])
     colwidth = 12
-    ffmt = '% -{width}.3f'.format(width=colwidth)
+    ffmt = '% -{width}.4f'.format(width=colwidth)
     header = ['{:<{width}}'.format(colname, width=colwidth) for colname in train_log.columns]
     train_log.to_csv(train_log_file, float_format=ffmt, header=header)
     validation_log_file = open('validation_log.csv', 'a', 1)
@@ -499,8 +501,8 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                 # Add to CSV log buffer
                 cur_train_time.load(time.time() - train_start + prev_train_time, sess)
                 if track_training_time:
-                    idx = epoch_idx * minibatches + step
-                    train_log.loc[idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+                    step_idx = epoch_idx * minibatches + step
+                    train_log.loc[step_idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
                 global_step.load(global_step.eval(session=sess) + 1, sess)
                 # Stop on timeout (USR1)
@@ -560,9 +562,9 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
             # Update CSV logs
             cur_train_time.load(time.time() - train_start + prev_train_time, session=sess)
             if track_training_time:
-                validation_log.loc[epoch_idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
+                validation_log.loc[step_idx] = (epoch_idx, cur_train_time.eval(session=sess), lo, meanse, meanabse, l1norm, l2norm, stab_pos)
 
-                validation_log.loc[epoch_idx:].to_csv(validation_log_file, header=False, float_format=ffmt)
+                validation_log.loc[step_idx:].to_csv(validation_log_file, header=False, float_format=ffmt)
                 validation_log = validation_log[0:0] #Flush validation log
                 train_log.loc[epoch_idx * minibatches:].to_csv(train_log_file, header=False, float_format=ffmt)
                 train_log = train_log[0:0] #Flush train_log
