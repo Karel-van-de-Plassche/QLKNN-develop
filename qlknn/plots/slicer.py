@@ -21,11 +21,13 @@ from peewee import AsIs, fn, SQL
 from IPython import embed
 
 from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, PostprocessSlice_9D, db
+from qlknn.NNDB.model import *
 from qlknn.models.ffnn import QuaLiKizNDNN
 from qlknn.training.train_NDNN import shuffle_panda
 from qlknn.plots.load_data import load_nn, prettify_df, nameconvert
 from qlknn.dataset.data_io import load_from_store
 from qlknn.misc.analyse_names import split_parts, split_name
+from qlknn.misc.tools import parse_dataset_name
 
 if __name__ == '__main__':
     import matplotlib as mpl
@@ -295,15 +297,24 @@ def nns_from_manual():
     nns = OrderedDict()
 
     dbnns = []
-    dbnns.append(Network.get_by_id(12))
-    #dbnns.append(ComboNetwork.by_id(1050).get())
+    labels = []
+    #sys.path.append('../../../QuaLiKiz-dataslicer')
+    #import mega_nn
+    #nn = mega_nn.nn
 
-    for dbnn in dbnns:
+    dbnns.append(Network.get_by_id(1723))
+
+    for ii, dbnn in enumerate(dbnns):
         nn = dbnn.to_QuaLiKizNN()
-        nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
+        if len(labels) == 0:
+            nn.label = '_'.join([str(el) for el in [dbnn.__class__.__name__ , dbnn.id]])
+        else:
+            nn.label = labels[ii]
         nns[nn.label] = nn
 
-    #nns[nn.label] = QuaLiKizNDNN.from_json('nn.json')
+    #nn = QuaLiKizNDNN.from_json('nn.json')
+    #nn.label = 'manual'
+    #nns[nn.label] = nn
     slicedim = 'Ati'
     if len(nn._target_names) == 1:
         style='mono'
@@ -836,7 +847,7 @@ def extract_nn_stats(results, duo_results, nns, frac, store_name, submit_to_nndb
     db.close()
 
 def get_store_params(store_name):
-    gen, dim, filter = re.match('(?:gen(\d+)_|)(\d+)D_nions0_flat(?:_filter(\d+))?.*', store_name).groups()
+    unstable, set, gen, dim, label, filter = parse_dataset_name(store_name)
     if filter is not None:
         filter = int(filter)
     gen, dim = int(gen), int(dim)
@@ -854,12 +865,15 @@ if __name__ == '__main__':
     #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
+    #store_basename = 'gen4_8D_rot_three.h5.1'
+    #store_basename = 'training_gen4_8D_rot_three_filter10.h5'
     #store_basename = 'gen3_9D_nions0_flat_sep.h5.1'
     store_name = os.path.join(store_root, store_basename)
     store = pd.HDFStore(store_name, 'r')
 
     __, dim, __ = get_store_params(store_basename)
     slicedim, style, nns = nns_from_NNDB(dim, max=100)
+    #slicedim, style, nns = nns_from_manual()
     #slicedim = 'An'
 
     #nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
