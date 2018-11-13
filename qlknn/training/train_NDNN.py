@@ -5,18 +5,13 @@ from __future__ import print_function
 import sys
 import time
 import os
-import io
-import subprocess
 import json
-from itertools import product
-from shutil import copyfile
 from collections import OrderedDict
 import signal
 
 if not (sys.version_info > (3, 0)):
     range = xrange
 
-import argparse
 import tensorflow as tf
 from tensorflow.contrib import opt
 from tensorflow.python.client import timeline
@@ -24,10 +19,9 @@ import numpy as np
 import pandas as pd
 from IPython import embed
 
-
 from qlknn.misc.tools import profile
-from qlknn.training.datasets import Dataset, Datasets, convert_panda, split_panda, shuffle_panda
-from qlknn.training.nn_primitives import model_to_json, weight_variable, bias_variable, variable_summaries, nn_layer, normab, normsm, descale_panda, scale_panda
+from qlknn.training.datasets import convert_panda
+from qlknn.training.nn_primitives import model_to_json, nn_layer, normab, normsm, scale_panda
 from qlknn.training.profiling import TimeLiner
 from qlknn.dataset.data_io import load_from_store
 from qlknn.misc.to_precision import to_precision
@@ -36,15 +30,22 @@ from qlknn.misc.tools import ordered_dict_prepend
 FLAGS = None
 
 def timediff(start, event):
+    """ A formatted debug message to display a time difference """
     print('{:35} {:5.0f}s'.format(event + ' after', time.time() - start))
 
 def print_last_row(df, header=False):
+    """ Print the last row of a DataFrame with default formatting """
     print(df.iloc[[-1]].to_string(header=header,
                                   float_format=lambda x: u'{:.2f}'.format(x),
                                   col_space=12,
                                   justify='left'))
 
 def timeout(signum, frame):
+    """ Function to catch signals send to the running process
+
+    Used to catch the 'timeout' signal (SIGUSR1) send to the training
+    process by a SLURM queue manager. Uses a dirty hack with globals (sorry!)
+    """
     global stopping_timeout
     print('Received signal: {!s} frame: {!s}'.format(signum, frame))
     # mutating a mutable object doesn't require changing what the variable name points to
@@ -53,6 +54,14 @@ def timeout(signum, frame):
 
 @profile
 def drop_outliers(target_df, settings):
+    """ Drop outliers of DataFrame on both ends based on 'settings'
+
+    Used to drop the top and bottom fraction of the dataset.
+    Use the settings 'drop_outlier_above' and 'drop_outlier_below'
+    to specify the range.
+
+    WARNING! SORTS THE DATAFRAME IN PLACE!
+    """
     target_df.sort_values(list(target_df.columns), inplace=True)
     startlen = target_df.shape[0]
     if settings['drop_outlier_above'] < 1:
@@ -63,24 +72,35 @@ def drop_outliers(target_df, settings):
 
 @profile
 def drop_nans(target_df):
-    # Remove NaNs
+    """ Drop any row that has one or more NaNs inside """
     target_df.dropna(axis=0, inplace=True)
     return target_df
 
 @profile
 def filter_input(input_df, target_df):
-    # Use only samples in the feature set that are in the target set
+    """ Merge input and target DataFrame. Inner join.
+
+    Use only samples in the feature set that are in the target set. Because
+    of filtering, not every feature has a target
+    """
     #input_df = input_df.reindex(target_df.index, copy=False)
     data_df = pd.concat((input_df, target_df), join='inner', copy=False, axis=1)
     return data_df
 
 @profile
 def convert_dtype(data_df, settings):
-    # Convert to dtype in settings file. Usually float32 or float64
+    """ Convert to dtype in settings dicts.
+
+    Covert the dtype of the supplied DataFrame. Usually anything smaller than
+    float32 will lead to NaNs in the cost function.
+    """
     data_df = data_df.astype(settings['dtype'])
     return data_df
 
 def prep_dataset(settings):
+    """ Prepare a DataFrame specified by the settings dict for training.
+
+    """
     train_dims = settings['train_dims']
     # Open HDF store. This is usually a soft link to our filtered dataset
     input_df, target_df, const = load_from_store(settings['dataset_path'], columns=train_dims)
@@ -89,8 +109,6 @@ def prep_dataset(settings):
         del input_df['nions']  # Delete leftover artifact from dataset split
     except KeyError:
         pass
-
-
 
     target_df = drop_outliers(target_df, settings)
     target_df = drop_nans(target_df)
@@ -103,6 +121,24 @@ def prep_dataset(settings):
 
 @profile
 def calc_standardization(data_df, settings, warm_start_nn=None):
+    """ Calculate the factor and bias needed to standardize
+
+    For NN training, the features are usually scaled or 'standardized'
+    around zero. In our case, we also scale the output, which gave
+    better results empirically (feel free to not scale it and see what happens)
+    This functions calculates the factor a and bias b needed to scale the dataset
+    given by
+
+    ```
+    x_standardized = a * x + b
+    ```
+
+    Where the type of standardization is given by standardization. It can be:
+    - minmax_l_u to scale such that x_standardized is between l (lower bound) and
+      u (upper bound). Common choice is minmax_-1_1
+    - normsm_s_m to scale such that x_standardized has a mean of m and standard
+      deviation of s. Common choice is normsm_1_0
+    """
     if warm_start_nn is None:
         if settings['standardization'].startswith('minmax'):
             min = float(settings['standardization'].split('_')[-2])
@@ -122,7 +158,22 @@ def calc_standardization(data_df, settings, warm_start_nn=None):
     return scale_factor, scale_bias
 
 class QLKNet:
-    def __init__(self, x, num_target_dims, settings, debug=False, warm_start_nn=None):
+    def __init__(self, x, num_target_dims, settings,
+                 debug=False, warm_start_nn=None):
+        """ Create a FFNN TensorFlow model.
+
+        args:
+            x:               The input of the FFNN (directly to the input layer)
+            num_target_dims: The dimensionality of the output vector
+            settings:        The settings dict
+
+        kwargs:
+            debug:           Create the network in debug mode. Enables extra
+                             debugging options in TensorBoard, but slows down
+                             training a lot. [default: False]
+            warn_start_nn:   A QuaLiKizNDNN to use the weights and biases from
+                             to initialize this FFNN
+        """
         self.x = x
         self.NUM_TARGET_DIMS = num_target_dims
         self.SETTINGS = settings
@@ -131,6 +182,7 @@ class QLKNet:
         self.create()
 
     def create(self):
+        """ Create a TensorFlow FFNN based on the initialized attributed """
         x = self.x
         settings = self.SETTINGS
         debug = self.DEBUG
@@ -138,10 +190,16 @@ class QLKNet:
         num_target_dims = self.NUM_TARGET_DIMS
 
         layers = [x]
+        # Set the drop probability for dropout. The same for all layers
         if settings['drop_chance'] != 0:
             drop_prob = tf.constant(settings['drop_chance'], dtype=x.dtype)
+        # Track if the NN is evaluated during training or testing/validation
+        # Needed for dropout, only drop out during training!
         self.is_train = tf.placeholder(tf.bool)
-        for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'], settings['hidden_neurons']), start=1):
+        for ii, (activation, neurons) in enumerate(zip(settings['hidden_activation'],
+                                                       settings['hidden_neurons']),
+                                                   start=1):
+            # Set the weight and bias initialization from settings. The same for all layers
             if warm_start_nn is None:
                 weight_init = settings['weight_init']
                 bias_init = settings['bias_init']
@@ -154,6 +212,7 @@ class QLKNet:
                 else:
                     raise Exception('Settings file layer shape does not match warm_start_nn')
 
+            # Get the activation function for this layer from the settings dict
             if activation == 'tanh':
                 act = tf.tanh
             elif activation == 'relu':
@@ -161,7 +220,12 @@ class QLKNet:
             elif activation == 'none':
                 act = None
 
-            layer = nn_layer(layers[-1], neurons, 'layer' + str(ii), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
+            # Initialize the network layer. It is autoconnected to the previou one.
+            layer = nn_layer(layers[-1], neurons, 'layer' + str(ii),
+                             dtype=x.dtype, act=act,
+                             debug=debug, bias_init=bias_init,
+                             weight_init=weight_init)
+            # If there is dropout chance is nonzero, potentially dropout neurons
             if settings['drop_chance'] != 0:
                 dropout = tf.layers.dropout(layer, drop_prob, training=self.is_train)
                 if debug:
@@ -185,7 +249,12 @@ class QLKNet:
             act = tf.nn.relu
         elif activation == 'none':
             act = None
-        self.y = nn_layer(layers[-1], num_target_dims, 'layer' + str(len(layers)), dtype=x.dtype, act=act, debug=debug, bias_init=bias_init, weight_init=weight_init)
+        # Finally apply the output layer and set 'y' such that network.y
+        # can be evaluated to make a prediction
+        self.y = nn_layer(layers[-1], num_target_dims, 'layer' + str(len(layers)),
+                          dtype=x.dtype, act=act,
+                          debug=debug, bias_init=bias_init,
+                          weight_init=weight_init)
 
 def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     tf.reset_default_graph()
@@ -193,10 +262,14 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
     data_df = prep_dataset(settings)
     target_names = settings['train_dims']
+    # Everything that is not a target, is a feature
     feature_names = list(data_df.columns)
     for dim in target_names:
         feature_names.remove(dim)
 
+    # To avoid skewing the distribution too much for mean std standardization,
+    # we only use the non-zero part of the dataset to calculate mean/std
+    # This probably doesn't make a lot of sense for minmax
     if settings['calc_standardization_on_nonzero']:
         any_nonzero = (data_df[target_names] != 0).any(axis=1)
         data_df_nonzero = data_df.loc[any_nonzero, :]
@@ -214,7 +287,12 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     # Standardize input
     timediff(start, 'Scaling defined')
 
-    datasets = convert_panda(data_df, feature_names, target_names, settings['validation_fraction'], settings['test_fraction'])
+    # Convert to DataFrame to train/test/validate sets
+    datasets = convert_panda(data_df,
+                             feature_names,
+                             target_names,
+                             settings['validation_fraction'],
+                             settings['test_fraction'])
 
     # Start tensorflow session
     if 'NUM_INTER_THREADS' in os.environ:
@@ -237,6 +315,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                            [None, len(feature_names)], name='x-input')
         y_ds = tf.placeholder(x.dtype, [None, len(target_names)], name='y-input')
 
+    # Feed input placeholders to net, and make output vector
     net = QLKNet(x, len(target_names), settings, warm_start_nn=warm_start_nn)
     y = net.y
     y_descale = (net.y - scale_bias[target_names].values) / scale_factor[target_names].values
@@ -245,6 +324,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
 
 
     timediff(start, 'NN defined')
+    # Optionally calculate goodness (rms/abse) only on non-zero points to have a sharp threshold
     if settings['goodness_only_on_unstable'] is True:
         orig_is_stable = tf.less_equal(y_ds_descale, 0)
 
@@ -266,33 +346,20 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
             tf.summary.scalar('MABSE', mabse)
         with tf.name_scope('l2'):
             l2_scale = tf.Variable(settings['cost_l2_scale'], dtype=x.dtype, trainable=False)
-            #l2_norm = tf.reduce_sum(tf.square())
-            #l2_norm = tf.to_double(tf.add_n([tf.nn.l2_loss(var)
-            #                        for var in tf.trainable_variables()
-            #                        if 'weights' in var.name]))
             l2_norm = (tf.add_n([tf.nn.l2_loss(var)
                                     for var in tf.trainable_variables()
                                     if 'weights' in var.name]))
-            #mse = tf.losses.mean_squared_error(y_, y)
-            # TODO: Check normalization
             l2_loss = l2_scale * l2_norm
-            #tf.summary.scalar('l2_norm', l2_norm)
-            #tf.summary.scalar('l2_scale', l2_scale)
             tf.summary.scalar('l2_loss', l2_loss)
         with tf.name_scope('l1'):
             l1_scale = tf.Variable(settings['cost_l1_scale'], dtype=x.dtype, trainable=False)
-            #l1_norm = tf.to_double(tf.add_n([tf.reduce_sum(tf.abs(var))
-            #                        for var in tf.trainable_variables()
-            #                        if 'weights' in var.name]))
             l1_norm = (tf.add_n([tf.reduce_sum(tf.abs(var))
                                     for var in tf.trainable_variables()
                                     if 'weights' in var.name]))
-            # TODO: Check normalization
             l1_loss = l1_scale * l1_norm
-            #tf.summary.scalar('l1_norm', l1_norm)
-            #tf.summary.scalar('l1_scale', l1_scale)
             tf.summary.scalar('l1_loss', l1_loss)
         with tf.name_scope('stable_positive'):
+            # A cost punishing positive predictions in the stable zone
             stable_positive_scale = tf.Variable(settings['cost_stable_positive_scale'], dtype=x.dtype, trainable=False)
             stable_positive_offset = tf.Variable(settings['cost_stable_positive_offset'], dtype=x.dtype, trainable=False)
             nn_pred_above_offset = tf.greater(y, settings['cost_stable_positive_offset'])
@@ -303,6 +370,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                 stable_positive_loss = tf.reduce_mean(tf.cast(orig_is_stable, x.dtype) * tf.exp(stable_positive_scale * (y - stable_positive_offset)))
             tf.summary.scalar('stable_positive_loss', stable_positive_loss)
 
+        # Add all losses together to get the total loss
         if settings['goodness'] == 'mse':
             goodness_loss = mse
         elif settings['goodness'] == 'mabse':
@@ -323,6 +391,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
         tf.summary.scalar('RMS descaled', tf.sqrt(mse_descale))
 
     with tf.name_scope('importance'):
+        # Track the relative size of the losses
         try:
             tf.summary.scalar('rel_l2_loss_importance', rel_l2_loss_importance)
         except:
@@ -368,6 +437,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
                                                              'maxls': settings['lbfgs_maxls']})
         #tf.logging.set_verbosity(tf.logging.INFO)
 
+    # Track training time, step in loop and current epoch
     cur_train_time = tf.Variable(0., name='cur_train_time', dtype='float64', trainable=False)
     global_step = tf.Variable(0, name='global_step', dtype='int64', trainable=False)
     epoch = tf.Variable(0, name='epoch', dtype='int64', trainable=False)
@@ -403,6 +473,7 @@ def train(settings, warm_start_nn=None, restore_old_checkpoint=False):
     minibatches = settings['minibatches']
     batch_size = int(np.floor(datasets.train.num_examples/minibatches))
 
+    # Do a test pre-train calculation of the losses and put them in a logfile
     timediff(start, 'Starting loss calculation')
     xs, ys = datasets.validation.next_batch(-1, shuffle=False)
     feed_dict = {x: xs, y_ds: ys, is_train: False}
@@ -727,21 +798,4 @@ def main(_):
 
 
 if __name__ == '__main__':
-    #parser = argparse.ArgumentParser()
-    #parser.add_argument('--fake_data', nargs='?', const=True, type=bool,
-    #                    default=True,
-    #                    help='If true, uses fake data for unit testing.')
-    #parser.add_argument('--max_steps', type=int, default=100000,
-    #parser.add_argument('--max_steps', type=int, default=sys.maxsize,
-    #                    help='Number of steps to run trainer.')
-    #parser.add_argument('--learning_rate', type=float, default=10.,
-    #                    help='Initial learning rate')
-    #parser.add_argument('--dropout', type=float, default=0.9,
-    #                    help='Keep probability for training dropout.')
-    #parser.add_argument('--data_dir', type=str,
-    #                    default='train_NN_run/input_data/',
-    #                    help='Directory for storing input data')
-    #parser.add_argument('--log_dir', type=str, default='train_NN_run/logs/',
-    #                    help='Summaries log directory')
-    #FLAGS, unparsed = parser.parse_known_args()
     tf.app.run(main=main, argv=[sys.argv[0]])

@@ -1,8 +1,5 @@
 import json
-import shutil
-import tempfile
 import os
-from qlknn.NNDB.model import TrainScript, PureNetworkParams, db
 import qlknn.training.train_NDNN as train_NDNN
 from IPython import embed
 from itertools import product
@@ -25,7 +22,6 @@ for ii, scan_tuple in enumerate(product(*scan.values())):
     for scan_var, val in zip(scan.keys(), scan_tuple):
         settings[scan_var] = val
 
-    #tmpdirname = tempfile.mkdtemp(prefix='trainNN_', dir=tmproot)
     tmpdirname = os.path.join(tmproot, 'trainNN_' + str(ii))
     os.mkdir(tmpdirname)
     settings['dataset_path'] = os.path.abspath(settings['dataset_path'])
