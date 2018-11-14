@@ -241,7 +241,7 @@ def calculate_grow_vars(ds):
     gam_leq = gam_leq.max('kthetarhos')
     gam_leq.name = 'gam_leq_GB'
 
-    if kthetarhos.size < bound_idx:
+    if kthetarhos.size > bound_idx:
         gam_great = gam.isel(kthetarhos=slice(bound_idx + 1, None))
         gam_great = gam_great.max('kthetarhos')
         gam_great.name = 'gam_great_GB'
