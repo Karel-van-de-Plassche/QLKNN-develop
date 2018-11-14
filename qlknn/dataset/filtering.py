@@ -415,9 +415,14 @@ def create_divsum(store, divnames=gen3_div_names):
         divnames: A list of 'flux_div_flux' strings. By default creates the
                   targets needed to train gen3/4 networks. [Default: gen3_div_names]
     """
+    if isinstance(store, pd.HDFStore):
+        prefix = sep_prefix
+    else:
+        prefix = ''
+
     for name in divnames:
         one, two = re.compile('_div_').split(name)
-        one, two = store[sep_prefix + one],  store[sep_prefix + two]
+        one, two = store[prefix + one],  store[prefix + two]
         res = (one / two).dropna()
         put_to_store_or_df(store, name, res)
 
