@@ -143,11 +143,40 @@ def prepare_rot_three(rootdir, use_disk_cache=False):
     notify_task_done('Preparing dataset', starttime)
     return ds, store_name
 
+@profile
+def load_edge_one_ds(rootdir='.'):
+    ds, ds_kwargs = open_with_disk_chunks(os.path.join(rootdir, 'Nustar0.35-1Ti_Te_rel1.0epsilon0.95.nc'), dask=False)
+    return ds, ds_kwargs
+
+def prepare_edge_one(rootdir, use_disk_cache=False):
+    starttime = time.time()
+    store_name = os.path.join(rootdir, 'gen4_6D_edge_one.h5.1')
+    prep_ds_name = 'edge_one_prepared.nc.1'
+    prepared_ds_path = os.path.join(rootdir, prep_ds_name)
+    ds_loader = load_edge_one_ds
+    if use_disk_cache:
+        ds, ds_kwargs = open_with_disk_chunks(prepared_ds_path, dask=False)
+    else:
+        ds, ds_kwargs = prep_megarun_ds(prep_ds_name,
+                             starttime=starttime,
+                             rootdir=rootdir,
+                             ds_loader=ds_loader)
+
+        # Drop SI variables
+        for name, var in ds.variables.items():
+            if name.endswith('_SI'):
+                ds = ds.drop(name)
+
+        save_prepared_ds(ds, prepared_ds_path, starttime=starttime, ds_kwargs=ds_kwargs)
+    notify_task_done('Preparing dataset', starttime)
+    return ds, store_name
+
 if __name__ == '__main__':
     #client = Client(processes=False)
     #client = Client()
     rootdir = '../../../qlk_data'
-    ds, store_name = prepare_rot_three(rootdir)
+    ds, store_name = prepare_edge_one(rootdir)
+    #ds, store_name = prepare_rot_three(rootdir)
     #ds, store_name = prepare_megarun1(rootdir)
 
     # Convert to pandas

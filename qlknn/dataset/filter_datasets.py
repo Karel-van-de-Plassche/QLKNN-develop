@@ -1,3 +1,8 @@
+import gc
+
+import pandas as pd
+
+from qlknn.dataset.filtering import *
 
 def filter_megarun1():
     dim = 9
@@ -54,7 +59,7 @@ def filter_megarun1():
         input, data, const = load_from_store(basename)
 
         data = stability_filter(data)
-        #data = create_divsum(data)
+        #create_divsum(data)
         data = div_filter(data)
         save_to_store(input, data, const, 'unstable_' + basename)
     #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
@@ -106,10 +111,73 @@ def filter_rot():
         input, data, const = load_from_store(os.path.join(root_dir, basename))
 
         data = stability_filter(data)
-        #data = create_divsum(data)
+        #create_divsum(data)
         data = div_filter(data)
         save_to_store(input, data, const, os.path.join(root_dir, 'unstable_' + basename))
     #separate_to_store(input, data, '../filtered_' + store_name + '_filter6')
 
+def filter_edge_one():
+    div_bounds = {
+        'pfeTEM_GB': (0.02, 50),
+        'pfeITG_GB': (0.05, 60),
+        'efiTEM_GB': (0.05, np.inf),
+        'efiITG_GB': (0.02,np.inf),
+        'efeITG_GB': (0.02,np.inf),
+        'efeITG_GB_div_efiITG_GB': (0.05, 2.5),
+        'pfeITG_GB_div_efiITG_GB': (0.02, 0.6),
+        'efiTEM_GB_div_efeTEM_GB': (0.05, 2.0),
+        'pfeTEM_GB_div_efeTEM_GB': (0.03, 0.8)
+    }
+
+
+    dim = 6
+    gen = 4
+    filter_num = 10
+
+    root_dir = '../../../qlk_data'
+    iden = 'edge_one'
+    basename = ''.join(['gen', str(gen), '_', str(dim), 'D_', iden])
+    suffix = '.h5.1'
+    store_name = basename + suffix
+    input, data, const = load_from_store(os.path.join(root_dir, store_name), dask=False)
+    if not isinstance(data, dd.DataFrame):
+        startlen = len(data)
+    else:
+        startlen = None
+
+    with warnings.catch_warnings():
+        #warnings.simplefilter("ignore", FutureWarning)
+
+        data = sanity_filter(data,
+                             50,
+                             10,
+                             1.5,
+                             1e-4,
+                             startlen=startlen)
+        data = regime_filter(data, 0, 700)
+    print('filter done')
+    gc.collect()
+    input = input.loc[data.index]
+    if startlen is not None:
+        print('After filter {!s:<13} {:.2f}% left'.format('regime', 100*len(data)/startlen))
+    filter_name = basename + '_filter' + str(filter_num)
+    sane_store_name = os.path.join(root_dir, 'sane_' + filter_name + '.h5')
+    save_to_store(input, data, const, sane_store_name)
+    generate_test_train_index(input, data, const)
+    split_test_train(input, data, const, filter_name, root_dir=root_dir)
+    del data, input, const
+    gc.collect()
+
+
+    for dim, set in product([6], ['test', 'training']):
+        print(dim, set)
+        basename = ''.join([set, '_gen', str(gen), '_', str(dim), 'D_', iden, '_filter', str(filter_num), '.h5'])
+        input, data, const = load_from_store(os.path.join(root_dir, basename))
+
+        data = stability_filter(data)
+        create_divsum(data)
+        data = div_filter(data, div_bounds)
+        save_to_store(input, data, const, os.path.join(root_dir, 'unstable_' + basename))
+
 if __name__ == '__main__':
-    filter_rot()
+    filter_edge_one()
