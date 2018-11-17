@@ -191,13 +191,6 @@ class QuaLiKizNDNN():
             self._weights = weight
             self._biases = bias
             self._activation = activation
-            #@jit(float64[:,:](float64[:,:]), nopython=True)
-            #def _apply_layer(input):
-            #    preactivation = np.dot(input, weight) + bias
-            #    result = activation(preactivation)
-            #    return result
-            #self.apply = lambda input: activation(np.dot(input, weight) + bias)
-            #_create_apply(weight, bias, activation)
 
         def apply(self, input, output=None):
             preactivation = np.dot(input, self._weights) + self._biases
@@ -301,43 +294,14 @@ def determine_settings(network, input, safe, clip_low, clip_high, low_bound, hig
             high_bound = network._target_max.values
         return nn_input, safe, clip_low, clip_high, low_bound, high_bound
 
-#@jit(float64[:,:](float64[:,:], float64[:], float64[:]), nopython=True)
 def _prescale(nn_input, factors, biases):
     return np.atleast_2d(factors) * nn_input + biases
-#    #return factors[np.newaxis, :] * nn_input + biases
-#
-#@jit(float64[:,:](float64[:,:]), nopython=True)
+
 def _act_none(x):
     return x
-#
-#@jit(float64[:,:](float64[:,:]), nopython=True)
+
 def _act_relu(x):
     return x * (x > 0)
-#
-##@jit(float64[:,:](float64[:,:], float64[:,:,:]), nopython=True)
-##def _apply_layers(self, input, layers):
-##    for layer in layers:
-##        input = layer.apply(input)
-##    return input
-#
-#def _create_apply(weight, bias, activation):
-#    #self.weight = weight
-#    #self.bias = bias
-#    #self.activation = activation
-#    #if activation is None:
-#    #    @jit(float64[:,:](float64[:,:]), nopython=True)
-#    #    def _apply_layer(input):
-#    #        preactivation = np.dot(input, weight) + bias
-#    #        result = preactivation
-#    #        return result
-#    #else:
-#    @jit(float64[:,:](float64[:,:]), nopython=True)
-#    def _apply_layer(input):
-#        preactivation = np.dot(input, weight) + bias
-#        result = activation(preactivation)
-#        return result
-#
-#    return _apply_layer
 
 if __name__ == '__main__':
     # Test the function
@@ -345,7 +309,8 @@ if __name__ == '__main__':
     #nn1 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efe_GB.json'))
     #nn2 = QuaLiKizNDNN.from_json(os.path.join(root, 'nn_efi_GB.json'))
     #nn = QuaLiKizMultiNN([nn1, nn2])
-    nn = QuaLiKizNDNN.from_json('nn.json', layer_mode='intel')
+    nn_path = os.path.join(root, '../../tests/gen3_test_files/Network_874_efiITG_GB/nn.json')
+    nn = QuaLiKizNDNN.from_json(nn_path)
 
     scann = 100
     input = pd.DataFrame()
@@ -358,22 +323,25 @@ if __name__ == '__main__':
     input['smag']  = np.full_like(input['Ati'], 0.399902)
     input['Nustar']  = np.full_like(input['Ati'], 0.009995)
     input['x']  = np.full_like(input['Ati'], 0.449951)
+    input['logNustar']  = np.full_like(input['Ati'], 1e-3)
+    input['Zeff']  = np.full_like(input['Ati'], 1)
     input = input[nn._feature_names]
 
     fluxes = nn.get_output(input.values, safe=False)
-
-    nn2 = QuaLiKizNDNN.from_json('nn.json', layer_mode='classic')
-    fluxes2 = nn2.get_output(input.values, safe=False)
+    print(fluxes)
 
     try:
-        nn3 = QuaLiKizNDNN.from_json('nn.json', layer_mode='cython')
+        nn2 = QuaLiKizNDNN.from_json(nn_path, layer_mode='intel')
+        fluxes2 = nn2.get_output(input.values, safe=False)
+        print(fluxes2)
+    except Exception as ee:
+        print('Problem loading intel style:')
+        print(ee)
+
+    try:
+        nn3 = QuaLiKizNDNN.from_json(nn_path, layer_mode='cython')
         fluxes3 = nn2.get_output(input.values, safe=False)
+        print(fluxes3)
     except Exception as ee:
         print('Problem loading cython style:')
         print(ee)
-    #print(fluxes)
-
-    #import qlknn;
-    layer0 = nn.layers[0]
-    out = np.full((input.shape[0], layer0._weights.shape[1]), 123.);
-    embed()
