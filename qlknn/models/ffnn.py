@@ -327,7 +327,8 @@ if __name__ == '__main__':
     input['Zeff']  = np.full_like(input['Ati'], 1)
     input = input[nn._feature_names]
 
-    fluxes = nn.get_output(input.values, safe=False)
+    fluxes = nn.get_output(input)
+    #fluxes = nn.get_output(input.values, safe=False)
     print(fluxes)
 
     try:
