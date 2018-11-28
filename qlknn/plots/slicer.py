@@ -31,11 +31,6 @@ from qlknn.misc.tools import parse_dataset_name
 
 if __name__ == '__main__':
     import matplotlib as mpl
-    if socket.gethostname().startswith('rs'):
-        mpl.use('GTK3Cairo')
-        mpl.rc('font', size=10)
-    else:
-        mpl.use('pdf')
     import matplotlib.pyplot as plt
     from matplotlib import gridspec, cycler
 
