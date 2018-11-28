@@ -163,17 +163,7 @@ def nns_from_NNDB(dim, max=20, only_dim=None):
         style = 'duo'
     elif len(network.target_names) == 3:
         style = 'triple'
-    #    match_0 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[0])
-    #    match_1 = re.compile('^(.f)(.)(ITG|ETG|TEM)_GB').findall(network.target_names[1])
-    #    if len(match_0) == 1 and len(match_1) == 1:
-    #        group_0 = match_0[0]
-    #        group_1 = match_1[0]
-    #        if ((group_0[1] == 'e' and group_1[1] == 'i') or
-    #            (group_0[1] == 'i' and group_1[1] == 'e')):
-    #            style='duo'
-    #        else:
-    #            raise Exception('non-matching target_names. Not sure what to do.. {s}'
-    #                            .format(network.target_names))
+
     matches = []
     modes = []
     for target_name in network.target_names:
@@ -204,89 +194,6 @@ def nns_from_NNDB(dim, max=20, only_dim=None):
 
     db.close()
     return slicedim, style, nns
-
-
-def populate_nn_list(nn_set):
-    if nn_set == 'c_L2':
-        nn_list = OrderedDict([(61, '$c_{L2} = 0.0$'),
-        #                       (48, '$c_{L2} = 0.05$'),
-                               (37, '$c_{L2} = 0.1$'),
-        #                       (50, '$c_{L2} = 0.2$'),
-        #                       (51, '$c_{L2} = 0.35$'),
-                               (49, '$c_{L2} = 0.5$'),
-        #                       (52, '$c_{L2} = 1.0$'),
-                               (53, '$c_{L2} = 2.0$')])
-        slicedim = 'Ate'
-        style = 'mono'
-    elif nn_set == 'topo':
-        nn_list = OrderedDict([(65, 'neurons = $(10, 10)$'),
-                               (64, 'neurons = $(30, 30)$'),
-                               (73, 'neurons = $(30, 30, 30)$'),
-                               (83, 'neurons = $(45, 45)$'),
-                               (34, 'neurons = $(60, 60)$'),
-                               (38, 'neurons = $(80, 80)$'),
-                               (66, 'neurons = $(120, 120)$')])
-        slicedim = 'Ate'
-        style = 'mono'
-    elif nn_set == 'filter':
-        #nn_list = OrderedDict([(37, 'filter = 3'),
-        #                       (58, 'filter = 4'),
-        #                       (60, 'filter = 5')])
-        nn_list = OrderedDict([(37, '$max(\chi_{ETG,e}) = 60$'),
-                               (60, '$max(\chi_{ETG,e}) = 100$')])
-        slicedim = 'Ate'
-        style = 'mono'
-    elif nn_set == 'goodness':
-        nn_list = OrderedDict([(62, 'goodness = mabse'),
-                               (37, 'goodness = mse')])
-        slicedim = 'Ate'
-        style = 'mono'
-    elif nn_set == 'early_stop':
-        nn_list = OrderedDict([(37, 'stop measure = loss'),
-                               #(11, '$early_stop = mse'),
-                               (18, 'stop measure = MSE')])
-        slicedim = 'Ate'
-        style = 'mono'
-    elif nn_set == 'similar':
-        nn_list = OrderedDict([
-                               (37, '37'),
-                               (67, '67'),
-                               (68, '68'),
-                               (69, '69'),
-                               (70, '70'),
-                               (71, '71'),
-                               (72, '72'),
-                               (73, '73'),
-                               (74, '74'),
-                               ])
-        slicedim = 'Ate'
-        style = 'mono'
-    elif nn_set == 'best':
-        nn_list = OrderedDict([(46, '')]) #efeETG
-        nn_list = OrderedDict([(88, '')]) #efiITG
-        slicedim = 'Ate'
-        style = 'mono'
-
-    elif nn_set == 'duo':
-        nn_list = OrderedDict([
-            (205, 'es_20'),
-            (204, 'es_5'),
-            (203, 'es_wrong')
-            ])
-        slicedim = 'Ati'
-        style = 'duo'
-
-    return slicedim, style, nn_list
-
-def nns_from_nn_list(nn_list, slicedim, labels=True):
-    nns = OrderedDict()
-    for nn_index, nn_label in nn_list.items():
-        nn = nns[nn_index] = load_nn(nn_index)
-        if labels:
-            nn.label = nn_label
-        else:
-            nn.label = ''
-    return nns
 
 def nns_from_manual():
     nns = OrderedDict()
@@ -870,8 +777,6 @@ if __name__ == '__main__':
     slicedim, style, nns = nns_from_NNDB(dim, max=100)
     #slicedim, style, nns = nns_from_manual()
     #slicedim = 'An'
-
-    #nns = nns_from_nn_list(nn_list, slicedim, labels=labels)
 
     if style != 'similar':
         labels=True
