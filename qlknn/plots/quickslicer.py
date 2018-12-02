@@ -2,11 +2,9 @@
 # -*- coding: utf-8 -*-
 import pickle
 import os
-import sys
 import time
 import re
 import gc
-import socket
 import warnings
 from itertools import product, chain
 from functools import partial
@@ -17,14 +15,14 @@ import numpy as np
 import scipy as sc
 import scipy.stats as stats
 import pandas as pd
-from peewee import AsIs, fn, SQL
+from peewee import fn
 from IPython import embed
 
 from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, PostprocessSlice_9D, db
 from qlknn.NNDB.model import *
 from qlknn.models.ffnn import QuaLiKizNDNN
-from qlknn.training.train_NDNN import shuffle_panda
-from qlknn.plots.load_data import load_nn, prettify_df, nameconvert
+from qlknn.training.datasets import shuffle_panda
+from qlknn.plots.load_data import nameconvert
 from qlknn.dataset.data_io import load_from_store
 from qlknn.misc.analyse_names import split_parts, split_name
 from qlknn.misc.tools import parse_dataset_name
@@ -200,9 +198,6 @@ def nns_from_manual():
 
     dbnns = []
     labels = []
-    #sys.path.append('../../../QuaLiKiz-dataslicer')
-    #import mega_nn
-    #nn = mega_nn.nn
 
     dbnns.append(Network.get_by_id(1723))
 
@@ -764,12 +759,8 @@ if __name__ == '__main__':
     mode = 'quick'
     submit_to_nndb = True
 
-    #store_root = '/Rijnh/Shares/Departments/Fusiefysica/IMT/karel'
     store_root = '../..'
     store_basename = 'gen3_7D_nions0_flat_filter8.h5.1'
-    #store_basename = 'gen4_8D_rot_three.h5.1'
-    #store_basename = 'training_gen4_8D_rot_three_filter10.h5'
-    #store_basename = 'gen3_9D_nions0_flat_sep.h5.1'
     store_name = os.path.join(store_root, store_basename)
     store = pd.HDFStore(store_name, 'r')
 
