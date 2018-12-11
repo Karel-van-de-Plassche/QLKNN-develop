@@ -150,7 +150,18 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
             if dask:
                 data = dd.read_hdf(store_name, prefix + 'flattened', columns=columns)
             else:
-                data = store.select(prefix + 'flattened', columns=columns)
+                storer = store.get_storer(prefix + 'flattened')
+                if storer.format_type == 'fixed':
+                    data = store.select(prefix + 'flattened')
+                    not_in_flattened = [col not in data.columns for col in columns]
+                    if any(not_in_flattened):
+                        raise Exception('Could not find {!s} in store {!s}'.format([col for not_in, col in zip(not_in_flattened, columns) if not_in], store))
+                    else:
+                        print("Not implemented yet, but shouldn't happen anyway.. Contact Karel")
+                    `   from IPython import embed
+                        embed()
+                else:
+                    data = store.select(prefix + 'flattened', columns=columns)
     else: #If no flattened
         #print('Taking "new" code path')
         if not have_sep(columns):
