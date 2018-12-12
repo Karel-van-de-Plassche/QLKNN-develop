@@ -13,8 +13,8 @@ if not (sys.version_info > (3, 0)):
     range = xrange
 
 import tensorflow as tf
-from tensorflow.contrib import opt
-from tensorflow.python.client import timeline
+from tensorflow.contrib import opt #For the lbfgs optimizer. Raises deprecation warning as of TF 1.12.0, Python3.7
+from tensorflow.python.client import timeline # For multi-epoch timetrace
 import numpy as np
 import pandas as pd
 from IPython import embed
