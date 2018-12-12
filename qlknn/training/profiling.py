@@ -4,12 +4,6 @@ import os
 import tempfile
 import json
 
-import tensorflow as tf
-from tensorflow.contrib.layers import fully_connected as fc
-from tensorflow.examples.tutorials.mnist import input_data
-from tensorflow.python.client import timeline
-
-
 class TimeLiner:
     _timeline_dict = None
 
