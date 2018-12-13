@@ -158,7 +158,7 @@ def load_from_store(store_name=None, store=None, fast=True, mode='bare', how='le
                         raise Exception('Could not find {!s} in store {!s}'.format([col for not_in, col in zip(not_in_flattened, columns) if not_in], store))
                     else:
                         print("Not implemented yet, but shouldn't happen anyway.. Contact Karel")
-                    `   from IPython import embed
+                        from IPython import embed
                         embed()
                 else:
                     data = store.select(prefix + 'flattened', columns=columns)
