@@ -49,7 +49,7 @@ class QuaLiKizComboNN():
         nn_input, safe, clip_low, clip_high, low_bound, high_bound = \
             determine_settings(self, input, safe, clip_low, clip_high, low_bound, high_bound)
         output = self._combo_func(*[nn.get_output(nn_input, output_pandas=False, clip_low=False, clip_high=False, safe=safe, **kwargs) for nn in self._nns])
-        output = clip_to_bounds(output, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
+        output = clip_to_bounds(output, clip_low, clip_high, low_bound, high_bound)
         if output_pandas is True:
             output = pd.DataFrame(output, columns=self._target_names)
         return output
@@ -228,7 +228,7 @@ class QuaLiKizNDNN():
         #for name in self._target_names:
         #    nn_output = (np.squeeze(self.apply_layers(nn_input)) - self._target_prescale_biases[name]) / self._target_prescale_factors[name]
         #    output[name] = nn_output
-        output = clip_to_bounds(output, clip_low=clip_low, clip_high=clip_high, low_bound=low_bound, high_bound=high_bound)
+        output = clip_to_bounds(output, clip_low, clip_high, low_bound, high_bound)
 
         # 118 µs ± 3.83 µs per loop (mean ± std. dev. of 7 runs, 10000 loops each)
         if output_pandas:
@@ -346,3 +346,9 @@ if __name__ == '__main__':
     except Exception as ee:
         print('Problem loading cython style:')
         print(ee)
+
+    nn_div_path = os.path.join(root, '../../tests/gen3_test_files/Network_302_efeITG_GB_div_efiITG_GB/nn.json')
+    nn_div = QuaLiKizNDNN.from_json(nn_div_path)
+    nn_combo = QuaLiKizComboNN(['efeITG_GB'], [nn, nn_div], lambda x, y: x * y)
+    fluxes4 = nn_combo.get_output(input)
+    print(fluxes4)
