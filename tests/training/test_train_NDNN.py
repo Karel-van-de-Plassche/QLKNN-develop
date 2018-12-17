@@ -27,4 +27,5 @@ class TrainNDNNTestCase(TestCase):
 class TestTrainNN(TrainNDNNTestCase):
 
     def test_launch_train_NDNN(self):
+        print(self.settings.keys())
         train(self.settings)

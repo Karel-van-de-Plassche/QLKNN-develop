@@ -10,7 +10,8 @@ from tests.base import *
 
 class TrainNNTestCase(TestCase):
     def setUp(self):
-        self.settings = default_train_settings
+        self.settings = default_train_settings.copy()
+        self.settings.pop('train_dims')
 
         self.test_dir = tempfile.mkdtemp(prefix='test_')
 

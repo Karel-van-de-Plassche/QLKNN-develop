@@ -7,12 +7,12 @@ from qlknn.NNDB.model import *
 from base import db
 from IPython import embed
 
-test_files_dir = os.path.abspath(os.path.join(__file__, '../../gen2_test_files'))
-train_script_path = os.path.join(test_files_dir, 'train_NDNN.py')
+test_files_dir = os.path.abspath(os.path.join(__file__, '../../gen4_test_files'))
 hypercube_script_path = os.path.join(test_files_dir, 'hypercube_to_pandas.py')
 filter_script_path = os.path.join(test_files_dir, 'filtering.py')
-efi_network_path = os.path.join(test_files_dir, 'network_1393')
-efi_div_efe_network_path = os.path.join(test_files_dir, 'network_1440')
+efi_network_path = os.path.join(test_files_dir, 'Network_xxx_efiITG_GB')
+efe_div_efi_network_path = os.path.join(test_files_dir, 'Network_xxx_efeITG_GB_div_efiITG_GB')
+train_script_path = os.path.join(efi_network_path, 'train_NDNN.py')
 
 db.execute_sql('SET ROLE testuser')
 
@@ -32,18 +32,29 @@ require_lists['adam_optimizer'] = require_lists['pure_network_params'] + [AdamOp
 default_dicts = {
     'train_script': {
         'script': '',
-        'filter': '',
         'version': ''
     },
     'network': {
         'feature_names': ['Ate'],
-        'target_names': ['efeETG_GB']
+        'target_names': ['efeETG_GB'],
+        'recipe': None,
+        'networks': None
     },
     'filter': {
         'script': '',
-        'id': 7
+        'hypercube_script': '',
+        'description': '',
+        'min': -10,
+        'max': 2.3,
+        'remove_negative': True,
+        'remove_zeros': False,
+        'gam_filter': None,
+        'ck_max': 22,
+        'diffsep_max': 21,
+        'id': 8
     },
     'pure_network_params': {
+        'dataset': 'Some dataset name',
         'feature_prescale_bias': {'Ate': '1'},
         'feature_prescale_factor': {'Ate': '0.1'},
         'target_prescale_bias': {'efeETG_GB': '2'},
@@ -69,7 +80,13 @@ default_dicts = {
         'drop_outlier_above'  : .999,
         'drop_outlier_below'  : .0,
         'validation_fraction' : .1,
-        'dtype'               : 'float32'
+        'dtype'               : 'float32',
+        'cost_stable_positive_scale': .2,
+        'cost_stable_positive_offset': -5,
+        'cost_stable_positive_function': 'block',
+        'calc_standardization_on_nonzero': True,
+        'weight_init': 'normsm_1_0',
+        'bias_init': 'normsm_1_0'
     },
     'adam_optimizer': {
         'learning_rate': 0.001,
@@ -96,26 +113,6 @@ class TestFilter(ModelTestCase):
 
     def test_from_file(self):
         Filter.from_file(filter_script_path, hypercube_script_path)
-
-    def test_find_by_path_name(self):
-        # name: (stable/unstable, sane/test/training, dim, filter#
-        name_map = {'unstable_training_7D_nions0_flat_filter3.h5':
-                        ('unstable', 'training', 7, 3),
-                    'sane_gen2_7D_nions0_flat_filter9.h5':
-                        ('', 'sane', 7, 9),
-                    'test_gen2_9D_nions0_flat_filter4.h5':
-                        ('', 'test', 9, 4),
-                    './test_gen2_9D_nions0_flat_filter4.h5':
-                        ('', 'test', 9, 4),
-                    'folder/unstable_training_gen2_9D_nions0_flat_filter4.h5':
-                        ('', 'test', 9, 4),
-                    '/folder/unstable_training_gen2_9D_nions0_flat_filter4.h5':
-                        ('', 'test', 9, 4),
-                    }
-        for name, (stab_unstab, subset, dim, filter_id) in name_map.items():
-            calc_filter_id = Filter.find_by_path_name(name)
-            self.assertEqual(calc_filter_id, filter_id)
-
 
 class TestNetwork(ModelTestCase):
     requires = require_lists['network']
@@ -429,7 +426,7 @@ input['Ati'] = np.array(np.linspace(2,13, scann))
 input['Ti_Te']  = np.full_like(input['Ati'], 1.)
 input['An']  = np.full_like(input['Ati'], 2.)
 input['Ate']  = np.full_like(input['Ati'], 5.)
-input['qx'] = np.full_like(input['Ati'], 0.660156)
+input['q'] = np.full_like(input['Ati'], 0.660156)
 input['smag']  = np.full_like(input['Ati'], 0.399902)
 input['x']  = np.full_like(input['Ati'], 0.449951)
 
@@ -456,7 +453,7 @@ class TestComboNetworks(ModelTestCase):
 
     def test_multiply_to_QuaLiKizNN(self):
         net1 = PureNetworkParams.from_folder(efi_network_path)
-        net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        net2 = PureNetworkParams.from_folder(efe_div_efi_network_path)
         combo_net = Network.create(target_names=['efe_GB'],
                                   feature_names=['Ati'],
                                   filter=self.filter,
@@ -467,7 +464,7 @@ class TestComboNetworks(ModelTestCase):
 
     def test_multiply_get_output(self):
         net1 = PureNetworkParams.from_folder(efi_network_path)
-        net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        net2 = PureNetworkParams.from_folder(efe_div_efi_network_path)
         combo_net = Network.create(target_names=['efe_GB'],
                                   feature_names=['Ati'],
                                   filter=self.filter,
@@ -499,7 +496,7 @@ class TestMultiNetworks(ModelTestCase):
 
     def test_to_QuaLiKizNN(self):
         net1 = PureNetworkParams.from_folder(efi_network_path)
-        net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        net2 = PureNetworkParams.from_folder(efe_div_efi_network_path)
         combo_net = Network.create(target_names=['efe_GB'],
                                   feature_names=['Ati'],
                                   filter=self.filter,
@@ -516,7 +513,7 @@ class TestMultiNetworks(ModelTestCase):
 
     def test_multiply_get_output(self):
         net1 = PureNetworkParams.from_folder(efi_network_path)
-        net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        net2 = PureNetworkParams.from_folder(efe_div_efi_network_path)
         combo_net = Network.create(target_names=['efe_GB'],
                                   feature_names=['Ati'],
                                   filter=self.filter,
@@ -541,7 +538,7 @@ class TestRecursiveAttributes(ModelTestCase):
         self.train_script = TrainScript.create(**default_dicts['train_script'])
 
         self.net1 = PureNetworkParams.from_folder(efi_network_path)
-        self.net2 = PureNetworkParams.from_folder(efi_div_efe_network_path)
+        self.net2 = PureNetworkParams.from_folder(efe_div_efi_network_path)
 
         # These parameters should be the same for ALL networks:
         hyperpar1 = self.net1.pure_network_params.get().hyperparameters.get()
@@ -570,7 +567,7 @@ class TestRecursiveAttributes(ModelTestCase):
         for res in subq.dicts():
             result[res['root']] = res[param_name]
 
-        param = 8e-6
+        param = 5e-5
         self.assertEqual([param] * 2, result[3])
         self.assertEqual([param] * 2, result[4])
 
@@ -591,7 +588,7 @@ class TestRecursiveAttributes(ModelTestCase):
         param_name = 'cost_l2_scale'
         result = {net.id: net.flat_recursive_property(param_name) for net in [self.net1, self.net2, self.combo_net, self.multi_net]}
 
-        param = 8e-6
+        param = 5e-5
         self.assertEqual(param, result[1])
         self.assertEqual(param, result[2])
         self.assertEqual(param, result[3])
