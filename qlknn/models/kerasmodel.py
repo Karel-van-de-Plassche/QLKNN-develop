@@ -69,6 +69,21 @@ class KerasNDNN():
 class Daniel7DNN(KerasNDNN):
     _branch1_names = ['Ati', 'An', 'q', 'smag', 'x', 'Ti_Te']
     _branch2_names = ['Ate']
+    def __init__(self, model, feature_names, target_names,
+                 feature_prescale_factor, feature_prescale_bias,
+                 target_prescale_factor, target_prescale_bias,
+                 feature_min=None, feature_max=None,
+                 target_min=None, target_max=None,
+                 target_names_mask=None,
+                 ):
+        super().__init__(model, feature_names, target_names,
+                         feature_prescale_factor, feature_prescale_bias,
+                         target_prescale_factor, target_prescale_bias,
+                         feature_min=feature_min, feature_max=feature_max,
+                         target_min=target_min, target_max=target_max,
+                         target_names_mask=target_names_mask,
+                        )
+        self.shift = self.find_shift()
 
     @classmethod
     def from_files(cls, model_file, standardization_file):
@@ -95,8 +110,6 @@ class Daniel7DNN(KerasNDNN):
 
     def get_output(self, inp, clip_low=False, clip_high=False, low_bound=None, high_bound=None, safe=True, output_pandas=True, shift_output=True):
         if shift_output:
-            if not hasattr(self, 'shift'):
-                self.shift = self.find_shift()
             shift_output_by = self.shift
         else:
             shift_output_by = 0
@@ -106,7 +119,7 @@ class Daniel7DNN(KerasNDNN):
 
     def find_shift(self):
         # Define a point where the relu is probably 0
-        nn_input = pd.DataFrame({'Ati': 0, 'An': 0, 'q': 3, 'smag': 3, 'x': 0.7, 'Ti_Te': 1, 'Ate': 0}, index=[0])
+        nn_input = pd.DataFrame({'Ati': 0, 'An': 0, 'q': 3, 'smag': 3.5, 'x': 0.69, 'Ti_Te': 1, 'Ate': -100}, index=[0])
         branched_in = [nn_input.loc[:, self._branch1_names].values,
                                      nn_input.loc[:, self._branch2_names].values]
         # Get a function to evaluate the network up until the relu layer
@@ -124,7 +137,7 @@ class Daniel7DNN(KerasNDNN):
 
 if __name__ == '__main__':
     # Test the function
-    nn = Daniel7DNN.from_files('2018-12-04_Run0161h-Mk5.h5', 'standardizations_training.csv')
+    nn = Daniel7DNN.from_files('../../../IPP-Neural-Networks/Saved-Networks/2018-11-25_Run0161a.h5', 'standardizations_training.csv')
     shift = nn.find_shift()
 
     scann = 200
