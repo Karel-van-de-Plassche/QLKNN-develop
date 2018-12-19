@@ -367,7 +367,7 @@ class TestDivsumCreation(ModelTestCase):
     def test_non_div_to_divsum(self):
         net1 = TestPureNetworkParams.create_pure_network(self.filter, self.train_script)
         self.assertEqual(len(net1.target_names), 1)
-        self.assertNotRegexpMatches(net1.target_names[0], '.*div.*')
+        self.assertNotRegex(net1.target_names[0], '.*div.*')
         with self.assertRaises(ValueError):
             Network.divsum_from_div_id(net1.id)
         self.assertEqual(Network.select().count(), 1)

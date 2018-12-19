@@ -737,10 +737,10 @@ class Network(BaseModel):
                 raise
 
 class PureNetworkParams(BaseModel):
-    network = ForeignKeyField(Network, related_name='pure_network_params', unique=True)
-    filter = ForeignKeyField(Filter, related_name='pure_network_params')
+    network = ForeignKeyField(Network, backref='pure_network_params', unique=True)
+    filter = ForeignKeyField(Filter, backref='pure_network_params')
     dataset = TextField()
-    train_script = ForeignKeyField(TrainScript, related_name='pure_network_params')
+    train_script = ForeignKeyField(TrainScript, backref='pure_network_params')
     feature_prescale_bias = HStoreField()
     feature_prescale_factor = HStoreField()
     target_prescale_bias = HStoreField()
@@ -1075,18 +1075,18 @@ class PureNetworkParams(BaseModel):
 
 
 class NetworkJSON(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_json', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='network_json', unique=True)
     network_json = BinaryJSONField()
     settings_json = BinaryJSONField()
 
 class NetworkLayer(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_layer')
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='network_layer')
     weights = ArrayField(FloatField)
     biases = ArrayField(FloatField)
     activation = TextField()
 
 class NetworkMetadata(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='network_metadata', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='network_metadata', unique=True)
     epoch = IntegerField()
     best_epoch = IntegerField()
     rms_test = FloatField(null=True)
@@ -1148,7 +1148,7 @@ class NetworkMetadata(BaseModel):
         return network_metadata
 
 class TrainMetadata(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='train_metadata')
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='train_metadata')
     set = TextField(choices=['train', 'test', 'validation'])
     step =         ArrayField(IntegerField)
     epoch =        ArrayField(IntegerField)
@@ -1195,7 +1195,7 @@ class TrainMetadata(BaseModel):
 
 
 class Hyperparameters(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='hyperparameters', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='hyperparameters', unique=True)
     hidden_neurons = ArrayField(IntegerField)
     hidden_activation = ArrayField(TextField)
     output_activation = TextField()
@@ -1249,37 +1249,37 @@ class Hyperparameters(BaseModel):
 
 
 class LbfgsOptimizer(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='lbfgs_optimizer', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='lbfgs_optimizer', unique=True)
     maxfun = IntegerField()
     maxiter = IntegerField()
     maxls = IntegerField()
 
 class AdamOptimizer(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='adam_optimizer', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='adam_optimizer', unique=True)
     learning_rate = FloatField()
     beta1 = FloatField()
     beta2 = FloatField()
 
 class AdadeltaOptimizer(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='adadelta_optimizer', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='adadelta_optimizer', unique=True)
     learning_rate = FloatField()
     rho = FloatField()
 
 class RmspropOptimizer(BaseModel):
-    pure_network_params = ForeignKeyField(PureNetworkParams, related_name='rmsprop_optimizer', unique=True)
+    pure_network_params = ForeignKeyField(PureNetworkParams, backref='rmsprop_optimizer', unique=True)
     learning_rate = FloatField()
     decay = FloatField()
     momentum = FloatField()
 
 class Postprocess(BaseModel):
-    network         = ForeignKeyField(Network, related_name='postprocess')
-    filter          = ForeignKeyField(Filter, related_name='postprocess')
+    network         = ForeignKeyField(Network, backref='postprocess')
+    filter          = ForeignKeyField(Filter, backref='postprocess')
     rms             = ArrayField(FloatField)
     leq_bound       = FloatField()
     less_bound      = FloatField()
 
 class PostprocessSlice(BaseModel):
-    network = ForeignKeyField(Network, related_name='postprocess_slice', null=True)
+    network = ForeignKeyField(Network, backref='postprocess_slice', null=True)
     thresh_abs_mis_median       = ArrayField(FloatField)
     thresh_abs_mis_95width      = ArrayField(FloatField)
     thresh_rel_mis_median       = ArrayField(FloatField)
