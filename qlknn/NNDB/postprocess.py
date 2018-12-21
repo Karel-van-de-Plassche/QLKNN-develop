@@ -7,7 +7,7 @@ from IPython import embed
 
 from qlknn.NNDB.model import Network, NetworkJSON, PostprocessSlice, Postprocess, Filter, db
 from qlknn.models.ffnn import QuaLiKizNDNN
-from qlknn.plots.slicer import get_similar_not_in_table
+from qlknn.plots.quickslicer import get_similar_not_in_table
 from qlknn.dataset.filtering import regime_filter, stability_filter
 from qlknn.dataset.data_io import sep_prefix, load_from_store
 from qlknn.plots.load_data import load_data, load_nn, prettify_df
@@ -77,13 +77,14 @@ def process_nns(nns, root_path, set, dataset, filter, leq_bound, less_bound):
 
     db.connect()
     for col in rms.index.levels[0]:
-        cls, id = col.split('_')
-        dbnn = Network.get_by_id(int(id))
-        dict_ = {'network': dbnn}
+        dict_ = {}
         dict_['leq_bound'] = leq_bound
         dict_['less_bound'] = less_bound
         dict_['rms'] = rms[col]
         dict_['filter'] = filter
+        cls, id = col.split('_')
+        dbnn = Network.get_by_id(int(id))
+        dict_ = {'network': dbnn}
         post = Postprocess(**dict_)
         post.save()
     db.close()
@@ -94,7 +95,6 @@ if __name__ == '__main__':
     #filter_path_name = '../filtered_7D_nions0_flat_filter5.h5'
     root_path = '../../../qlk_data/'
     set = 'unstable_test_gen4'
-    #filter = 8
     leq_bound = 0
     less_bound = 10
     nns, dataset, filter_id = nns_from_nndb(100)
