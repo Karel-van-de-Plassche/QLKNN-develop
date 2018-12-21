@@ -209,7 +209,7 @@ def nns_from_manual():
             nn.label = labels[ii]
         nns[nn.label] = nn
 
-    #nn = QuaLiKizNDNN.from_json('nn.json')
+    #nn = QuaLiKizNDNN.from_json('../../tests/gen3_test_files/Network_874_efiITG_GB/nn.json')
     #nn.label = 'manual'
     #nns[nn.label] = nn
     slicedim = 'Ati'
@@ -488,7 +488,10 @@ def process_row(target_names, row, ax1=None, unsafe=False, settings=None):
         nn_preds = np.ndarray([x.shape[0], 0])
         for ii, (nn_index, nn) in enumerate(nns.items()):
             clip_low = True
-            low_bound = np.array([[0 if ('ef' in name) and (not 'div' in name) else -np.inf for name in nn._target_names]]).T
+            if unsafe:
+                low_bound = np.array([0 if ('ef' in name) and (not 'div' in name) else -np.inf for name in nn._target_names])
+            else:
+                low_bound = pd.Series({name: 0 if ('ef' in name) and (not 'div' in name) else -np.inf for name in nn._target_names})
             clip_high = False
             high_bound = None
             #if all(['ef' in name for name in nn._target_names]):
@@ -743,6 +746,14 @@ def extract_nn_stats(results, duo_results, nns, frac, store_name, submit_to_nndb
             postprocess_slice.save()
     db.close()
 
+def dump_results_to_disk(res, duo_res, frac, store_name, runname='slicestat'):
+    res.to_csv(runname + '_results.csv')
+    if len(duo_res) != 0:
+        duo_res.to_csv(runname + '_duo_results.csv')
+    meta = pd.Series({'frac': frac,
+                      'store_name': store_name})
+    meta.to_csv(runname + '_metadata.csv')
+
 def get_store_params(store_name):
     unstable, set, gen, dim, label, filter = parse_dataset_name(store_name)
     if filter is not None:
@@ -755,6 +766,8 @@ if __name__ == '__main__':
     nn_set = 'best'
     mode = 'pretty'
     mode = 'debug'
+    dump_to_disk = False
+    #dump_to_disk = True
     submit_to_nndb = False
     mode = 'quick'
     submit_to_nndb = True
@@ -811,7 +824,7 @@ if __name__ == '__main__':
     #newind = np.hstack([np.repeat(np.array([*df.index]), n, axis=0), np.tile(np.linspace(df.columns.levels[1][0], df.columns.levels[1][-1], n), len(df))[:, None]])
     #embed()
     if not settings['parallel']:
-        results = process_chunk(target_names, df, settings=settings, unsafe=unsafe)
+        results = [process_chunk(target_names, df, settings=settings, unsafe=unsafe)]
     else:
         results = pool.map(partial(process_chunk, target_names, settings=settings, unsafe=unsafe), chunks)
     #for row in df.iterrows():
@@ -838,6 +851,13 @@ if __name__ == '__main__':
 
     totstats = totstats.join(qlk_data)
     res, duo_res = extract_stats(totstats, style)
+    res.index.names = ['network_label', 'target_names']
+    if len(duo_res) != 0:
+        duo_res.index.names = ['network_label', 'target_names']
+
+    # dump to disk
+    if dump_to_disk:
+        dump_results_to_disk(res, duo_res, frac, store_basename)
     extract_nn_stats(res, duo_res, nns, frac, store_basename, submit_to_nndb=submit_to_nndb)
 
 
